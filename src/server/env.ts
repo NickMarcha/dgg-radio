@@ -1,11 +1,15 @@
 import { z } from 'zod';
 
+/** A variable set to an empty string is unset, which is how hosts spell "no value". */
+const optional = <Schema extends z.ZodType>(schema: Schema) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional());
+
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   APP_ORIGIN: z.url(),
   PORT: z.coerce.number().int().positive().default(8787),
-  POSTHOG_API_KEY: z.string().min(1).optional(),
-  POSTHOG_HOST: z.url().optional(),
+  POSTHOG_API_KEY: optional(z.string().min(1)),
+  POSTHOG_HOST: optional(z.url()),
   DGG_CLIENT_ID: z.string().min(1),
   DGG_CLIENT_SECRET: z.string().min(1),
   DGG_REDIRECT_URI: z.url(),

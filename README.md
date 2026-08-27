@@ -88,6 +88,8 @@ npm run db:generate  create a migration after a schema change
 npm run db:migrate   apply pending migrations
 npm run db:up        start local Postgres
 npm run db:down      stop local Postgres without deleting its volume
+npm run stack:up     build and start Postgres, the API, and the tunnel
+npm run stack:down   stop the stack without deleting the database volume
 ```
 
 ## Testing
@@ -107,25 +109,39 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 
 ## Deployment
 
-Build and deploy the API first. The host must support a normal Node process, HTTPS, and WebSockets.
+Netlify serves the static frontend. The API, its Postgres, and a Cloudflare tunnel run as one Docker stack on a self-hosted machine. Netlify cannot hold the WebSocket connections or run the playback clock, so the API is not deployed there.
 
-- Build command: `npm ci && npm run build:api`
-- Start command: `npm run start:api`
-- Health check: `/health`
-- Required environment: every server-side value in `.env.example`, except `PUBLIC_API_URL`
+### API stack
 
-Set `APP_ORIGIN` to the exact public Netlify origin and set `DGG_REDIRECT_URI` to the API's public callback. Register that callback in Destiny's developer page.
+Fill in `.env`, then bring up all three containers.
 
-For Netlify, set `PUBLIC_API_URL` to the public API origin. The repo's `netlify.toml` builds the static Astro site from `dist`.
+```sh
+npm run stack:up     # db, api, and the cloudflared tunnel
+npm run db:migrate   # against the exposed port on the host
+npm run stack:down
+```
+
+`compose.yaml` overrides `DATABASE_URL` to reach Postgres over the compose network, so the value in `.env` stays pointed at the port published on the host for `db:migrate` and the tests.
+
+The API binds to `127.0.0.1:8787` and reaches the internet only through the tunnel. Set `CLOUDFLARE_TUNNEL_TOKEN` to a named tunnel's token; its public hostname route belongs in the Cloudflare dashboard, pointing at `http://api:8787`. Confirm the tunnel with `docker compose logs tunnel`, which reports one `Registered tunnel connection` line per edge connection.
+
+### Frontend
+
+`PUBLIC_API_URL` is read at build time, so the site must be rebuilt whenever the API origin changes.
 
 ```sh
 netlify init
 netlify env:set PUBLIC_API_URL https://api.example.com
-netlify deploy
 netlify deploy --prod
 ```
 
-These commands create and publish external resources. Run them only after the API hostname and production credentials are ready.
+### Origins
+
+Three values must agree, and two of them are only knowable after the first deploy:
+
+- `APP_ORIGIN` on the API is the exact Netlify origin. CORS rejects other origins, and the session cookie only becomes `SameSite=None; Secure` when this is `https`.
+- `PUBLIC_API_URL` on Netlify is the tunnel hostname.
+- `DGG_REDIRECT_URI` is the API's public callback, registered byte-for-byte in Destiny's developer page.
 
 ## Current limits
 
