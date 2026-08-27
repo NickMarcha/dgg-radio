@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build:web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[dev]
+  command = "npm run dev:web"
+  targetPort = 4321
+  port = 8888

@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dgg_radio
+      POSTGRES_USER: dgg_radio
+      POSTGRES_PASSWORD: local_only
+    ports:
+      - "127.0.0.1:54329:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dgg_radio -d dgg_radio"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - dgg_radio_postgres:/var/lib/postgresql/data
+
+volumes:
+  dgg_radio_postgres:
