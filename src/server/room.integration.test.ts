@@ -14,12 +14,9 @@ process.env.DGG_REDIRECT_URI ??= 'http://localhost:8787/api/auth/callback';
 process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 process.env.APIFY_API_TOKEN ??= 'test-apify-token';
 
-vi.mock('./media', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./media')>()),
-  lookupMedia: vi.fn(),
-}));
+vi.mock('./media-cache', () => ({ lookupMediaCached: vi.fn() }));
 
-const { lookupMedia } = await import('./media');
+const { lookupMediaCached } = await import('./media-cache');
 const {
   advanceIfExpired,
   blockQueueItemMedia,
@@ -63,7 +60,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await db.execute(
       sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.blockedMedia}, ${roomState}, ${schema.roomSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${users} restart identity cascade`,
     );
-    vi.mocked(lookupMedia).mockReset();
+    vi.mocked(lookupMediaCached).mockReset();
   });
 
   async function createUser(
@@ -94,7 +91,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
   function resolveTracks(...tracks: MediaMetadata[]): void {
     const byUrl = new Map(tracks.map((entry) => [entry.canonicalUrl, entry]));
-    vi.mocked(lookupMedia).mockImplementation(async (url: string) => {
+    vi.mocked(lookupMediaCached).mockImplementation(async (url: string) => {
       const found = byUrl.get(url);
       if (!found) throw new Error(`No stubbed metadata for ${url}`);
       return found;

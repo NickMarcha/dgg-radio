@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import type { MediaMetadata } from '../media';
 import {
   check,
   index,
@@ -93,6 +94,22 @@ export const media = pgTable(
     check('media_duration_positive', sql`${table.durationSeconds} > 0`),
   ],
 );
+
+/**
+ * Provider lookups are paid: Apify bills per run and YouTube bills quota. This
+ * holds the last successful result per track so a submission and the check just
+ * before playback do not both cost. Rows are overwritten in place, never
+ * deleted, so a re-check that fails leaves the previous answer visible.
+ *
+ * Keys carry no country. The room is pinned to AE by a check constraint on
+ * room_settings, so a cached YouTube availability answer is only ever for AE.
+ */
+export const mediaLookups = pgTable('media_lookups', {
+  key: text('key').primaryKey(),
+  provider: mediaProvider('provider').notNull(),
+  metadata: jsonb('metadata').$type<MediaMetadata>().notNull(),
+  checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const queueItems = pgTable(
   'queue_items',

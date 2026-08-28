@@ -26,8 +26,8 @@ import {
   users,
   votes,
 } from './db/schema';
-import { getEnv } from './env';
-import { lookupMedia, MediaLookupError, type MediaMetadata } from './media';
+import { lookupMediaCached } from './media-cache';
+import { MediaLookupError, type MediaMetadata } from './media';
 import { orderQueueRoundRobin } from './queue-order';
 
 const ROOM_LOCK_ID = 1_349_922;
@@ -157,15 +157,7 @@ async function validateForPlayback(
   targetCountry: string,
   db: Database,
 ): Promise<MediaMetadata> {
-  const env = getEnv();
-  const checked = await lookupMedia(
-    candidate.media.canonicalUrl,
-    {
-      youtubeApiKey: env.YOUTUBE_API_KEY,
-      apifyApiToken: env.APIFY_API_TOKEN,
-    },
-    targetCountry,
-  );
+  const checked = await lookupMediaCached(candidate.media.canonicalUrl, targetCountry, db);
   if (checked.durationSeconds > maxDurationSeconds) {
     throw new RoomError(
       'TRACK_TOO_LONG',
@@ -328,15 +320,7 @@ export async function enqueueMedia(
   db: Database = getDatabase(),
 ): Promise<{ id: string; provider: 'youtube' | 'soundcloud'; durationSeconds: number }> {
   const settings = await getSettings(db);
-  const env = getEnv();
-  const metadata = await lookupMedia(
-    url,
-    {
-      youtubeApiKey: env.YOUTUBE_API_KEY,
-      apifyApiToken: env.APIFY_API_TOKEN,
-    },
-    settings.targetCountry,
-  );
+  const metadata = await lookupMediaCached(url, settings.targetCountry, db);
 
   if (metadata.durationSeconds > settings.maxDurationSeconds) {
     throw new RoomError(

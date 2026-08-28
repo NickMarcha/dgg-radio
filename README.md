@@ -9,7 +9,7 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
 - Destiny's custom OAuth flow with one-use, five-minute login state
 - DGG `ADMIN` and `MODERATOR` roles plus configured radio admins
 - Team PEPE and Team YEE from DGG flair features
-- YouTube and SoundCloud metadata checks before insertion
+- YouTube and SoundCloud metadata checks before insertion, cached per track
 - UAE YouTube region checks, embeddability, age restriction, live status, processing state, and duration checks
 - A second media check immediately before playback
 - Fair turns when one person has several requests waiting
@@ -79,7 +79,15 @@ Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. 
 
 SoundCloud's own API needs a paid subscription, so track metadata comes from the `automation-lab/soundcloud-scraper` actor on Apify. Set `APIFY_API_TOKEN`. Each submitted SoundCloud link is one synchronous actor run in `trackUrl` mode, taking roughly two seconds and costing well under a cent. The backend accepts items whose type is `track` and which the actor reports as streamable.
 
-A track is looked up twice: once when it is submitted and once again just before it plays. For YouTube that second check is the point, since region and embedding status can change while a track waits. For SoundCloud it doubles the per-track cost for much less benefit, so it is the first thing to drop if Apify spend becomes noticeable.
+A track is looked up twice: once when it is submitted and once again just before it plays. Both go through the `media_lookups` cache, so the second one usually costs nothing.
+
+### Lookup cache
+
+Provider answers are stored in `media_lookups`, keyed by YouTube video ID or SoundCloud permalink path, so the same track submitted through different URL forms is one entry.
+
+SoundCloud entries never expire, because an actor run costs money and reports nothing that changes on its own. YouTube entries expire after 24 hours, because a video can become region blocked, age restricted, or non-embeddable after it was accepted. An expired entry is rechecked and overwritten in place; a recheck that fails throws and leaves the previous row untouched, so the next attempt checks again rather than serving a known-stale answer.
+
+One consequence worth knowing: the check just before playback only reaches YouTube for tracks that have been queued more than a day. Anything queued and played inside 24 hours serves the cached answer. Runtime player failures remain the backstop for a video that breaks in between.
 
 ## Commands
 

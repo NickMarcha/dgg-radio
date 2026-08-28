@@ -8,6 +8,13 @@
       "when": 1787833014931,
       "tag": "0000_flaky_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787890908229,
+      "tag": "0001_famous_garia",
+      "breakpoints": true
     }
   ]
 }
