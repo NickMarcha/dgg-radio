@@ -132,13 +132,3 @@ code {
   color: #fff;
 }
 
-/*
- * DGG emotes are fixed-size bitmaps. These two are single frames at their
- * natural size; catJAM and RaveDoge are sprite strips and would need the
- * keyframes from public/emotes/emotes.css instead.
- */
-.emote {
-  display: inline-block;
-  vertical-align: middle;
-  image-rendering: pixelated;
-}

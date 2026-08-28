@@ -539,9 +539,9 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       <header className="topbar">
         <div className="brand-block">
           <a className="brand" href="/player" aria-label="DGG Radio home">
-            <img className="emote" src="/emotes/pepeJAM.png" alt="" width={33} height={30} />
+            <span className="emote pepeJAM" aria-hidden="true" />
             <span>DGG Radio</span>
-            <img className="emote" src="/emotes/YAM.png" alt="" width={30} height={30} />
+            <span className="emote YAM" aria-hidden="true" />
             <span className="beta-badge">beta</span>
           </a>
           <span className="disclaimer">Not affiliated with destiny.gg</span>

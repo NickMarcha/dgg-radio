@@ -1,0 +1,130 @@
+/*
+ * Ported from the snapshot in public/emotes/emotes.css, which is unmodified and
+ * points at hashed CDN filenames that do not exist here. Only the emotes this
+ * site actually uses are carried over; importing the whole file would bring
+ * thousands of rules for emotes we do not have.
+ *
+ * These two animate through transforms and background-position rather than
+ * frames, so they have to be background images on an element. An <img> would
+ * pick up the skew but never the bob.
+ *
+ * The originals run a fixed number of iterations, because a chat message
+ * settles down after a few seconds. In the header there is nothing to settle
+ * into, so they loop.
+ */
+
+.emote {
+  display: inline-block;
+  vertical-align: middle;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  flex: none;
+}
+
+.emote.pepeJAM {
+  width: 33px;
+  height: 30px;
+  background-image: url('/emotes/pepeJAM.png');
+  transform-origin: -20px 100%;
+  animation: pepeJAM-anim 666.6ms infinite ease-in-out -400ms;
+}
+
+.emote.pepeJAM:hover {
+  animation: pepeJAM-anim-hover 666.6ms infinite ease-in-out;
+}
+
+.emote.YAM {
+  width: 30px;
+  height: 30px;
+  background-image: url('/emotes/YAM.png');
+  transform-origin: -5% 80%;
+  animation: YAM-anim1 666.6ms infinite linear -400ms;
+}
+
+.emote.YAM:hover {
+  animation: YAM-anim-hover 333.3ms linear infinite;
+}
+
+@keyframes pepeJAM-anim {
+  0%,
+  50% {
+    background-position: 0 0;
+    transform: skew(0deg, 0deg);
+    animation-timing-function: cubic-bezier(0.84, 0.38, 0.5, 0.93);
+  }
+  20% {
+    background-position: 0 4px;
+    transform: skew(2deg, -2deg);
+    animation-timing-function: ease-in-out;
+  }
+  70% {
+    background-position: 0 6px;
+    transform: skew(-7deg, 5deg) scale(1.03);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    animation-timing-function: ease-in-out;
+  }
+}
+
+@keyframes pepeJAM-anim-hover {
+  0% {
+    animation-timing-function: cubic-bezier(0.84, 0.38, 0.5, 0.93);
+  }
+  40% {
+    background-position: 0 5px;
+    transform: skew(-7deg, 7deg) scale(1.08);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    background-position: 0 0;
+    transform: skew(0deg, 0deg);
+    animation-timing-function: ease-in-out;
+  }
+}
+
+@keyframes YAM-anim1 {
+  0%,
+  50% {
+    background-position: 0 0;
+    transform: skew(0deg, 0deg);
+    animation-timing-function: cubic-bezier(0.84, 0.38, 0.5, 0.93);
+  }
+  20% {
+    background-position: 0 4px;
+    transform: skew(2deg, 0deg);
+    animation-timing-function: ease-in-out;
+  }
+  70% {
+    background-position: 0 6px;
+    transform: skew(-7deg, 5deg) scale(1.03);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    animation-timing-function: ease-in-out;
+  }
+}
+
+@keyframes YAM-anim-hover {
+  0% {
+    animation-timing-function: cubic-bezier(0.84, 0.38, 0.5, 0.93);
+  }
+  40% {
+    background-position: 0 5px;
+    transform: skew(-7deg, 7deg) scale(1.04);
+    animation-timing-function: ease-in-out;
+  }
+  100% {
+    background-position: 0 0;
+    transform: skew(0deg, 0deg);
+    animation-timing-function: ease-in-out;
+  }
+}
+
+/* Something that never stops moving is worth switching off on request. */
+@media (prefers-reduced-motion: reduce) {
+  .emote,
+  .emote:hover {
+    animation: none;
+  }
+}
