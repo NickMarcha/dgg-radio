@@ -981,3 +981,126 @@
 .import-report li {
   margin-bottom: 0.2rem;
 }
+
+.dialog-backdrop {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 50;
+}
+
+.dialog {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  max-height: 85vh;
+  max-width: 27rem;
+  overflow-y: auto;
+  padding: 1.4rem;
+  width: 100%;
+}
+
+.dialog h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem;
+}
+
+.dialog-subject {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 1.1rem;
+}
+
+.dialog-subject strong {
+  font-size: 0.95rem;
+}
+
+.dialog-subject span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.dialog fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0 0 1rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.dialog legend {
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dialog fieldset label {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.88rem;
+  gap: 0.5rem;
+}
+
+.dialog-empty {
+  color: var(--faint);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.dialog-note {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  gap: 0.35rem;
+  color: var(--muted);
+}
+
+.dialog-note input {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-top: 1.2rem;
+}
+
+.dialog-actions button {
+  background: var(--accent);
+  border: none;
+  border-radius: 7px;
+  color: #1a1200;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+}
+
+.dialog-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.dialog-actions .dialog-cancel {
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-weight: 500;
+}

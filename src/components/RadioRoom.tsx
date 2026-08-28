@@ -26,6 +26,7 @@ import {
 } from '../client/analytics';
 import type {
   ApiErrorBody,
+  PublicRule,
   QueueItem,
   RoomSnapshot,
   RoomUser,
@@ -48,6 +49,116 @@ class ApiRequestError extends Error {
     super(message);
     this.name = 'ApiRequestError';
   }
+}
+
+interface BlockTarget {
+  item: QueueItem;
+  /** Set when the block came from the player rather than a queue row. */
+  fromPlayer: boolean;
+}
+
+interface BlockDialogProps {
+  target: BlockTarget;
+  rules: PublicRule[];
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (choice: { ruleIds: string[]; entryType: 'track' | 'artist'; note?: string }) => void;
+}
+
+function BlockDialog({ target, rules, busy, onCancel, onConfirm }: BlockDialogProps) {
+  const blocklists = rules.filter((rule) => rule.enforcement === 'blocklist');
+  const [ruleIds, setRuleIds] = useState<string[]>([]);
+  const [entryType, setEntryType] = useState<'track' | 'artist'>('track');
+  const [note, setNote] = useState('');
+  const { media } = target.item;
+
+  function toggle(id: string) {
+    setRuleIds((current) =>
+      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id],
+    );
+  }
+
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={onCancel}>
+      <div
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Block ${media.title}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2>Block this request</h2>
+        <p className="dialog-subject">
+          <strong>{media.title}</strong>
+          <span>{media.artist}</span>
+        </p>
+
+        <fieldset>
+          <legend>What to block</legend>
+          <label>
+            <input
+              type="radio"
+              checked={entryType === 'track'}
+              onChange={() => setEntryType('track')}
+            />
+            Just this track
+          </label>
+          <label>
+            <input
+              type="radio"
+              checked={entryType === 'artist'}
+              onChange={() => setEntryType('artist')}
+            />
+            Everything by {media.artist}
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Which rules does it break?</legend>
+          {blocklists.length === 0 ? (
+            <p className="dialog-empty">
+              No blocklist rules are switched on. Add one on the admin page first.
+            </p>
+          ) : (
+            blocklists.map((rule) => (
+              <label key={rule.id}>
+                <input
+                  type="checkbox"
+                  checked={ruleIds.includes(rule.id)}
+                  onChange={() => toggle(rule.id)}
+                />
+                {rule.name}
+              </label>
+            ))
+          )}
+        </fieldset>
+
+        <label className="dialog-note">
+          Note (optional)
+          <input
+            type="text"
+            value={note}
+            maxLength={240}
+            placeholder="Anything the next moderator should know"
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+
+        <div className="dialog-actions">
+          <button type="button" className="dialog-cancel" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={busy || ruleIds.length === 0}
+            onClick={() => onConfirm({ ruleIds, entryType, note: note.trim() || undefined })}
+          >
+            Block
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 interface PlaylistImport {
@@ -193,6 +304,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [importReport, setImportReport] = useState<PlaylistImport | null>(null);
+  const [blockTarget, setBlockTarget] = useState<BlockTarget | null>(null);
   const [maxMinutes, setMaxMinutes] = useState('7');
   const reconnectTimer = useRef<number | undefined>(undefined);
   const identifiedUserId = useRef<string | null>(null);
@@ -389,9 +501,24 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   );
 
   const moderateQueueItem = async (action: 'remove' | 'block', item: QueueItem) => {
-    const reason = askReason(action === 'block' ? `Block ${item.media.title}` : `Remove ${item.media.title}`);
+    if (action === 'block') {
+      setBlockTarget({ item, fromPlayer: false });
+      return;
+    }
+    const reason = askReason(`Remove ${item.media.title}`);
     if (!reason) return;
-    await mutate(`/api/queue/${item.id}/${action}`, 'POST', { reason });
+    await mutate(`/api/queue/${item.id}/remove`, 'POST', { reason });
+  };
+
+  const confirmBlock = async (choice: {
+    ruleIds: string[];
+    entryType: 'track' | 'artist';
+    note?: string;
+  }) => {
+    if (!blockTarget) return;
+    const { item } = blockTarget;
+    setBlockTarget(null);
+    await mutate(`/api/queue/${item.id}/block`, 'POST', choice);
   };
 
   const skip = async () => {
@@ -399,10 +526,9 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     if (reason) await mutate('/api/current/skip', 'POST', { reason });
   };
 
-  const blockCurrent = async () => {
+  const blockCurrent = () => {
     if (!room?.current) return;
-    const reason = askReason(`Block ${room.current.media.title}`);
-    if (reason) await mutate(`/api/queue/${room.current.id}/block`, 'POST', { reason });
+    setBlockTarget({ item: room.current, fromPlayer: true });
   };
 
   const saveSettings = async (event: SubmitEvent<HTMLFormElement>) => {
@@ -483,7 +609,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             </div>
             {admin && room?.current && (
               <div className="admin-actions">
-                <button type="button" disabled={busy} onClick={() => void blockCurrent()}>
+                <button type="button" disabled={busy} onClick={blockCurrent}>
                   <Ban size={16} /> Block
                 </button>
                 <button type="button" disabled={busy} onClick={() => void skip()}>
@@ -596,7 +722,17 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
               </>
             )}
 
-            {importReport && (
+            {blockTarget && (
+        <BlockDialog
+          target={blockTarget}
+          rules={room?.rules ?? []}
+          busy={busy}
+          onCancel={() => setBlockTarget(null)}
+          onConfirm={(choice) => void confirmBlock(choice)}
+        />
+      )}
+
+      {importReport && (
               <div className="import-report">
                 <p>
                   Added {importReport.added} track{importReport.added === 1 ? '' : 's'}.

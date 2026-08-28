@@ -237,7 +237,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
       admin,
       db,
     );
-    await blockQueueItemMedia(queued.id, { ruleId, entryType: 'track' }, admin, db);
+    await blockQueueItemMedia(queued.id, { ruleIds: [ruleId], entryType: 'track' }, admin, db);
 
     const snapshot = await getRoomSnapshot(null, 0, db);
     expect(snapshot.queue).toEqual([]);

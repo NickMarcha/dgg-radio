@@ -29,7 +29,7 @@ import {
 } from './db/schema';
 import { getEnv } from './env';
 import { lookupManyCached, lookupMediaCached } from './media-cache';
-import { addRuleEntry, findBlockingRule, listActiveRules } from './rules';
+import { addRuleEntry, describeBlock, findBlockingRules, listActiveRules } from './rules';
 import {
   listPlaylistTrackUrls,
   MediaLookupError,
@@ -210,8 +210,10 @@ async function validateForPlayback(
       `Tracks must be ${Math.floor(maxDurationSeconds / 60)} minutes or shorter.`,
     );
   }
-  const blocked = await findBlockingRule(checked, db);
-  if (blocked) throw new RoomError('MEDIA_BLOCKED', `This track breaks "${blocked.ruleName}".`);
+  const blocking = await findBlockingRules(checked, db);
+  if (blocking.length > 0) {
+    throw new RoomError('MEDIA_BLOCKED', `This track breaks ${describeBlock(blocking)}.`);
+  }
   return checked;
 }
 
@@ -369,10 +371,11 @@ export async function enqueueMedia(
     );
   }
 
-  const blocked = await findBlockingRule(metadata, db);
-  if (blocked) {
-    const scope = blocked.entryType === 'artist' ? `${blocked.label} is blocked` : 'That track is blocked';
-    throw new RoomError('MEDIA_BLOCKED', `${scope} under "${blocked.ruleName}".`);
+  const blocking = await findBlockingRules(metadata, db);
+  if (blocking.length > 0) {
+    const byArtist = blocking.find(({ entryType }) => entryType === 'artist');
+    const scope = byArtist ? `${byArtist.label} is blocked` : 'That track is blocked';
+    throw new RoomError('MEDIA_BLOCKED', `${scope} under ${describeBlock(blocking)}.`);
   }
 
   const [activeDuplicate] = await db
@@ -634,7 +637,7 @@ export async function removeQueuedTrack(
 
 export async function blockQueueItemMedia(
   queueItemId: string,
-  options: { ruleId: string; entryType: 'track' | 'artist'; note?: string | null },
+  options: { ruleIds: string[]; entryType: 'track' | 'artist'; note?: string | null },
   admin: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<void> {
@@ -655,18 +658,23 @@ export async function blockQueueItemMedia(
   if (!item) throw new RoomError('QUEUE_ITEM_NOT_FOUND', 'That queue item does not exist.', 404);
 
   const blockingArtist = options.entryType === 'artist';
-  await addRuleEntry(
-    options.ruleId,
-    {
-      provider: item.provider,
-      entryType: options.entryType,
-      providerId: blockingArtist ? item.providerArtistId : item.providerMediaId,
-      label: blockingArtist ? item.artist : item.title,
-      note: options.note ?? null,
-    },
-    admin,
-    db,
-  );
+  if (options.ruleIds.length === 0) {
+    throw new RoomError('NO_RULE_GIVEN', 'Choose at least one rule to block this under.');
+  }
+  for (const ruleId of options.ruleIds) {
+    await addRuleEntry(
+      ruleId,
+      {
+        provider: item.provider,
+        entryType: options.entryType,
+        providerId: blockingArtist ? item.providerArtistId : item.providerMediaId,
+        label: blockingArtist ? item.artist : item.title,
+        note: options.note ?? null,
+      },
+      admin,
+      db,
+    );
+  }
 
   // Drop everything the new entry now covers, not just the item that triggered it.
   const covered = blockingArtist
@@ -693,7 +701,7 @@ export async function blockQueueItemMedia(
     action: blockingArtist ? 'block_artist' : 'block_track',
     queueItemId,
     mediaId: item.mediaId,
-    details: { ruleId: options.ruleId, note: options.note ?? null },
+    details: { ruleIds: options.ruleIds, note: options.note ?? null },
   });
 
   if (item.status === 'playing') {

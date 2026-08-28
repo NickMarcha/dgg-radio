@@ -201,9 +201,11 @@ export const rules = pgTable(
 );
 
 /**
- * One blocked track or artist, attributed to the rule it broke. Blocking an
- * artist covers their whole catalogue; a collaboration released under someone
- * else's channel needs its own track entry.
+ * One blocked track or artist, attributed to a rule it broke. The same track can
+ * be listed under several rules, because one track can break several: the room
+ * shows every reason rather than picking one. Blocking an artist covers their
+ * whole catalogue; a collaboration released under someone else's channel needs
+ * its own track entry.
  */
 export const ruleEntries = pgTable(
   'rule_entries',
@@ -223,8 +225,15 @@ export const ruleEntries = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // One thing is blocked once, under one rule, so the reason shown is unambiguous.
-    uniqueIndex('rule_entries_target_unique').on(table.provider, table.entryType, table.providerId),
+    // One entry per rule per target: blocking the same track under the same rule
+    // twice is a no-op, but a second rule gets its own row.
+    uniqueIndex('rule_entries_target_unique').on(
+      table.ruleId,
+      table.provider,
+      table.entryType,
+      table.providerId,
+    ),
+    index('rule_entries_target_index').on(table.provider, table.entryType, table.providerId),
     index('rule_entries_rule_index').on(table.ruleId),
   ],
 );

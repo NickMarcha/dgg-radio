@@ -31,15 +31,22 @@ export interface BlockingRule {
   label: string;
 }
 
+/** Reads as "No meme songs", or "No meme songs and No Disney songs". */
+export function describeBlock(blocking: BlockingRule[]): string {
+  const names = [...new Set(blocking.map(({ ruleName }) => ruleName))].map((name) => `"${name}"`);
+  if (names.length <= 1) return names[0] ?? 'a room rule';
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
 /**
  * The one check that matters at request time: is this track, or the artist who
  * released it, on any rule's list. An artist entry covers everything they put
  * out, which is why a collaboration under another channel needs its own entry.
  */
-export async function findBlockingRule(
+export async function findBlockingRules(
   metadata: MediaMetadata,
   db: Database = getDatabase(),
-): Promise<BlockingRule | null> {
+): Promise<BlockingRule[]> {
   const targets = [
     and(eq(ruleEntries.entryType, 'track'), eq(ruleEntries.providerId, metadata.providerMediaId)),
     // Rows predating artist ids carry an empty string, which must never match.
@@ -48,7 +55,7 @@ export async function findBlockingRule(
       : undefined,
   ].filter(Boolean);
 
-  const [blocked] = await db
+  return db
     .select({
       ruleId: rules.id,
       ruleName: rules.name,
@@ -58,9 +65,7 @@ export async function findBlockingRule(
     .from(ruleEntries)
     .innerJoin(rules, eq(ruleEntries.ruleId, rules.id))
     .where(and(eq(rules.active, true), eq(ruleEntries.provider, metadata.provider), or(...targets)))
-    .limit(1);
-
-  return blocked ?? null;
+    .orderBy(asc(rules.position));
 }
 
 export async function listRules(db: Database = getDatabase()): Promise<RuleSummary[]> {
@@ -190,8 +195,13 @@ export async function addRuleEntry(
     .insert(ruleEntries)
     .values({ ...entry, ruleId, addedByUserId: admin.id })
     .onConflictDoUpdate({
-      target: [ruleEntries.provider, ruleEntries.entryType, ruleEntries.providerId],
-      set: { ruleId, label: entry.label, note: entry.note ?? null, addedByUserId: admin.id },
+      target: [
+        ruleEntries.ruleId,
+        ruleEntries.provider,
+        ruleEntries.entryType,
+        ruleEntries.providerId,
+      ],
+      set: { label: entry.label, note: entry.note ?? null, addedByUserId: admin.id },
     })
     .returning({ id: ruleEntries.id });
   if (!created) throw new RuleError('ENTRY_FAILED', 'The entry could not be saved.', 500);

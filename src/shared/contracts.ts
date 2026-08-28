@@ -12,7 +12,8 @@ export const voteSchema = z.object({
 });
 
 export const blockMediaSchema = z.object({
-  ruleId: z.uuid(),
+  /** One track can break several rules, and the room shows every reason. */
+  ruleIds: z.array(z.uuid()).min(1).max(10),
   entryType: z.enum(['track', 'artist']),
   note: z.string().trim().max(240).optional(),
 });

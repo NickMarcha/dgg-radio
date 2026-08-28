@@ -50,6 +50,13 @@
       "when": 1787897814745,
       "tag": "0006_rule_toggle_and_description",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787898988649,
+      "tag": "0007_multi_rule_entries",
+      "breakpoints": true
     }
   ]
 }

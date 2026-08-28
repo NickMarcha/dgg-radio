@@ -9,6 +9,8 @@ The emotes in `public/emotes/` were downloaded from the Destiny.gg CDN on 2026-0
 
 `AlienPls` is stored as `public/emotes/AlienPls.webp` because the CDN response contains WebP data even though its source URL ends in `.gif`.
 
+`public/favicon.png` is a copy of `public/emotes/TeddYEE.png` used as the frontend favicon.
+
 ## Animation
 
 Some emotes are sprite sheets rather than self-animating image files. For example, `public/emotes/catJAM.png` contains 188 horizontal frames, while `public/emotes/RaveDoge.avif` is a 2,700-pixel-wide strip. The `.emote.catJAM` and `.emote.RaveDoge` rules in `public/emotes/emotes.css` animate them by changing `background-position` with keyframes. Rendering either file as a normal `<img>` will not reproduce that animation.
