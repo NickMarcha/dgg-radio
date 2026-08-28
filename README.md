@@ -58,7 +58,9 @@ The room opens at `http://localhost:4321`. The API and WebSocket server use `htt
 
 ### Destiny
 
-Create an application at `https://www.destiny.gg/profile/developer`. Register the exact callback in `DGG_REDIRECT_URI`. For local development it is `http://localhost:8787/api/auth/callback`.
+Create an application at `https://www.destiny.gg/profile/developer`. Register the exact callback in `DGG_REDIRECT_URI`. For local development it is `http://localhost:4321/auth/callback`.
+
+The callback is a frontend route, not an API route. Destiny redirects the browser to `/auth/callback` on the Netlify site, which strips the code from the address bar and posts it to `POST /api/auth/callback`. The API keeps the client secret, owns the login transaction, and sets the session cookie. Registering a frontend URL means the API can move hosts without re-registering anything with Destiny.
 
 Destiny's flow is not standard PKCE. The backend implements the secret-bound challenge described in the project's [OAuth research](docs/research/dgg-oauth-netlify.md). Keep the client secret on the API host.
 
@@ -141,7 +143,7 @@ Three values must agree, and two of them are only knowable after the first deplo
 
 - `APP_ORIGIN` on the API is the exact Netlify origin. CORS rejects other origins, and the session cookie only becomes `SameSite=None; Secure` when this is `https`.
 - `PUBLIC_API_URL` on Netlify is the tunnel hostname.
-- `DGG_REDIRECT_URI` is the API's public callback, registered byte-for-byte in Destiny's developer page.
+- `DGG_REDIRECT_URI` is the frontend callback route, registered byte-for-byte in Destiny's developer page. Register it with no query string: Destiny appends `?code=...&state=...` itself.
 
 ## Current limits
 

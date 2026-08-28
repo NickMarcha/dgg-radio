@@ -42,7 +42,7 @@ type Variables = {
   user: AuthenticatedUser;
 };
 
-const callbackQuerySchema = z.object({
+const callbackSchema = z.object({
   code: z.string().min(1),
   state: z.string().length(64),
 });
@@ -119,12 +119,12 @@ export function createApp(dependencies: AppDependencies) {
   const routes = app
     .get('/health', (context) => context.json({ ok: true }))
     .get('/api/auth/login', async (context) => context.redirect(await createAuthorizationUrl()))
-    .get('/api/auth/callback', zValidator('query', callbackQuerySchema), async (context) => {
-      const { code, state } = context.req.valid('query');
+    .post('/api/auth/callback', zValidator('json', callbackSchema), async (context) => {
+      const { code, state } = context.req.valid('json');
       const session = await completeAuthorization(code, state);
       setSessionCookie(context, session.sessionToken, session.expiresAt);
       captureServerEvent(session.userId, 'user_signed_in');
-      return context.redirect(env.APP_ORIGIN);
+      return context.json({ ok: true });
     })
     .post('/api/auth/logout', async (context) => {
       await clearSession(context);

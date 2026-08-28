@@ -1,0 +1,74 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+---
+
+<BaseLayout title="Signing in — DGG Radio" description="Completing your Destiny sign-in.">
+  <main class="callback">
+    <p class="callback__status" id="status">Completing your Destiny sign-in…</p>
+    <a class="callback__home" id="home" href="/" hidden>Back to the room</a>
+  </main>
+</BaseLayout>
+
+<script is:inline define:vars={{ apiUrl }}>
+  // Destiny appends the authorization code to this URL. Take it out of the
+  // address bar before anything else runs, so it stays out of history and out
+  // of any analytics that capture the current URL.
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  const state = params.get('state');
+  history.replaceState(null, '', '/auth/callback');
+
+  const status = document.getElementById('status');
+  const home = document.getElementById('home');
+
+  function fail(message) {
+    status.textContent = message;
+    home.hidden = false;
+  }
+
+  if (!code || !state) {
+    fail('That sign-in link was incomplete. Start again from the room.');
+  } else {
+    fetch(`${apiUrl}/api/auth/callback`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, state }),
+    })
+      .then(async (response) => {
+        if (response.ok) {
+          window.location.replace('/');
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        fail(body?.error?.message ?? 'Destiny could not complete the sign-in.');
+      })
+      .catch(() => fail('The radio server did not respond. Try again in a moment.'));
+  }
+</script>
+
+<style>
+  .callback {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    min-height: 60vh;
+    padding: 2rem;
+    text-align: center;
+  }
+
+  .callback__status {
+    color: var(--muted);
+    font-size: 1rem;
+    margin: 0;
+  }
+
+  .callback__home {
+    color: var(--accent);
+  }
+</style>
