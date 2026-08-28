@@ -101,6 +101,15 @@
   color: var(--faint);
 }
 
+.admin-embed-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  color: var(--faint);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .admin-error,
 .admin-notice {
   margin: 0;

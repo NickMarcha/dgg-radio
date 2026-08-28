@@ -149,14 +149,15 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 | `/history` | completed and skipped tracks |
 | `/profile/:username` | one listener's stats and play history |
 | `/embed/player` | control-free synchronized video and audio for an OBS Browser Source |
-| `/embed/playing` | transparent current-track artwork, title, and artist for OBS |
+| `/embed/playing` | transparent current-track details for OBS |
+| `/embed/queue` | transparent upcoming room queue for OBS |
 | `/auth/callback` | where Destiny returns after sign-in |
 
 ### OBS browser sources
 
 Use `/embed/player` at a 16:9 size such as 1920 by 1080 or 1280 by 720. Turn on `Control audio via OBS` and `Shutdown source when not visible`. Leave `Refresh browser source when scene becomes active` off. YouTube fills the source with its control-free video player. SoundCloud has no video, so its official visual audio player fills the source instead.
 
-`/embed/playing` is a separate transparent overlay with artwork, title, and artist. It never loads a provider player and produces no audio. The [OBS embed research](docs/research/obs-embed-playback.md) records the browser and provider constraints behind this setup.
+`/embed/playing` is a separate transparent overlay sized for a wide 1200 by 240 source. It shows artwork, a scrolling title when needed, artist, requester, vote counts, and synchronized time. `/embed/queue` shows the upcoming room queue and is sized for an 800 by 600 source. Neither loads a provider player or produces audio. The [OBS embed research](docs/research/obs-embed-playback.md) records the browser and provider constraints behind this setup.
 
 ## Deployment
 

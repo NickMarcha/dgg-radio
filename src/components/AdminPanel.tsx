@@ -296,20 +296,26 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
       <section className="admin-card">
         <h2>OBS browser sources</h2>
         <p className="admin-help">
-          Add either URL as an OBS Browser Source. The player starts with sound and stays synced to the room.
+          Add any URL as an OBS Browser Source. The player starts with sound and stays synced to the room.
         </p>
         <ul className="admin-embed-links">
           <li>
             <a className="admin-link" href="/embed/player" target="_blank" rel="noreferrer">
               Synchronized video player <ExternalLink size={13} />
             </a>
-            <code>/embed/player</code>
+            <span className="admin-embed-detail"><code>/embed/player</code><span>16:9</span></span>
           </li>
           <li>
             <a className="admin-link" href="/embed/playing" target="_blank" rel="noreferrer">
               Now-playing overlay <ExternalLink size={13} />
             </a>
-            <code>/embed/playing</code>
+            <span className="admin-embed-detail"><code>/embed/playing</code><span>1200 × 240</span></span>
+          </li>
+          <li>
+            <a className="admin-link" href="/embed/queue" target="_blank" rel="noreferrer">
+              Upcoming queue <ExternalLink size={13} />
+            </a>
+            <span className="admin-embed-detail"><code>/embed/queue</code><span>800 × 600</span></span>
           </li>
         </ul>
       </section>

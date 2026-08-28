@@ -12,6 +12,15 @@ vi.mock('./useRoomSnapshot', () => ({
 
 function roomSnapshot(): RoomSnapshot {
   const startedAt = new Date('2026-08-28T12:00:00.000Z').toISOString();
+  const requester = {
+    id: '33333333-3333-4333-8333-333333333333',
+    username: 'Requester',
+    avatarUrl: null,
+    role: 'listener' as const,
+    team: null,
+    flair: null,
+    topEmote: null,
+  };
   return {
     serverTime: new Date('2026-08-28T12:00:30.000Z').toISOString(),
     revision: 1,
@@ -38,15 +47,36 @@ function roomSnapshot(): RoomSnapshot {
         durationSeconds: 120,
         thumbnailUrl: 'https://i.ytimg.com/vi/M7lc1UVf-VE/hqdefault.jpg',
       },
-      requestedBy: null,
+      requestedBy: requester,
       status: 'playing',
       requestedAt: startedAt,
       startedAt,
-      upvotes: 0,
-      downvotes: 0,
+      upvotes: 4,
+      downvotes: 2,
       myVote: 0,
     },
-    queue: [],
+    queue: [
+      {
+        id: '44444444-4444-4444-8444-444444444444',
+        media: {
+          id: '55555555-5555-4555-8555-555555555555',
+          provider: 'soundcloud',
+          providerMediaId: '555555',
+          canonicalUrl: 'https://soundcloud.com/artist/next-track',
+          title: 'Next track',
+          artist: 'Queue artist',
+          durationSeconds: 245,
+          thumbnailUrl: null,
+        },
+        requestedBy: requester,
+        status: 'queued',
+        requestedAt: startedAt,
+        startedAt: null,
+        upvotes: 0,
+        downvotes: 0,
+        myVote: 0,
+      },
+    ],
     myQueue: [],
     rules: [],
     selectorStats: [],
@@ -76,9 +106,23 @@ describe('OBS embeds', () => {
 
     expect(html).toContain('YouTube IFrame API Demo');
     expect(html).toContain('YouTube Developers');
+    expect(html).toContain('Requested by Requester · ▲ 4 · ▼ 2');
+    expect(html).toContain('0:00 / 2:00');
     expect(html).toContain('hqdefault.jpg');
     expect(html).not.toContain('embed-media-provider');
     expect(html).not.toContain('<iframe');
+  });
+
+  it('renders the upcoming room queue without controls', () => {
+    const html = renderToStaticMarkup(
+      createElement(EmbedView, { apiUrl: 'https://api.example.com', mode: 'queue' }),
+    );
+
+    expect(html).toContain('Next track');
+    expect(html).toContain('Queue artist · 4:05');
+    expect(html).toContain('Requested by Requester');
+    expect(html).not.toContain('<button');
+    expect(html).not.toContain('<input');
   });
 
   it('renders an empty transparent overlay when the room is idle', () => {
