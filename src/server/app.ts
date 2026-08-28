@@ -61,6 +61,7 @@ import {
   skipCurrentTrack,
   updateRoomSettings,
   voteOnCurrentTrack,
+  withdrawQueuedTrack,
 } from './room';
 
 interface AppDependencies {
@@ -230,6 +231,17 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json(imported);
     })
+    .delete(
+      '/api/queue/:id',
+      requireUser,
+      zValidator('param', idParamSchema),
+      async (context) => {
+        await withdrawQueuedTrack(context.req.valid('param').id, context.get('user'));
+        captureServerEvent(context.get('user').id, 'queue_track_withdrawn');
+        dependencies.onRoomChanged();
+        return context.json({ ok: true });
+      },
+    )
     .patch('/api/queue/order', requireUser, zValidator('json', reorderSchema), async (context) => {
       await reorderMyQueue(context.req.valid('json').orderedIds, context.get('user'));
       dependencies.onRoomChanged();

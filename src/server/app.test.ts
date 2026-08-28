@@ -19,6 +19,7 @@ vi.mock('./room', async (importOriginal) => ({
   removeQueuedTrack: vi.fn(),
   reorderRoomQueue: vi.fn(),
   skipCurrentTrack: vi.fn(),
+  withdrawQueuedTrack: vi.fn(),
 }));
 
 vi.mock('./rules', async (importOriginal) => ({
@@ -35,7 +36,8 @@ vi.mock('./admins', async (importOriginal) => ({
 const { getSessionUser } = await import('./auth');
 const { setUserRole } = await import('./admins');
 const { reorderRules } = await import('./rules');
-const { blockQueueItemMedia, removeQueuedTrack, reorderRoomQueue, skipCurrentTrack } = await import('./room');
+const { blockQueueItemMedia, removeQueuedTrack, reorderRoomQueue, skipCurrentTrack, withdrawQueuedTrack } =
+  await import('./room');
 const { createApp } = await import('./app');
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -110,6 +112,18 @@ describe('role authorization', () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: { code: 'MODERATOR_REQUIRED' } });
     expect(reorderRoomQueue).not.toHaveBeenCalled();
+  });
+
+  it('lets any signed-in listener take back their own queued track', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+
+    const response = await app.request(`/api/queue/${QUEUE_ID}`, {
+      method: 'DELETE',
+      headers: { Origin: 'http://localhost:4321' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(withdrawQueuedTrack).toHaveBeenCalledOnce();
   });
 
   it('lets an admin assign the mod role', async () => {

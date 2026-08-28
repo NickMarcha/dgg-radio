@@ -55,6 +55,7 @@ const {
   RoomError,
   skipCurrentTrack,
   voteOnCurrentTrack,
+  withdrawQueuedTrack,
 } = await import('./room');
 const { createRule } = await import('./rules');
 const schema = await import('./db/schema');
@@ -347,6 +348,80 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     expect(reordered.myQueue.map((i) => i.id)).toEqual([c.id, b.id]);
     // The room queue shows only their next one, which is now the reordered first.
     expect(reordered.queue.map((i) => i.id)).toEqual([c.id]);
+  });
+
+  it('lets someone take their own waiting track back out', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, second);
+
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const waiting = await enqueueMedia(second.canonicalUrl, nathan, db);
+
+    await withdrawQueuedTrack(waiting.id, nathan, db);
+
+    expect((await getRoomSnapshot(nathan, 1, db)).myQueue.map(({ id }) => id)).toEqual([]);
+  });
+
+  it('records nothing in the moderation log when someone withdraws their own track', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, second);
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const waiting = await enqueueMedia(second.canonicalUrl, nathan, db);
+
+    await withdrawQueuedTrack(waiting.id, nathan, db);
+
+    expect(await db.select().from(moderationActions)).toHaveLength(0);
+  });
+
+  it('drops someone out of the rotation once they withdraw their last track', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const [playing, only] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, only);
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const waiting = await enqueueMedia(only.canonicalUrl, nathan, db);
+
+    await withdrawQueuedTrack(waiting.id, nathan, db);
+
+    const [row] = await db
+      .select({ rotationSeq: users.rotationSeq })
+      .from(users)
+      .where(eq(users.id, nathan.id));
+    expect(row?.rotationSeq).toBeNull();
+  });
+
+  it('refuses to withdraw a track belonging to someone else', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, second);
+
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const theirs = await enqueueMedia(second.canonicalUrl, nathan, db);
+
+    await expect(withdrawQueuedTrack(theirs.id, swagy, db)).rejects.toMatchObject({
+      code: 'NOT_YOUR_QUEUED_TRACK',
+    });
+    expect((await getRoomSnapshot(nathan, 1, db)).myQueue.map(({ id }) => id)).toEqual([theirs.id]);
+  });
+
+  it('refuses to withdraw the track that is already playing', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const [playing] = [track('aaaaaaaaaaa')];
+    resolveTracks(playing);
+    // The first track enqueued into an idle room starts playing straight away.
+    const started = await enqueueMedia(playing.canonicalUrl, nathan, db);
+    expect((await getRoomSnapshot(nathan, 1, db)).current?.id).toBe(started.id);
+
+    await expect(withdrawQueuedTrack(started.id, nathan, db)).rejects.toMatchObject({
+      code: 'NOT_YOUR_QUEUED_TRACK',
+    });
   });
 
   it('refuses to reorder a track belonging to someone else', async () => {

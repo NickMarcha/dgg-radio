@@ -709,6 +709,40 @@ export async function removeQueuedTrack(
   await bumpRevision(db);
 }
 
+/**
+ * A listener taking back one of their own tracks before it plays. Unlike a
+ * moderator removal this records no moderation action: there is nothing to
+ * answer for. The track they are currently playing is not theirs to pull.
+ */
+export async function withdrawQueuedTrack(
+  queueItemId: string,
+  owner: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<void> {
+  const [withdrawn] = await db
+    .update(queueItems)
+    .set({ status: 'removed', finishedAt: new Date() })
+    .where(
+      and(
+        eq(queueItems.id, queueItemId),
+        eq(queueItems.status, 'queued'),
+        eq(queueItems.requestedByUserId, owner.id),
+      ),
+    )
+    .returning({ id: queueItems.id });
+  if (!withdrawn) {
+    throw new RoomError(
+      'NOT_YOUR_QUEUED_TRACK',
+      'That track is not one of yours waiting to play.',
+      404,
+    );
+  }
+  if (!(await hasQueuedTracks(owner.id, db))) {
+    await db.update(users).set({ rotationSeq: null }).where(eq(users.id, owner.id));
+  }
+  await bumpRevision(db);
+}
+
 export async function blockQueueItemMedia(
   queueItemId: string,
   options: { ruleIds: string[]; entryType: 'track' | 'artist'; note?: string | null },

@@ -209,6 +209,7 @@ interface QueueRowProps {
   canRemove: boolean;
   busy: boolean;
   onModerate?: (action: 'remove' | 'block', item: QueueItem) => void;
+  onWithdraw?: (item: QueueItem) => void;
   onMove?: (item: QueueItem, destination: MoveDestination) => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
@@ -240,6 +241,7 @@ function QueueRow({
   canRemove,
   busy,
   onModerate,
+  onWithdraw,
   onMove,
   canMoveUp,
   canMoveDown,
@@ -339,6 +341,19 @@ function QueueRow({
                 <Ban size={15} />
               </button>
             )}
+          </div>
+        )}
+        {onWithdraw && (
+          <div className="row-actions">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onWithdraw(item)}
+              title="Take this out of your queue"
+              aria-label={`Take ${item.media.title} out of your queue`}
+            >
+              <Trash2 size={15} />
+            </button>
           </div>
         )}
       </div>
@@ -457,7 +472,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   /** Returns the response body on success and null on failure, so callers can read it. */
   const mutate = async <T,>(
     path: string,
-    method: 'POST' | 'PATCH',
+    method: 'POST' | 'PATCH' | 'DELETE',
     body?: unknown,
   ): Promise<T | null> => {
     setBusy(true);
@@ -558,6 +573,10 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     },
     [room?.current?.requestedBy?.id, room?.queue, mutate],
   );
+
+  const withdrawMyTrack = async (item: QueueItem) => {
+    await mutate(`/api/queue/${item.id}`, 'DELETE');
+  };
 
   const moderateQueueItem = async (action: 'remove' | 'block', item: QueueItem) => {
     if (action === 'block') {
@@ -950,6 +969,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                       canBlock={false}
                       canRemove={false}
                       busy={busy}
+                      onWithdraw={(selected) => void withdrawMyTrack(selected)}
                       onMove={(selected, destination) => void moveMyTrack(selected, destination)}
                       canMoveUp={index > 0}
                       canMoveDown={index < room.myQueue.length - 1}
