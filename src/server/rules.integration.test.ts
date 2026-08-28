@@ -23,6 +23,7 @@ const {
   listActiveRules,
   listRuleEntries,
   listRules,
+  reorderRules,
   RuleError,
   updateRule,
 } = await import('./rules');
@@ -258,6 +259,28 @@ describe.skipIf(!connectionString)('room rules', () => {
     const [stored] = await listRuleEntries(memes, db);
     expect(stored?.note).toBe('second');
     expect(await findBlockingRules(track(), db)).toHaveLength(1);
+  });
+
+  it('reorders the rule list, and shows listeners the same order', async () => {
+    const actor = await makeAdmin();
+    const first = await createRule({ name: 'First', description: '', enforcement: 'advisory' }, actor, db);
+    const second = await createRule({ name: 'Second', description: '', enforcement: 'advisory' }, actor, db);
+    const third = await createRule({ name: 'Third', description: '', enforcement: 'advisory' }, actor, db);
+    expect((await listRules(db)).map(({ name }) => name)).toEqual(['First', 'Second', 'Third']);
+
+    await reorderRules([third, first, second], db);
+
+    expect((await listRules(db)).map(({ name }) => name)).toEqual(['Third', 'First', 'Second']);
+    expect((await listActiveRules(db)).map(({ name }) => name)).toEqual(['Third', 'First', 'Second']);
+  });
+
+  it('refuses an order that does not name every rule', async () => {
+    const actor = await makeAdmin();
+    const first = await createRule({ name: 'First', description: '', enforcement: 'advisory' }, actor, db);
+    await createRule({ name: 'Second', description: '', enforcement: 'advisory' }, actor, db);
+
+    await expect(reorderRules([first], db)).rejects.toMatchObject({ code: 'RULES_CHANGED' });
+    expect((await listRules(db)).map(({ name }) => name)).toEqual(['First', 'Second']);
   });
 
   it('drops a rule together with everything it listed', async () => {

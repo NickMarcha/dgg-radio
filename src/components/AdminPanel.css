@@ -236,6 +236,28 @@
   gap: 0.5rem;
 }
 
+.admin-move {
+  display: flex;
+  gap: 0;
+}
+
+.admin-move button {
+  border-radius: 0;
+  padding: 0.5rem 0.4rem;
+}
+
+.admin-move button:first-child {
+  border-radius: 7px 0 0 7px;
+}
+
+.admin-move button:last-child {
+  border-radius: 0 7px 7px 0;
+}
+
+.admin-move button + button {
+  border-left: 0;
+}
+
 .admin-meta {
   display: inline-flex;
   align-items: center;

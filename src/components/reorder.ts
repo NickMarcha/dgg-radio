@@ -1,9 +1,13 @@
-import type { QueueItem } from '../shared/contracts';
-
 export type MoveDestination = 'up' | 'down' | 'top' | 'bottom';
 
-export function moveQueueItem(
-  items: QueueItem[],
+/**
+ * Reorders a list by moving one item, and returns the resulting ids. Used for
+ * both queues and the rule list, so it works on anything carrying an id.
+ * `lockedLastId` pins an item to the bottom: it never moves and nothing can be
+ * placed after it.
+ */
+export function moveItem<T extends { id: string }>(
+  items: T[],
   itemId: string,
   destination: MoveDestination,
   lockedLastId?: string,

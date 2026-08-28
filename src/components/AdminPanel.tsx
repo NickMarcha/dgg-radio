@@ -1,6 +1,10 @@
 import {
+  ArrowDownToLine,
+  ArrowUpToLine,
   Ban,
   Check,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   ListMusic,
   Loader2,
@@ -19,6 +23,7 @@ import type {
   RuleSummary,
   UserRole,
 } from '../shared/contracts';
+import { moveItem, type MoveDestination } from './reorder';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -94,6 +99,12 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
     },
     [refresh],
   );
+
+  function moveRule(rule: RuleSummary, destination: MoveDestination) {
+    const orderedIds = moveItem(rules, rule.id, destination);
+    if (!orderedIds) return;
+    void act(() => call('/api/rules/order', 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
+  }
 
   async function toggleEntries(ruleId: string) {
     if (entries[ruleId]) {
@@ -177,7 +188,7 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           <p className="admin-empty">No rules yet.</p>
         ) : (
           <ul className="admin-list">
-            {rules.map((rule) => (
+            {rules.map((rule, index) => (
               <RuleRow
                 key={rule.id}
                 rule={rule}
@@ -185,6 +196,9 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
                 act={act}
                 call={call}
                 entries={entries[rule.id]}
+                index={index}
+                total={rules.length}
+                onMove={(destination) => moveRule(rule, destination)}
                 onToggleEntries={() => void toggleEntries(rule.id)}
                 onEntryRemoved={() =>
                   setEntries(({ [rule.id]: _removed, ...rest }) => rest)
@@ -275,11 +289,25 @@ interface RuleRowProps {
   act: (work: () => Promise<unknown>, message: string) => Promise<void>;
   call: (path: string, method?: string, body?: unknown) => Promise<any>;
   entries: RuleEntrySummary[] | undefined;
+  index: number;
+  total: number;
+  onMove: (destination: MoveDestination) => void;
   onToggleEntries: () => void;
   onEntryRemoved: () => void;
 }
 
-function RuleRow({ rule, busy, act, call, entries, onToggleEntries, onEntryRemoved }: RuleRowProps) {
+function RuleRow({
+  rule,
+  busy,
+  act,
+  call,
+  entries,
+  index,
+  total,
+  onMove,
+  onToggleEntries,
+  onEntryRemoved,
+}: RuleRowProps) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(rule.name);
   const [description, setDescription] = useState(rule.description);
@@ -348,6 +376,44 @@ function RuleRow({ rule, busy, act, call, entries, onToggleEntries, onEntryRemov
           {rule.description && <p className="admin-description">{rule.description}</p>}
         </div>
         <div className="admin-row-actions">
+          <div className="admin-move">
+            <button
+              type="button"
+              disabled={busy || index === 0}
+              onClick={() => onMove('top')}
+              title="Move to top"
+              aria-label={`Move ${rule.name} to the top`}
+            >
+              <ArrowUpToLine size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={busy || index === 0}
+              onClick={() => onMove('up')}
+              title="Move up"
+              aria-label={`Move ${rule.name} up`}
+            >
+              <ChevronUp size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={busy || index === total - 1}
+              onClick={() => onMove('down')}
+              title="Move down"
+              aria-label={`Move ${rule.name} down`}
+            >
+              <ChevronDown size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={busy || index === total - 1}
+              onClick={() => onMove('bottom')}
+              title="Move to bottom"
+              aria-label={`Move ${rule.name} to the bottom`}
+            >
+              <ArrowDownToLine size={15} />
+            </button>
+          </div>
           <button
             type="button"
             disabled={busy}

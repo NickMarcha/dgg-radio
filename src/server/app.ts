@@ -7,7 +7,7 @@ import {
   blockMediaSchema,
   clearQueueSchema,
   playlistSchema,
-  reorderQueueSchema,
+  reorderSchema,
   searchSchema,
   removeQueueItemSchema,
   ruleSchema,
@@ -34,6 +34,7 @@ import {
   listRuleEntries,
   listRules,
   removeRuleEntry,
+  reorderRules,
   RuleError,
   updateRule,
 } from './rules';
@@ -227,7 +228,7 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json(imported);
     })
-    .patch('/api/queue/order', requireUser, zValidator('json', reorderQueueSchema), async (context) => {
+    .patch('/api/queue/order', requireUser, zValidator('json', reorderSchema), async (context) => {
       await reorderMyQueue(context.req.valid('json').orderedIds, context.get('user'));
       dependencies.onRoomChanged();
       return context.json({ ok: true });
@@ -235,7 +236,7 @@ export function createApp(dependencies: AppDependencies) {
     .patch(
       '/api/queue/room-order',
       requireModerator,
-      zValidator('json', reorderQueueSchema),
+      zValidator('json', reorderSchema),
       async (context) => {
         await reorderRoomQueue(context.req.valid('json').orderedIds, context.get('user'));
         captureServerEvent(context.get('user').id, 'room_queue_reordered');
@@ -311,6 +312,11 @@ export function createApp(dependencies: AppDependencies) {
       captureServerEvent(context.get('user').id, 'rule_created');
       dependencies.onRoomChanged();
       return context.json({ id });
+    })
+    .patch('/api/rules/order', requireAdmin, zValidator('json', reorderSchema), async (context) => {
+      await reorderRules(context.req.valid('json').orderedIds);
+      dependencies.onRoomChanged();
+      return context.json({ ok: true });
     })
     .patch(
       '/api/rules/:id',

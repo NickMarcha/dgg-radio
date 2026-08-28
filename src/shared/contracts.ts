@@ -46,12 +46,13 @@ export interface SearchResult {
   thumbnailUrl: string | null;
 }
 
-export const reorderQueueSchema = z.object({
+/** Shared by the queue and rule reorder routes: the full list, in its new order. */
+export const reorderSchema = z.object({
   orderedIds: z
     .array(z.uuid())
     .min(1)
     .max(500)
-    .refine((ids) => new Set(ids).size === ids.length, 'Track ids must be unique.'),
+    .refine((ids) => new Set(ids).size === ids.length, 'Ids must be unique.'),
 });
 
 export const clearQueueSchema = z.object({

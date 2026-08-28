@@ -21,6 +21,11 @@ vi.mock('./room', async (importOriginal) => ({
   skipCurrentTrack: vi.fn(),
 }));
 
+vi.mock('./rules', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./rules')>()),
+  reorderRules: vi.fn(),
+}));
+
 vi.mock('./admins', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./admins')>()),
   listUsers: vi.fn().mockResolvedValue([]),
@@ -29,6 +34,7 @@ vi.mock('./admins', async (importOriginal) => ({
 
 const { getSessionUser } = await import('./auth');
 const { setUserRole } = await import('./admins');
+const { reorderRules } = await import('./rules');
 const { blockQueueItemMedia, removeQueuedTrack, reorderRoomQueue, skipCurrentTrack } = await import('./room');
 const { createApp } = await import('./app');
 
@@ -92,7 +98,9 @@ describe('role authorization', () => {
       (await request(`/api/queue/${QUEUE_ID}/remove`, 'POST', { reason: 'Remove this track' })).status,
     ).toBe(403);
     expect((await app.request('/api/users')).status).toBe(403);
+    expect((await request('/api/rules/order', 'PATCH', { orderedIds: [RULE_ID] })).status).toBe(403);
     expect(removeQueuedTrack).not.toHaveBeenCalled();
+    expect(reorderRules).not.toHaveBeenCalled();
   });
 
   it('rejects moderation actions from listeners', async () => {
@@ -110,5 +118,13 @@ describe('role authorization', () => {
     const response = await request(`/api/users/${USER_ID}/role`, 'PATCH', { role: 'mod' });
     expect(response.status).toBe(200);
     expect(setUserRole).toHaveBeenCalledWith(USER_ID, 'mod');
+  });
+
+  it('routes an admin rule reorder past the /api/rules/:id handler', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const response = await request('/api/rules/order', 'PATCH', { orderedIds: [RULE_ID] });
+    expect(response.status).toBe(200);
+    expect(reorderRules).toHaveBeenCalledWith([RULE_ID]);
   });
 });

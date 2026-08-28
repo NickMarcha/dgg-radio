@@ -158,6 +158,26 @@ export async function updateRule(
   if (!updated) throw new RuleError('RULE_NOT_FOUND', 'That rule does not exist.', 404);
 }
 
+/**
+ * Writes a new order for the whole rule list. The client sends every id, so a
+ * list that changed underneath the admin is rejected rather than half-applied.
+ */
+export async function reorderRules(
+  orderedIds: string[],
+  db: Database = getDatabase(),
+): Promise<void> {
+  await db.transaction(async (transaction) => {
+    const existing = await transaction.select({ id: rules.id }).from(rules);
+    const ids = new Set(existing.map(({ id }) => id));
+    if (orderedIds.length !== ids.size || orderedIds.some((id) => !ids.has(id))) {
+      throw new RuleError('RULES_CHANGED', 'The rule list changed. Try the move again.', 409);
+    }
+    for (const [position, id] of orderedIds.entries()) {
+      await transaction.update(rules).set({ position }).where(eq(rules.id, id));
+    }
+  });
+}
+
 export async function deleteRule(ruleId: string, db: Database = getDatabase()): Promise<void> {
   const [deleted] = await db
     .delete(rules)

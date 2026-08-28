@@ -34,7 +34,7 @@ import type {
   SearchResult,
 } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
-import { moveQueueItem, type MoveDestination } from './queue-order';
+import { moveItem, type MoveDestination } from './reorder';
 import SiteHeader from './SiteHeader';
 import SiteNav from './SiteNav';
 import './RadioRoom.css';
@@ -541,7 +541,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const moveMyTrack = useCallback(
     async (item: QueueItem, destination: MoveDestination) => {
-      const orderedIds = moveQueueItem(room?.myQueue ?? [], item.id, destination);
+      const orderedIds = moveItem(room?.myQueue ?? [], item.id, destination);
       if (orderedIds) await mutate('/api/queue/order', 'PATCH', { orderedIds });
     },
     [room?.myQueue, mutate],
@@ -553,7 +553,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       const lockedLastId = room?.queue.find(
         ({ requestedBy }) => requestedBy?.id === currentRequesterId,
       )?.id;
-      const orderedIds = moveQueueItem(room?.queue ?? [], item.id, destination, lockedLastId);
+      const orderedIds = moveItem(room?.queue ?? [], item.id, destination, lockedLastId);
       if (orderedIds) await mutate('/api/queue/room-order', 'PATCH', { orderedIds });
     },
     [room?.current?.requestedBy?.id, room?.queue, mutate],
