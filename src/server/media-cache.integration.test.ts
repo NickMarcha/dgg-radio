@@ -4,6 +4,7 @@ import { eq, sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { MediaMetadata } from './media';
+import { testConnectionString } from './test-support';
 
 process.env.DATABASE_URL ??= 'postgresql://unused';
 process.env.APP_ORIGIN ??= 'http://localhost:4321';
@@ -22,7 +23,7 @@ const { lookupMediaCached } = await import('./media-cache');
 const schema = await import('./db/schema');
 const { mediaLookups } = schema;
 
-const connectionString = process.env.TEST_DATABASE_URL;
+const connectionString = testConnectionString();
 
 const youtubeUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 const soundcloudUrl = 'https://soundcloud.com/artist/a-track';

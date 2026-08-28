@@ -110,18 +110,36 @@ npm run stack:down   stop the stack without deleting the database volume
 
 ## Testing
 
-`npm test` runs the unit tests on their own. The room transition tests need a real Postgres, so they skip unless `TEST_DATABASE_URL` points at one. They apply the migrations themselves and truncate every table between cases, so give them a throwaway database.
+`npm test` runs the unit tests on their own. The integration tests need a real Postgres, so they skip unless `TEST_DATABASE_URL` points at one.
+
+They truncate every table between cases, so the database name must end in `_test` or they refuse to run. That guard exists because pointing them at the development database once was enough to wipe its users and history.
+
+Create it once:
 
 ```sh
 npm run db:up
-TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio npm test
+docker compose exec db createdb -U dgg_radio dgg_radio_test
+```
+
+Then run against it:
+
+```sh
+TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
 On PowerShell, set the variable first:
 
 ```powershell
-$env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio'; npm test
+$env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test'; npm test
 ```
+
+## Pages
+
+| Path | |
+| --- | --- |
+| `/` and `/player` | the room: player, room queue, your own queue, request form |
+| `/admin` | room settings, rules and their blocklists, admins, clearing queues |
+| `/auth/callback` | where Destiny returns after sign-in |
 
 ## Deployment
 

@@ -34,7 +34,7 @@ import {
   RuleError,
   updateRule,
 } from './rules';
-import { AdminError, listAdmins, setUserRole } from './admins';
+import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
 import { getEnv } from './env';
 import { MediaLookupError } from './media';
 import {
@@ -283,6 +283,9 @@ export function createApp(dependencies: AppDependencies) {
       },
     )
     .get('/api/admins', requireAdmin, async (context) => context.json({ admins: await listAdmins() }))
+    .get('/api/users', requireAdmin, async (context) =>
+      context.json({ users: await listUsers(context.req.query('search')?.trim() || undefined) }),
+    )
     .patch(
       '/api/admins/:id',
       requireAdmin,

@@ -3,6 +3,12 @@ import type { AuthenticatedUser } from './auth';
 import { getDatabase, type Database } from './db/client';
 import { rules, ruleEntries } from './db/schema';
 import type { MediaMetadata } from './media';
+import type {
+  RuleEnforcement,
+  RuleEntrySummary,
+  RuleEntryType,
+  RuleSummary,
+} from '../shared/contracts';
 
 export class RuleError extends Error {
   constructor(
@@ -15,28 +21,7 @@ export class RuleError extends Error {
   }
 }
 
-export type RuleEnforcement = 'blocklist' | 'advisory';
-export type RuleEntryType = 'track' | 'artist';
-
-export interface RuleSummary {
-  id: string;
-  name: string;
-  description: string;
-  enforcement: RuleEnforcement;
-  position: number;
-  entryCount: number;
-}
-
-export interface RuleEntrySummary {
-  id: string;
-  ruleId: string;
-  provider: 'youtube' | 'soundcloud';
-  entryType: RuleEntryType;
-  providerId: string;
-  label: string;
-  note: string | null;
-  createdAt: string;
-}
+export type { RuleEnforcement, RuleEntryType } from '../shared/contracts';
 
 export interface BlockingRule {
   ruleId: string;

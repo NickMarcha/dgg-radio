@@ -1,7 +1,7 @@
-import { asc, eq } from 'drizzle-orm';
-import type { UserRole } from '../shared/contracts';
+import { asc, desc, eq, ilike, sql } from 'drizzle-orm';
+import type { RoomMember, UserRole } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
-import { users } from './db/schema';
+import { queueItems, users } from './db/schema';
 import { getAdminUsernames, getEnv } from './env';
 
 export class AdminError extends Error {
@@ -45,6 +45,49 @@ export async function listAdmins(db: Database = getDatabase()): Promise<AdminSum
     .from(users)
     .where(eq(users.role, 'admin'))
     .orderBy(asc(users.username));
+
+  return rows.map((row) => ({
+    ...row,
+    isRoot: isRootAdmin(row.username),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+  }));
+}
+
+/**
+ * People an admin might act on, newest activity first, each with how much they
+ * have waiting so a queue worth clearing is visible without drilling in.
+ */
+export async function listUsers(
+  search: string | undefined,
+  db: Database = getDatabase(),
+): Promise<RoomMember[]> {
+  const queued = db.$with('queued').as(
+    db
+      .select({
+        userId: queueItems.requestedByUserId,
+        queuedCount: sql<number>`count(*)`.mapWith(Number).as('queued_count'),
+      })
+      .from(queueItems)
+      .where(eq(queueItems.status, 'queued'))
+      .groupBy(queueItems.requestedByUserId),
+  );
+
+  const rows = await db
+    .with(queued)
+    .select({
+      id: users.id,
+      username: users.username,
+      avatarUrl: users.avatarUrl,
+      role: users.role,
+      team: users.team,
+      lastSeenAt: users.lastSeenAt,
+      queuedCount: sql<number>`coalesce(${queued.queuedCount}, 0)`.mapWith(Number),
+    })
+    .from(users)
+    .leftJoin(queued, eq(queued.userId, users.id))
+    .where(search ? ilike(users.username, `%${search}%`) : undefined)
+    .orderBy(desc(users.lastSeenAt))
+    .limit(50);
 
   return rows.map((row) => ({
     ...row,

@@ -94,6 +94,41 @@ export interface SelectorStats {
   score: number;
 }
 
+export type RuleEnforcement = 'blocklist' | 'advisory';
+export type RuleEntryType = 'track' | 'artist';
+
+export interface RuleSummary {
+  id: string;
+  name: string;
+  description: string;
+  enforcement: RuleEnforcement;
+  position: number;
+  entryCount: number;
+}
+
+export interface RuleEntrySummary {
+  id: string;
+  ruleId: string;
+  provider: MediaProvider;
+  entryType: RuleEntryType;
+  providerId: string;
+  label: string;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface RoomMember {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+  role: UserRole;
+  team: 'pepe' | 'yee' | null;
+  /** Named in the environment, so always an admin and not removable here. */
+  isRoot: boolean;
+  queuedCount: number;
+  lastSeenAt: string;
+}
+
 export interface RoomSnapshot {
   serverTime: string;
   revision: number;

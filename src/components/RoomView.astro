@@ -1,0 +1,16 @@
+---
+import RadioRoom from './RadioRoom';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+const posthogKey = import.meta.env.PUBLIC_POSTHOG_KEY;
+const posthogHost = import.meta.env.PUBLIC_POSTHOG_HOST;
+---
+
+<BaseLayout
+  title="DGG Radio"
+  description="One shared, community-run music room for Destiny.gg."
+>
+  <RadioRoom client:load apiUrl={apiUrl} posthogKey={posthogKey} posthogHost={posthogHost} />
+</BaseLayout>

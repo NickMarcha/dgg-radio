@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { AuthenticatedUser } from './auth';
 import type { MediaMetadata } from './media';
+import { testConnectionString } from './test-support';
 
 process.env.DATABASE_URL ??= 'postgresql://unused';
 process.env.APP_ORIGIN ??= 'http://localhost:4321';
@@ -18,7 +19,7 @@ const { addRuleEntry, createRule, deleteRule, findBlockingRule, listRules, RuleE
 const schema = await import('./db/schema');
 const { rules, ruleEntries, users } = schema;
 
-const connectionString = process.env.TEST_DATABASE_URL;
+const connectionString = testConnectionString();
 
 function track(overrides: Partial<MediaMetadata> = {}): MediaMetadata {
   return {

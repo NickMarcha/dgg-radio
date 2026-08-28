@@ -1,0 +1,265 @@
+.admin {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.admin-centred {
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  color: var(--muted);
+}
+
+.admin-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.admin-header p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.admin-link {
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.admin-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+.admin-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.admin-help,
+.admin-description {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: 0 0 1rem;
+}
+
+.admin-description {
+  margin: 0.35rem 0 0;
+}
+
+.admin-empty {
+  color: var(--faint);
+  font-size: 0.9rem;
+  padding: 0.75rem 0;
+}
+
+.admin-error,
+.admin-notice {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.admin-error {
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface));
+  border: 1px solid var(--danger);
+}
+
+.admin-notice {
+  background: color-mix(in srgb, var(--success) 18%, var(--surface));
+  border: 1px solid var(--success);
+}
+
+.admin-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  align-items: end;
+}
+
+.admin-form-inline {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.admin-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.admin-form small {
+  color: var(--faint);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.admin-form input,
+.admin-form select,
+.admin input[type='search'] {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.5rem 0.65rem;
+  width: 100%;
+}
+
+.admin input[type='search'] {
+  margin-bottom: 1rem;
+}
+
+.admin-check {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  grid-column: 1 / -1;
+}
+
+.admin-check input {
+  width: auto;
+}
+
+.admin-check small {
+  flex-basis: 100%;
+}
+
+.admin button {
+  background: var(--accent);
+  border: none;
+  border-radius: 7px;
+  color: #1a1200;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.5rem 0.9rem;
+}
+
+.admin button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.admin button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admin-row-actions button,
+.admin-entries button {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.admin-row-actions button:hover:not(:disabled),
+.admin-entries button:hover:not(:disabled) {
+  background: var(--line);
+}
+
+.admin-row-actions .danger {
+  color: var(--danger);
+}
+
+.admin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-list > li {
+  border-top: 1px solid var(--line);
+  padding: 0.85rem 0;
+}
+
+.admin-list > li:first-child {
+  border-top: none;
+}
+
+.admin-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-row-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.admin-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--faint);
+  font-size: 0.78rem;
+  margin-left: 0.6rem;
+}
+
+.admin-entries {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0 0 0 1rem;
+  border-left: 2px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.admin-entries li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.85rem;
+}
+
+.admin-entries em {
+  color: var(--accent);
+  font-style: normal;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.spin {
+  animation: admin-spin 1s linear infinite;
+}
+
+@keyframes admin-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

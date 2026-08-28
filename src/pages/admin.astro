@@ -1,0 +1,11 @@
+---
+import AdminPanel from '../components/AdminPanel';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+---
+
+<BaseLayout title="Room admin — DGG Radio" description="Manage the DGG Radio room.">
+  <AdminPanel client:load apiUrl={apiUrl} />
+</BaseLayout>
