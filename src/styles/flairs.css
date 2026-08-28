@@ -11,6 +11,15 @@
  *
  * The `move` keyframes upstream are renamed, being far too general a name to
  * put in a shared stylesheet.
+ *
+ * Each selector names its class twice. That is not a typo. A username is
+ * already coloured by the component it sits in — `.profile-link` sets one, and
+ * `.queue-copy a` sets another at a specificity a single class cannot beat — so
+ * a flair colour has to outrank whatever default is in play. Doubling the class
+ * does that without this file having to know the name of every rule it competes
+ * with, and without an `!important` that later rules could not override at all.
+ * Nothing sets `color` on these elements at higher specificity; the `:hover`
+ * rules only touch `text-decoration`.
  */
 
 :root {
@@ -18,29 +27,29 @@
   --flair-rainbow-lightness: 65%;
 }
 
-.flair-moderator { color: #db4c1c; }
-.flair-flair125 { color: #ffd88c; }
-.flair-flair11 { color: #929292; }
-.flair-bot { color: #0088cc; }
-.flair-subscriber,
-.flair-flair9,
-.flair-flair13,
-.flair-flair32 { color: #59aeea; }
-.flair-flair1,
-.flair-flair22 { color: #2addc8; }
-.flair-flair3,
-.flair-flair24 { color: #4db524; }
-.flair-flair8,
-.flair-flair26 { color: #dd29d2; }
-.flair-flair12 { color: #e79015; }
-.flair-flair7 { color: #fc4c02; }
-.flair-flair18 { color: #f082bb; }
-.flair-admin { color: #ee1f1f; }
-.flair-flair17 { color: #fce205; }
+.flair-moderator.flair-moderator { color: #db4c1c; }
+.flair-flair125.flair-flair125 { color: #ffd88c; }
+.flair-flair11.flair-flair11 { color: #929292; }
+.flair-bot.flair-bot { color: #0088cc; }
+.flair-subscriber.flair-subscriber,
+.flair-flair9.flair-flair9,
+.flair-flair13.flair-flair13,
+.flair-flair32.flair-flair32 { color: #59aeea; }
+.flair-flair1.flair-flair1,
+.flair-flair22.flair-flair22 { color: #2addc8; }
+.flair-flair3.flair-flair3,
+.flair-flair24.flair-flair24 { color: #4db524; }
+.flair-flair8.flair-flair8,
+.flair-flair26.flair-flair26 { color: #dd29d2; }
+.flair-flair12.flair-flair12 { color: #e79015; }
+.flair-flair7.flair-flair7 { color: #fc4c02; }
+.flair-flair18.flair-flair18 { color: #f082bb; }
+.flair-admin.flair-admin { color: #ee1f1f; }
+.flair-flair17.flair-flair17 { color: #fce205; }
 
 /* Two flairs are a moving gradient rather than a colour. */
-.flair-flair42,
-.flair-flair33 {
+.flair-flair42.flair-flair42,
+.flair-flair33.flair-flair33 {
   color: transparent;
   background: repeating-linear-gradient(
     90deg,
@@ -67,8 +76,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .flair-flair42,
-  .flair-flair33 {
+  .flair-flair42.flair-flair42,
+  .flair-flair33.flair-flair33 {
     animation: none;
   }
 }
