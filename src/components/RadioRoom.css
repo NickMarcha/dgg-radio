@@ -88,29 +88,11 @@
   overflow: visible;
 }
 
-.team-label,
 .admin-label {
   border-radius: 5px;
   font-size: 12px;
   font-weight: 700;
   line-height: 18px;
-}
-
-.team-label {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 0 5px;
-  vertical-align: 1px;
-}
-
-.team-pepe {
-  background: var(--success-bg);
-  color: var(--success);
-}
-
-.team-yee {
-  background: var(--accent-bg);
-  color: var(--accent-soft);
 }
 
 .admin-label {

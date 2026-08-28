@@ -187,11 +187,6 @@ function formatDuration(seconds: number): string {
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-function TeamLabel({ user }: { user: RoomUser }) {
-  if (!user.team) return null;
-  return <span className={`team-label team-${user.team}`}>{user.team.toUpperCase()}</span>;
-}
-
 function UserAvatar({ user }: { user: RoomUser }) {
   if (!user.avatarUrl) {
     return (
@@ -270,15 +265,12 @@ function QueueRow({
         </span>
         <span className="requester">
           {item.requestedBy ? (
-            <>
-              <a
-                className={userClass(item.requestedBy, 'profile-link')}
-                href={`/profile/${encodeURIComponent(item.requestedBy.username)}`}
-              >
-                {item.requestedBy.username}
-              </a>{' '}
-              <TeamLabel user={item.requestedBy} />
-            </>
+            <a
+              className={userClass(item.requestedBy, 'profile-link')}
+              href={`/profile/${encodeURIComponent(item.requestedBy.username)}`}
+            >
+              {item.requestedBy.username}
+            </a>
           ) : (
             <em>requester hidden</em>
           )}
@@ -643,8 +635,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                   href={`/profile/${encodeURIComponent(room.me.username)}`}
                 >
                   {room.me.username}
-                </a>{' '}
-                <TeamLabel user={room.me} />
+                </a>
               </span>
               {admin && (
                 <a className="admin-label" href="/admin" title="Room admin">
@@ -873,7 +864,6 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                           >
                             {entry.user.username}
                           </a>
-                          <TeamLabel user={entry.user} />
                         </td>
                         <td>{entry.plays}</td>
                         <td>{entry.upvotes}</td>
