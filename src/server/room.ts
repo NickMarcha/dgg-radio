@@ -17,7 +17,6 @@ import type {
 import type { AuthenticatedUser } from './auth';
 import { getDatabase, type Database } from './db/client';
 import {
-  blockedMedia,
   media,
   moderationActions,
   queueItems,
@@ -27,6 +26,7 @@ import {
   votes,
 } from './db/schema';
 import { lookupMediaCached } from './media-cache';
+import { addRuleEntry, findBlockingRule } from './rules';
 import { MediaLookupError, type MediaMetadata } from './media';
 import { orderQueueRoundRobin } from './queue-order';
 
@@ -144,6 +144,10 @@ async function getSettings(db: Database) {
     .select({
       maxDurationSeconds: roomSettings.maxDurationSeconds,
       targetCountry: roomSettings.targetCountry,
+      skipMode: roomSettings.skipMode,
+      skipDownvotes: roomSettings.skipDownvotes,
+      skipRatioPercent: roomSettings.skipRatioPercent,
+      revealRequester: roomSettings.revealRequester,
     })
     .from(roomSettings)
     .where(eq(roomSettings.id, 1));
@@ -164,17 +168,8 @@ async function validateForPlayback(
       `Tracks must be ${Math.floor(maxDurationSeconds / 60)} minutes or shorter.`,
     );
   }
-  const [blocked] = await db
-    .select({ reason: blockedMedia.reason })
-    .from(blockedMedia)
-    .where(
-      and(
-        eq(blockedMedia.provider, checked.provider),
-        eq(blockedMedia.providerMediaId, checked.providerMediaId),
-      ),
-    )
-    .limit(1);
-  if (blocked) throw new RoomError('MEDIA_BLOCKED', `This track is blocked: ${blocked.reason}`);
+  const blocked = await findBlockingRule(checked, db);
+  if (blocked) throw new RoomError('MEDIA_BLOCKED', `This track breaks "${blocked.ruleName}".`);
   return checked;
 }
 
@@ -330,17 +325,11 @@ export async function enqueueMedia(
     );
   }
 
-  const [blocked] = await db
-    .select({ reason: blockedMedia.reason })
-    .from(blockedMedia)
-    .where(
-      and(
-        eq(blockedMedia.provider, metadata.provider),
-        eq(blockedMedia.providerMediaId, metadata.providerMediaId),
-      ),
-    )
-    .limit(1);
-  if (blocked) throw new RoomError('MEDIA_BLOCKED', `This track is blocked: ${blocked.reason}`);
+  const blocked = await findBlockingRule(metadata, db);
+  if (blocked) {
+    const scope = blocked.entryType === 'artist' ? `${blocked.label} is blocked` : 'That track is blocked';
+    throw new RoomError('MEDIA_BLOCKED', `${scope} under "${blocked.ruleName}".`);
+  }
 
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
@@ -468,7 +457,7 @@ export async function removeQueuedTrack(
 
 export async function blockQueueItemMedia(
   queueItemId: string,
-  reason: string,
+  options: { ruleId: string; entryType: 'track' | 'artist'; note?: string | null },
   admin: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<void> {
@@ -477,7 +466,9 @@ export async function blockQueueItemMedia(
       mediaId: media.id,
       provider: media.provider,
       providerMediaId: media.providerMediaId,
+      providerArtistId: media.providerArtistId,
       title: media.title,
+      artist: media.artist,
       status: queueItems.status,
     })
     .from(queueItems)
@@ -486,51 +477,80 @@ export async function blockQueueItemMedia(
     .limit(1);
   if (!item) throw new RoomError('QUEUE_ITEM_NOT_FOUND', 'That queue item does not exist.', 404);
 
-  await db
-    .insert(blockedMedia)
-    .values({
+  const blockingArtist = options.entryType === 'artist';
+  await addRuleEntry(
+    options.ruleId,
+    {
       provider: item.provider,
-      providerMediaId: item.providerMediaId,
-      title: item.title,
-      reason,
-      blockedByUserId: admin.id,
-    })
-    .onConflictDoUpdate({
-      target: [blockedMedia.provider, blockedMedia.providerMediaId],
-      set: { reason, blockedByUserId: admin.id, createdAt: new Date() },
-    });
-  await db
-    .update(queueItems)
-    .set({ status: 'removed', finishedAt: new Date(), moderationReason: reason })
-    .where(and(eq(queueItems.mediaId, item.mediaId), eq(queueItems.status, 'queued')));
+      entryType: options.entryType,
+      providerId: blockingArtist ? item.providerArtistId : item.providerMediaId,
+      label: blockingArtist ? item.artist : item.title,
+      note: options.note ?? null,
+    },
+    admin,
+    db,
+  );
+
+  // Drop everything the new entry now covers, not just the item that triggered it.
+  const covered = blockingArtist
+    ? and(eq(media.provider, item.provider), eq(media.providerArtistId, item.providerArtistId))
+    : eq(queueItems.mediaId, item.mediaId);
+  const doomed = await db
+    .select({ id: queueItems.id })
+    .from(queueItems)
+    .innerJoin(media, eq(queueItems.mediaId, media.id))
+    .where(and(eq(queueItems.status, 'queued'), covered));
+  if (doomed.length > 0) {
+    await db
+      .update(queueItems)
+      .set({
+        status: 'removed',
+        finishedAt: new Date(),
+        moderationReason: options.note ?? 'Blocked by a room rule.',
+      })
+      .where(inArray(queueItems.id, doomed.map(({ id }) => id)));
+  }
+
   await db.insert(moderationActions).values({
     actorUserId: admin.id,
-    action: 'block_media',
+    action: blockingArtist ? 'block_artist' : 'block_track',
     queueItemId,
     mediaId: item.mediaId,
-    details: { reason },
+    details: { ruleId: options.ruleId, note: options.note ?? null },
   });
 
   if (item.status === 'playing') {
-    await advanceCurrentTrack('skipped', `Blocked: ${reason}`, queueItemId, db);
+    await advanceCurrentTrack('skipped', 'Blocked by a room rule.', queueItemId, db);
   } else {
     await bumpRevision(db);
   }
 }
 
+export type RoomSettingsPatch = Partial<{
+  maxDurationSeconds: number;
+  targetCountry: string;
+  skipMode: 'absolute' | 'ratio';
+  skipDownvotes: number;
+  skipRatioPercent: number;
+  revealRequester: boolean;
+}>;
+
 export async function updateRoomSettings(
-  maxDurationSeconds: number,
+  patch: RoomSettingsPatch,
   admin: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<void> {
+  if (Object.keys(patch).length === 0) {
+    throw new RoomError('NO_SETTINGS_GIVEN', 'No settings were provided.');
+  }
   await db
     .update(roomSettings)
-    .set({ maxDurationSeconds, updatedAt: new Date(), updatedByUserId: admin.id })
+    .set({ ...patch, updatedAt: new Date(), updatedByUserId: admin.id })
     .where(eq(roomSettings.id, 1));
   await db.insert(moderationActions).values({
     actorUserId: admin.id,
     action: 'update_settings',
-    details: { maxDurationSeconds },
+    details: patch,
   });
   await bumpRevision(db);
 }
@@ -644,10 +664,7 @@ export async function getRoomSnapshot(
     serverTime: new Date().toISOString(),
     revision: state.revision,
     listenerCount,
-    settings: {
-      maxDurationSeconds: settings.maxDurationSeconds,
-      targetCountry: 'AE',
-    },
+    settings,
     me: me
       ? {
           id: me.id,

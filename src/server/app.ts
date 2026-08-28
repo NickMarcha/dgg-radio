@@ -4,8 +4,11 @@ import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import {
+  adminRoleSchema,
   blockMediaSchema,
   removeQueueItemSchema,
+  ruleSchema,
+  ruleUpdateSchema,
   roomSettingsSchema,
   submitRequestSchema,
   voteSchema,
@@ -20,6 +23,16 @@ import {
   type AuthenticatedUser,
 } from './auth';
 import { captureServerEvent, captureServerException } from './analytics';
+import {
+  createRule,
+  deleteRule,
+  listRuleEntries,
+  listRules,
+  removeRuleEntry,
+  RuleError,
+  updateRule,
+} from './rules';
+import { AdminError, listAdmins, setUserRole } from './admins';
 import { getEnv } from './env';
 import { MediaLookupError } from './media';
 import {
@@ -64,7 +77,7 @@ export function createApp(dependencies: AppDependencies) {
       origin: env.APP_ORIGIN,
       credentials: true,
       allowHeaders: ['Content-Type'],
-      allowMethods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+      allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     }),
   );
   app.use('/api/*', async (context, next) => {
@@ -95,7 +108,12 @@ export function createApp(dependencies: AppDependencies) {
   };
 
   app.onError((error, context) => {
-    if (error instanceof RoomError || error instanceof MediaLookupError) {
+    if (
+      error instanceof RoomError ||
+      error instanceof MediaLookupError ||
+      error instanceof RuleError ||
+      error instanceof AdminError
+    ) {
       if (error.status >= 500) {
         captureServerException(error, context.get('user')?.id, {
           error_code: error.code,
@@ -181,8 +199,7 @@ export function createApp(dependencies: AppDependencies) {
       zValidator('json', blockMediaSchema),
       async (context) => {
         const { id } = context.req.valid('param');
-        const { reason } = context.req.valid('json');
-        await blockQueueItemMedia(id, reason, context.get('user'));
+        await blockQueueItemMedia(id, context.req.valid('json'), context.get('user'));
         captureServerEvent(context.get('user').id, 'media_blocked');
         dependencies.onRoomChanged();
         return context.json({ ok: true });
@@ -196,14 +213,62 @@ export function createApp(dependencies: AppDependencies) {
       return context.json({ ok: true });
     })
     .patch('/api/settings', requireAdmin, zValidator('json', roomSettingsSchema), async (context) => {
-      const { maxDurationSeconds } = context.req.valid('json');
-      await updateRoomSettings(maxDurationSeconds, context.get('user'));
+      const patch = context.req.valid('json');
+      await updateRoomSettings(patch, context.get('user'));
       captureServerEvent(context.get('user').id, 'room_settings_changed', {
-        max_duration_seconds: maxDurationSeconds,
+        fields: Object.keys(patch).join(','),
       });
       dependencies.onRoomChanged();
       return context.json({ ok: true });
-    });
+    })
+    .get('/api/rules', async (context) => context.json({ rules: await listRules() }))
+    .get('/api/rules/:id/entries', requireAdmin, zValidator('param', idParamSchema), async (context) =>
+      context.json({ entries: await listRuleEntries(context.req.valid('param').id) }),
+    )
+    .post('/api/rules', requireAdmin, zValidator('json', ruleSchema), async (context) => {
+      const id = await createRule(context.req.valid('json'), context.get('user'));
+      captureServerEvent(context.get('user').id, 'rule_created');
+      dependencies.onRoomChanged();
+      return context.json({ id });
+    })
+    .patch(
+      '/api/rules/:id',
+      requireAdmin,
+      zValidator('param', idParamSchema),
+      zValidator('json', ruleUpdateSchema),
+      async (context) => {
+        await updateRule(context.req.valid('param').id, context.req.valid('json'));
+        dependencies.onRoomChanged();
+        return context.json({ ok: true });
+      },
+    )
+    .delete('/api/rules/:id', requireAdmin, zValidator('param', idParamSchema), async (context) => {
+      await deleteRule(context.req.valid('param').id);
+      dependencies.onRoomChanged();
+      return context.json({ ok: true });
+    })
+    .delete(
+      '/api/rules/entries/:id',
+      requireAdmin,
+      zValidator('param', idParamSchema),
+      async (context) => {
+        await removeRuleEntry(context.req.valid('param').id);
+        dependencies.onRoomChanged();
+        return context.json({ ok: true });
+      },
+    )
+    .get('/api/admins', requireAdmin, async (context) => context.json({ admins: await listAdmins() }))
+    .patch(
+      '/api/admins/:id',
+      requireAdmin,
+      zValidator('param', idParamSchema),
+      zValidator('json', adminRoleSchema),
+      async (context) => {
+        await setUserRole(context.req.valid('param').id, context.req.valid('json').role);
+        captureServerEvent(context.get('user').id, 'admin_role_changed');
+        return context.json({ ok: true });
+      },
+    );
 
   return routes;
 }

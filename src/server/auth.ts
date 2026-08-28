@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { and, eq, gt, lt } from 'drizzle-orm';
+import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import { z } from 'zod';
@@ -184,7 +184,9 @@ export async function completeAuthorization(
         dggStatus: identity.status,
         dggRoles: identity.roles,
         dggFeatures: identity.features,
-        role,
+        // Only ever promote on sign-in. Admins granted on the admin page are
+        // stored in the database, and recomputing this would demote them.
+        role: role === 'admin' ? 'admin' : sql`${users.role}`,
         team,
         lastSeenAt: new Date(),
       },

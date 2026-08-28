@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { MediaMetadata } from '../media';
 import {
+  boolean,
   check,
   index,
   integer,
@@ -17,6 +18,9 @@ import {
 export const userRole = pgEnum('user_role', ['listener', 'admin']);
 export const userTeam = pgEnum('user_team', ['pepe', 'yee']);
 export const mediaProvider = pgEnum('media_provider', ['youtube', 'soundcloud']);
+export const ruleEnforcement = pgEnum('rule_enforcement', ['blocklist', 'advisory']);
+export const ruleEntryType = pgEnum('rule_entry_type', ['track', 'artist']);
+export const skipMode = pgEnum('skip_mode', ['absolute', 'ratio']);
 export const queueStatus = pgEnum('queue_status', [
   'queued',
   'playing',
@@ -156,21 +160,50 @@ export const votes = pgTable(
   ],
 );
 
-export const blockedMedia = pgTable(
-  'blocked_media',
+/**
+ * A rule is a named reason an admin can act on. Some are enforced by matching a
+ * growing list of tracks and artists, others exist only to be read by listeners.
+ */
+export const rules = pgTable(
+  'rules',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    enforcement: ruleEnforcement('enforcement').notNull(),
+    position: integer('position').notNull().default(0),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('rules_name_lower_unique').on(sql`lower(${table.name})`)],
+);
+
+/**
+ * One blocked track or artist, attributed to the rule it broke. Blocking an
+ * artist covers their whole catalogue; a collaboration released under someone
+ * else's channel needs its own track entry.
+ */
+export const ruleEntries = pgTable(
+  'rule_entries',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ruleId: uuid('rule_id')
+      .notNull()
+      .references(() => rules.id, { onDelete: 'cascade' }),
     provider: mediaProvider('provider').notNull(),
-    providerMediaId: text('provider_media_id').notNull(),
-    title: text('title').notNull(),
-    reason: text('reason').notNull(),
-    blockedByUserId: uuid('blocked_by_user_id')
+    entryType: ruleEntryType('entry_type').notNull(),
+    providerId: text('provider_id').notNull(),
+    label: text('label').notNull(),
+    note: text('note'),
+    addedByUserId: uuid('added_by_user_id')
       .notNull()
       .references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('blocked_media_provider_id_unique').on(table.provider, table.providerMediaId),
+    // One thing is blocked once, under one rule, so the reason shown is unambiguous.
+    uniqueIndex('rule_entries_target_unique').on(table.provider, table.entryType, table.providerId),
+    index('rule_entries_rule_index').on(table.ruleId),
   ],
 );
 
@@ -180,6 +213,13 @@ export const roomSettings = pgTable(
     id: integer('id').primaryKey().default(1),
     maxDurationSeconds: integer('max_duration_seconds').notNull().default(420),
     targetCountry: text('target_country').notNull().default('AE'),
+    skipMode: skipMode('skip_mode').notNull().default('absolute'),
+    /** Downvotes needed to skip when skipMode is 'absolute'. */
+    skipDownvotes: integer('skip_downvotes').notNull().default(5),
+    /** Percentage of current listeners needed when skipMode is 'ratio'. */
+    skipRatioPercent: integer('skip_ratio_percent').notNull().default(50),
+    /** When false, requesters are hidden from listeners until a track ends. */
+    revealRequester: boolean('reveal_requester').notNull().default(true),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
   },
@@ -189,7 +229,10 @@ export const roomSettings = pgTable(
       'room_settings_duration_range',
       sql`${table.maxDurationSeconds} between 60 and 1800`,
     ),
-    check('room_settings_country_ae', sql`${table.targetCountry} = 'AE'`),
+    // The region is admin-editable now, so only its shape is enforced.
+    check('room_settings_country_code', sql`${table.targetCountry} ~ '^[A-Z]{2}$'`),
+    check('room_settings_skip_downvotes', sql`${table.skipDownvotes} >= 1`),
+    check('room_settings_skip_ratio', sql`${table.skipRatioPercent} between 1 and 100`),
   ],
 );
 

@@ -12,7 +12,23 @@ export const voteSchema = z.object({
 });
 
 export const blockMediaSchema = z.object({
-  reason: z.string().trim().min(3).max(240),
+  ruleId: z.uuid(),
+  entryType: z.enum(['track', 'artist']),
+  note: z.string().trim().max(240).optional(),
+});
+
+export const ruleSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  description: z.string().trim().max(600).default(''),
+  enforcement: z.enum(['blocklist', 'advisory']),
+});
+
+export const ruleUpdateSchema = ruleSchema.partial().extend({
+  position: z.number().int().min(0).optional(),
+});
+
+export const adminRoleSchema = z.object({
+  role: z.enum(['listener', 'admin']),
 });
 
 export const removeQueueItemSchema = z.object({
@@ -20,7 +36,12 @@ export const removeQueueItemSchema = z.object({
 });
 
 export const roomSettingsSchema = z.object({
-  maxDurationSeconds: z.number().int().min(60).max(1_800),
+  maxDurationSeconds: z.number().int().min(60).max(1_800).optional(),
+  targetCountry: z.string().regex(/^[A-Z]{2}$/, 'Use a two-letter country code.').optional(),
+  skipMode: z.enum(['absolute', 'ratio']).optional(),
+  skipDownvotes: z.number().int().min(1).max(500).optional(),
+  skipRatioPercent: z.number().int().min(1).max(100).optional(),
+  revealRequester: z.boolean().optional(),
 });
 
 export type UserRole = 'listener' | 'admin';
@@ -70,7 +91,11 @@ export interface RoomSnapshot {
   listenerCount: number;
   settings: {
     maxDurationSeconds: number;
-    targetCountry: 'AE';
+    targetCountry: string;
+    skipMode: 'absolute' | 'ratio';
+    skipDownvotes: number;
+    skipRatioPercent: number;
+    revealRequester: boolean;
   };
   me: RoomUser | null;
   current: QueueItem | null;

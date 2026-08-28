@@ -26,6 +26,7 @@ const {
   skipCurrentTrack,
   voteOnCurrentTrack,
 } = await import('./room');
+const { createRule } = await import('./rules');
 const schema = await import('./db/schema');
 const { media, moderationActions, queueItems, roomState, users } = schema;
 
@@ -58,7 +59,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
   afterEach(async () => {
     await db.execute(
-      sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.blockedMedia}, ${roomState}, ${schema.roomSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${users} restart identity cascade`,
+      sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.ruleEntries}, ${schema.rules}, ${roomState}, ${schema.roomSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${users} restart identity cascade`,
     );
     vi.mocked(lookupMediaCached).mockReset();
   });
@@ -202,7 +203,12 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
     await enqueueMedia(playing.canonicalUrl, nathan, db);
     const queued = await enqueueMedia(banned.canonicalUrl, swagy, db);
-    await blockQueueItemMedia(queued.id, 'Dicko Mode', admin, db);
+    const ruleId = await createRule(
+      { name: 'No meme songs', description: '', enforcement: 'blocklist' },
+      admin,
+      db,
+    );
+    await blockQueueItemMedia(queued.id, { ruleId, entryType: 'track' }, admin, db);
 
     const snapshot = await getRoomSnapshot(null, 0, db);
     expect(snapshot.queue).toEqual([]);

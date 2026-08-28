@@ -22,6 +22,20 @@
       "when": 1787894682194,
       "tag": "0002_puzzling_slyde",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787895346080,
+      "tag": "0003_drop_blocked_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787895353470,
+      "tag": "0004_add_rules",
+      "breakpoints": true
     }
   ]
 }
