@@ -191,6 +191,8 @@ export const rules = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     enforcement: ruleEnforcement('enforcement').notNull(),
+    /** Off keeps the rule and its list, but stops showing and enforcing it. */
+    active: boolean('active').notNull().default(true),
     position: integer('position').notNull().default(0),
     createdByUserId: uuid('created_by_user_id').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -231,6 +233,8 @@ export const roomSettings = pgTable(
   'room_settings',
   {
     id: integer('id').primaryKey().default(1),
+    /** Free text shown on the player: what this room is and how to behave. */
+    description: text('description').notNull().default(''),
     maxDurationSeconds: integer('max_duration_seconds').notNull().default(420),
     targetCountry: text('target_country').notNull().default('AE'),
     skipMode: skipMode('skip_mode').notNull().default('absolute'),

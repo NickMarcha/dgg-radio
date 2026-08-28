@@ -24,7 +24,6 @@ import {
   initClientAnalytics,
   resetClientUser,
 } from '../client/analytics';
-import { allowedExamples, blockedExamples, roomRules } from '../content/rules';
 import type { ApiErrorBody, QueueItem, RoomSnapshot, RoomUser } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
 import './RadioRoom.css';
@@ -356,6 +355,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
         <a className="brand" href="/" aria-label="DGG Radio home">
           <Radio size={22} />
           <span>DGG Radio</span>
+          <span className="beta-badge">beta</span>
         </a>
         <div className="room-presence">
           <span className={connected ? 'connection-ok' : 'connection-wait'}>
@@ -487,14 +487,35 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
           <details className="rules-section">
             <summary>Room rules <ChevronDown size={16} /></summary>
             <div className="rules-content">
-              <ol>{roomRules.map((rule) => <li key={rule}>{rule}</li>)}</ol>
-              <div className="examples-grid">
-                <div><h3>Allowed examples</h3><ul>{allowedExamples.map((item) => <li key={item}>{item}</li>)}</ul></div>
-                <div><h3>Disallowed examples</h3><ul>{blockedExamples.map((item) => <li key={item}>{item}</li>)}</ul></div>
-              </div>
-              <p>If a track is skipped, it may have become unavailable, age-restricted, or region-blocked after it was queued.</p>
+              {room?.rules.length ? (
+                <ol className="rule-list">
+                  {room.rules.map((rule) => (
+                    <li key={rule.id}>
+                      <strong>{rule.name}</strong>
+                      {rule.description && <p>{rule.description}</p>}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p>No rules are switched on right now.</p>
+              )}
             </div>
           </details>
+
+          {room?.settings.description && (
+            <details className="rules-section" open>
+              <summary>
+                About this room <ChevronDown size={16} />
+              </summary>
+              <div className="rules-content">
+                {room.settings.description
+                  .split(/\n{2,}/)
+                  .map((paragraph, index) => (
+                    <p key={index}>{paragraph}</p>
+                  ))}
+              </div>
+            </details>
+          )}
         </div>
 
         <aside className="queue-column">

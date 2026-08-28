@@ -4,6 +4,7 @@ import { getDatabase, type Database } from './db/client';
 import { rules, ruleEntries } from './db/schema';
 import type { MediaMetadata } from './media';
 import type {
+  PublicRule,
   RuleEnforcement,
   RuleEntrySummary,
   RuleEntryType,
@@ -56,7 +57,7 @@ export async function findBlockingRule(
     })
     .from(ruleEntries)
     .innerJoin(rules, eq(ruleEntries.ruleId, rules.id))
-    .where(and(eq(ruleEntries.provider, metadata.provider), or(...targets)))
+    .where(and(eq(rules.active, true), eq(ruleEntries.provider, metadata.provider), or(...targets)))
     .limit(1);
 
   return blocked ?? null;
@@ -69,6 +70,7 @@ export async function listRules(db: Database = getDatabase()): Promise<RuleSumma
       name: rules.name,
       description: rules.description,
       enforcement: rules.enforcement,
+      active: rules.active,
       position: rules.position,
       entryCount: count(ruleEntries.id),
     })
@@ -77,6 +79,20 @@ export async function listRules(db: Database = getDatabase()): Promise<RuleSumma
     .groupBy(rules.id)
     .orderBy(asc(rules.position), asc(rules.name));
   return rows.map((row) => ({ ...row, entryCount: Number(row.entryCount) }));
+}
+
+/** What the player shows: the rules currently switched on. */
+export async function listActiveRules(db: Database = getDatabase()): Promise<PublicRule[]> {
+  return db
+    .select({
+      id: rules.id,
+      name: rules.name,
+      description: rules.description,
+      enforcement: rules.enforcement,
+    })
+    .from(rules)
+    .where(eq(rules.active, true))
+    .orderBy(asc(rules.position), asc(rules.name));
 }
 
 export async function listRuleEntries(
@@ -120,7 +136,13 @@ export async function createRule(
 
 export async function updateRule(
   ruleId: string,
-  input: Partial<{ name: string; description: string; enforcement: RuleEnforcement; position: number }>,
+  input: Partial<{
+    name: string;
+    description: string;
+    enforcement: RuleEnforcement;
+    active: boolean;
+    position: number;
+  }>,
   db: Database = getDatabase(),
 ): Promise<void> {
   const [updated] = await db

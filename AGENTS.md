@@ -12,6 +12,17 @@
 
 Source: https://x.com/MarcosHernanz/status/2083954734487212511
 
+## Project stage
+
+The room header carries a `beta` badge. While it is there, the stored data is
+disposable: migrations may drop or rewrite tables, and a change that loses rows
+is acceptable if it keeps the schema simple. Do not build backfills, dual-write
+paths, or compatibility shims for data during this stage.
+
+Removing that badge is the signal that the data belongs to the community rather
+than to testing. From then on, every migration must preserve what is already
+stored, and anything destructive needs to be raised before it is written.
+
 ## External-source hygiene
 
 - Cache website responses in an OS temporary directory, keyed by the full URL and any request options that affect the response. Reuse the cached response during the task. Refresh it only when freshness matters or the user asks for a refresh. If a fetch tool exposes a stable result reference or its own cache, reuse that instead of fetching the page again.

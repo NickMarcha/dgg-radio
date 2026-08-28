@@ -24,6 +24,7 @@ export const ruleSchema = z.object({
 });
 
 export const ruleUpdateSchema = ruleSchema.partial().extend({
+  active: z.boolean().optional(),
   position: z.number().int().min(0).optional(),
 });
 
@@ -44,6 +45,7 @@ export const removeQueueItemSchema = z.object({
 });
 
 export const roomSettingsSchema = z.object({
+  description: z.string().trim().max(4_000).optional(),
   maxDurationSeconds: z.number().int().min(60).max(1_800).optional(),
   targetCountry: z.string().regex(/^[A-Z]{2}$/, 'Use a two-letter country code.').optional(),
   skipMode: z.enum(['absolute', 'ratio']).optional(),
@@ -102,8 +104,17 @@ export interface RuleSummary {
   name: string;
   description: string;
   enforcement: RuleEnforcement;
+  active: boolean;
   position: number;
   entryCount: number;
+}
+
+/** The shape listeners see: no counts, no inactive rules. */
+export interface PublicRule {
+  id: string;
+  name: string;
+  description: string;
+  enforcement: RuleEnforcement;
 }
 
 export interface RuleEntrySummary {
@@ -134,6 +145,7 @@ export interface RoomSnapshot {
   revision: number;
   listenerCount: number;
   settings: {
+    description: string;
     maxDurationSeconds: number;
     targetCountry: string;
     skipMode: 'absolute' | 'ratio';
@@ -147,6 +159,8 @@ export interface RoomSnapshot {
   queue: QueueItem[];
   /** Everything the signed-in user has waiting, in their own order. */
   myQueue: QueueItem[];
+  /** Active rules, in the order admins arranged them. */
+  rules: PublicRule[];
   selectorStats: SelectorStats[];
 }
 

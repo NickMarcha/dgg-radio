@@ -28,7 +28,7 @@ import {
   votes,
 } from './db/schema';
 import { lookupMediaCached } from './media-cache';
-import { addRuleEntry, findBlockingRule } from './rules';
+import { addRuleEntry, findBlockingRule, listActiveRules } from './rules';
 import { MediaLookupError, type MediaMetadata } from './media';
 
 const ROOM_LOCK_ID = 1_349_922;
@@ -174,6 +174,7 @@ async function getSettings(db: Database) {
   await ensureRoomExists(db);
   const [settings] = await db
     .select({
+      description: roomSettings.description,
       maxDurationSeconds: roomSettings.maxDurationSeconds,
       targetCountry: roomSettings.targetCountry,
       skipMode: roomSettings.skipMode,
@@ -643,6 +644,7 @@ export async function blockQueueItemMedia(
 }
 
 export type RoomSettingsPatch = Partial<{
+  description: string;
   maxDurationSeconds: number;
   targetCountry: string;
   skipMode: 'absolute' | 'ratio';
@@ -746,7 +748,7 @@ export async function getRoomSnapshot(
     await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, me.id));
   }
 
-  const [state, settings, activeRows, stats] = await Promise.all([
+  const [state, settings, activeRows, stats, rules] = await Promise.all([
     db
       .select({ revision: roomState.revision, currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
@@ -761,6 +763,7 @@ export async function getRoomSnapshot(
       .where(inArray(queueItems.status, ['queued', 'playing']))
       .then((rows) => rows.map(toQueueRow)),
     selectorStats(db),
+    listActiveRules(db),
   ]);
 
   if (!state) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
@@ -830,6 +833,7 @@ export async function getRoomSnapshot(
     queue: roomQueueRows.map((row) => hide(byId.get(row.id)!, false)),
     myQueue: myQueueRows.map((row) => byId.get(row.id)!),
     selectorStats: stats,
+    rules,
   };
 }
 

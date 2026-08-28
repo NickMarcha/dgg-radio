@@ -14,8 +14,16 @@ process.env.DGG_CLIENT_SECRET ??= 'test-secret';
 process.env.DGG_REDIRECT_URI ??= 'http://localhost:4321/auth/callback';
 process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
-const { addRuleEntry, createRule, deleteRule, findBlockingRule, listRules, RuleError } =
-  await import('./rules');
+const {
+  addRuleEntry,
+  createRule,
+  deleteRule,
+  findBlockingRule,
+  listActiveRules,
+  listRules,
+  RuleError,
+  updateRule,
+} = await import('./rules');
 const schema = await import('./db/schema');
 const { rules, ruleEntries, users } = schema;
 
@@ -138,6 +146,39 @@ describe.skipIf(!connectionString)('room rules', () => {
     );
 
     expect(await findBlockingRule(track({ providerArtistId: '' }), db)).toBeNull();
+  });
+
+  it('stops enforcing a rule that is switched off, without losing its list', async () => {
+    const ruleId = await blocklist('No meme songs');
+    await addRuleEntry(
+      ruleId,
+      { provider: 'youtube', entryType: 'track', providerId: 'dQw4w9WgXcQ', label: 'A Track' },
+      admin,
+      db,
+    );
+    expect(await findBlockingRule(track(), db)).not.toBeNull();
+
+    await updateRule(ruleId, { active: false }, db);
+    expect(await findBlockingRule(track(), db)).toBeNull();
+    expect(await listActiveRules(db)).toEqual([]);
+    // The list survives, so switching it back on restores the block.
+    expect((await listRules(db))[0]?.entryCount).toBe(1);
+
+    await updateRule(ruleId, { active: true }, db);
+    expect(await findBlockingRule(track(), db)).not.toBeNull();
+  });
+
+  it('shows listeners only the rules that are switched on', async () => {
+    const shown = await blocklist('No meme songs');
+    const hidden = await createRule(
+      { name: 'No Disney songs', description: '', enforcement: 'blocklist' },
+      admin,
+      db,
+    );
+    await updateRule(hidden, { active: false }, db);
+
+    const visible = await listActiveRules(db);
+    expect(visible.map(({ id }) => id)).toEqual([shown]);
   });
 
   it('refuses to keep a list on an advisory rule', async () => {

@@ -846,3 +846,32 @@
   border-top: 1px solid var(--line);
   padding-top: 1.25rem;
 }
+
+.beta-badge {
+  align-self: center;
+  background: var(--accent);
+  border-radius: 999px;
+  color: #1a1200;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.45rem;
+  text-transform: uppercase;
+}
+
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.rule-list strong {
+  color: var(--text);
+}
+
+.rule-list p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+}

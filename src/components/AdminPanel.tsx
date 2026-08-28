@@ -1,4 +1,14 @@
-import { Ban, Check, ListMusic, Loader2, Shield, Trash2, Users } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  ListMusic,
+  Loader2,
+  Shield,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
+  Users,
+} from 'lucide-react';
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
 import type {
   RoomMember,
@@ -144,7 +154,8 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         </h2>
         <p className="admin-help">
           A blocklist rule collects the tracks and artists that broke it, so blocking a song under it
-          teaches the room. An advisory rule is only shown to listeners.
+          teaches the room. An advisory rule is only shown to listeners. Switching a rule off hides it
+          from the player and stops it being enforced, but keeps its list for later.
         </p>
 
         <NewRuleForm busy={busy} act={act} call={call} />
@@ -157,15 +168,38 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
               <li key={rule.id}>
                 <div className="admin-row">
                   <div>
-                    <strong>{rule.name}</strong>
+                    <strong className={rule.active ? undefined : 'admin-inactive'}>{rule.name}</strong>
                     <span className="admin-meta">
                       {rule.enforcement === 'blocklist'
                         ? `${rule.entryCount} blocked`
                         : 'advisory only'}
                     </span>
+                    {!rule.active && <span className="admin-meta">switched off</span>}
                     {rule.description && <p className="admin-description">{rule.description}</p>}
                   </div>
                   <div className="admin-row-actions">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void act(
+                          () => call(`/api/rules/${rule.id}`, 'PATCH', { active: !rule.active }),
+                          rule.active
+                            ? `"${rule.name}" is switched off.`
+                            : `"${rule.name}" is back on.`,
+                        )
+                      }
+                    >
+                      {rule.active ? (
+                        <>
+                          <ToggleRight size={15} /> On
+                        </>
+                      ) : (
+                        <>
+                          <ToggleLeft size={15} /> Off
+                        </>
+                      )}
+                    </button>
                     {rule.enforcement === 'blocklist' && (
                       <button type="button" onClick={() => void toggleEntries(rule.id)}>
                         {entries[rule.id] ? 'Hide list' : 'Show list'}
@@ -312,6 +346,17 @@ function SettingsSection({ settings, busy, act, call }: SectionProps & { setting
     <section className="admin-card">
       <h2>Room settings</h2>
       <form className="admin-form" onSubmit={submit}>
+        <label className="admin-wide">
+          Room description
+          <textarea
+            rows={8}
+            value={draft.description}
+            placeholder="What this room is, and anything listeners should know."
+            onChange={(event) => setDraft({ ...draft, description: event.currentTarget.value })}
+          />
+          <small>Shown on the player. Leave a blank line between paragraphs.</small>
+        </label>
+
         <label>
           Track length limit (minutes)
           <input

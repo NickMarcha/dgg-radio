@@ -43,6 +43,13 @@
       "when": 1787895891941,
       "tag": "0005_dj_rotation",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787897814745,
+      "tag": "0006_rule_toggle_and_description",
+      "breakpoints": true
     }
   ]
 }
