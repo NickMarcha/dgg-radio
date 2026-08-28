@@ -27,11 +27,20 @@ import {
   users,
   votes,
 } from './db/schema';
-import { lookupMediaCached } from './media-cache';
+import { getEnv } from './env';
+import { lookupManyCached, lookupMediaCached } from './media-cache';
 import { addRuleEntry, findBlockingRule, listActiveRules } from './rules';
-import { MediaLookupError, type MediaMetadata } from './media';
+import {
+  listPlaylistTrackUrls,
+  MediaLookupError,
+  parsePlaylistUrl,
+  type MediaMetadata,
+} from './media';
 
 const ROOM_LOCK_ID = 1_349_922;
+/** A single import is capped so one link cannot bury the room in one person's queue. */
+const MAX_PLAYLIST_TRACKS = 50;
+
 /** How close to the end a track must be before a hidden requester is revealed. */
 const REVEAL_REQUESTER_WITHIN_SECONDS = 15;
 
@@ -418,6 +427,57 @@ export async function enqueueMedia(
     provider: metadata.provider,
     durationSeconds: metadata.durationSeconds,
   };
+}
+
+export interface PlaylistImport {
+  added: number;
+  skipped: { title: string; reason: string }[];
+}
+
+/**
+ * Adds a whole playlist to the caller's own queue. Every track still goes
+ * through the normal request path, so a blocked or overlong one is reported
+ * rather than quietly let in.
+ */
+export async function enqueuePlaylist(
+  url: string,
+  user: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<PlaylistImport> {
+  const settings = await getSettings(db);
+  const env = getEnv();
+  const parsed = parsePlaylistUrl(url);
+  const trackUrls = await listPlaylistTrackUrls(
+    parsed,
+    { youtubeApiKey: env.YOUTUBE_API_KEY },
+    MAX_PLAYLIST_TRACKS,
+  );
+  if (trackUrls.length === 0) {
+    throw new RoomError('PLAYLIST_EMPTY', 'That playlist has no playable tracks.');
+  }
+
+  // Warm the cache in parallel first; the requests below then only touch the database.
+  const resolved = await lookupManyCached(trackUrls, settings.targetCountry, db);
+
+  const result: PlaylistImport = { added: 0, skipped: [] };
+  for (const trackUrl of trackUrls) {
+    const found = resolved.get(trackUrl);
+    const label = found instanceof Error || !found ? trackUrl : found.title;
+    if (found instanceof Error || !found) {
+      result.skipped.push({ title: label, reason: found?.message ?? 'Could not be read.' });
+      continue;
+    }
+    try {
+      await enqueueMedia(trackUrl, user, db);
+      result.added += 1;
+    } catch (error) {
+      result.skipped.push({
+        title: label,
+        reason: error instanceof Error ? error.message : 'Could not be queued.',
+      });
+    }
+  }
+  return result;
 }
 
 export async function voteOnCurrentTrack(

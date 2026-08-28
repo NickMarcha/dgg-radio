@@ -12,7 +12,12 @@ vi.mock('soundcloud.ts', () => {
 });
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { isYouTubeAvailableInTargetCountry, lookupMedia, parseMediaUrl } from './media';
+import {
+  isYouTubeAvailableInTargetCountry,
+  lookupMedia,
+  parseMediaUrl,
+  parsePlaylistUrl,
+} from './media';
 
 describe('parseMediaUrl', () => {
   it.each([
@@ -35,6 +40,31 @@ describe('parseMediaUrl', () => {
 
   it('rejects unsupported sites', () => {
     expect(() => parseMediaUrl('https://example.com/song')).toThrow('Only YouTube and SoundCloud');
+  });
+});
+
+describe('parsePlaylistUrl', () => {
+  it.each([
+    ['https://www.youtube.com/playlist?list=PL123', 'PL123'],
+    ['https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL456', 'PL456'],
+  ])('takes the list id out of %s', (url, id) => {
+    expect(parsePlaylistUrl(url)).toEqual({ provider: 'youtube', id });
+  });
+
+  it('keeps a SoundCloud set as its own URL', () => {
+    expect(parsePlaylistUrl('https://soundcloud.com/artist/sets/a-set#play')).toEqual({
+      provider: 'soundcloud',
+      id: 'https://soundcloud.com/artist/sets/a-set',
+    });
+  });
+
+  it('rejects a track link that carries no playlist', () => {
+    expect(() => parsePlaylistUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toThrow(
+      'no playlist',
+    );
+    expect(() => parsePlaylistUrl('https://soundcloud.com/artist/a-track')).toThrow(
+      'Link to a SoundCloud set',
+    );
   });
 });
 

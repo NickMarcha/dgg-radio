@@ -25,6 +25,21 @@ export interface MediaMetadata {
   thumbnailUrl: string | null;
 }
 
+export interface SearchResult {
+  provider: MediaProvider;
+  url: string;
+  title: string;
+  artist: string;
+  durationSeconds: number;
+  thumbnailUrl: string | null;
+}
+
+export interface ParsedPlaylistUrl {
+  provider: MediaProvider;
+  /** A YouTube playlist id, or the SoundCloud set's own URL. */
+  id: string;
+}
+
 export interface MediaLookupCredentials {
   youtubeApiKey: string;
 }
@@ -86,6 +101,39 @@ export function parseMediaUrl(value: string): ParsedMediaUrl {
   }
 
   throw new MediaLookupError('UNSUPPORTED_PROVIDER', 'Only YouTube and SoundCloud links are accepted.');
+}
+
+/**
+ * A playlist link, which is a different shape from a track link on both
+ * providers: YouTube carries the id in `list`, SoundCloud puts `/sets/` in the
+ * path.
+ */
+export function parsePlaylistUrl(value: string): ParsedPlaylistUrl {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new MediaLookupError('INVALID_URL', 'Enter a valid YouTube or SoundCloud playlist link.');
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (youtubeHosts.has(hostname)) {
+    const list = url.searchParams.get('list');
+    if (!list) {
+      throw new MediaLookupError('INVALID_PLAYLIST_URL', 'That YouTube link has no playlist in it.');
+    }
+    return { provider: 'youtube', id: list };
+  }
+
+  if (soundCloudHosts.has(hostname)) {
+    if (!url.pathname.toLowerCase().includes('/sets/')) {
+      throw new MediaLookupError('INVALID_PLAYLIST_URL', 'Link to a SoundCloud set.');
+    }
+    url.hash = '';
+    return { provider: 'soundcloud', id: url.toString() };
+  }
+
+  throw new MediaLookupError('UNSUPPORTED_PROVIDER', 'Only YouTube and SoundCloud playlists work.');
 }
 
 function validateYouTubeId(value: string | null | undefined): string {
@@ -318,6 +366,100 @@ async function lookupSoundCloud(parsed: ParsedMediaUrl): Promise<MediaMetadata> 
     durationSeconds: Math.ceil(track.duration / 1_000),
     thumbnailUrl: track.artwork_url ?? null,
   };
+}
+
+const youtubePlaylistSchema = z.object({
+  items: z.array(z.object({ contentDetails: z.object({ videoId: z.string() }) })),
+  nextPageToken: z.string().optional(),
+});
+
+/**
+ * The track links inside a playlist, ready to go through the normal request
+ * path so each one still faces the duration, region and rule checks.
+ */
+export async function listPlaylistTrackUrls(
+  parsed: ParsedPlaylistUrl,
+  credentials: MediaLookupCredentials,
+  limit: number,
+  fetcher: typeof fetch = fetch,
+): Promise<string[]> {
+  if (parsed.provider === 'soundcloud') {
+    let playlist: { tracks?: { permalink_url?: string }[] };
+    try {
+      soundCloudClient ??= new Soundcloud();
+      playlist = await soundCloudClient.playlists.get(parsed.id);
+    } catch (error) {
+      if (statusOf(error) === 404) {
+        throw new MediaLookupError('PLAYLIST_NOT_FOUND', 'That SoundCloud set is unavailable.');
+      }
+      throw new MediaLookupError('PLAYLIST_LOOKUP_FAILED', 'SoundCloud could not be reached.', 502);
+    }
+    return (playlist.tracks ?? [])
+      .map((track) => track.permalink_url)
+      .filter((url): url is string => Boolean(url))
+      .slice(0, limit);
+  }
+
+  // playlistItems costs one quota unit per page, unlike search which costs 100.
+  const urls: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const endpoint = new URL('https://www.googleapis.com/youtube/v3/playlistItems');
+    endpoint.searchParams.set('part', 'contentDetails');
+    endpoint.searchParams.set('playlistId', parsed.id);
+    endpoint.searchParams.set('maxResults', '50');
+    endpoint.searchParams.set('key', credentials.youtubeApiKey);
+    if (pageToken) endpoint.searchParams.set('pageToken', pageToken);
+
+    const response = await fetcher(endpoint, { signal: AbortSignal.timeout(8_000) });
+    if (!response.ok) {
+      throw new MediaLookupError(
+        'PLAYLIST_NOT_FOUND',
+        'That YouTube playlist is unavailable. Private playlists cannot be read.',
+      );
+    }
+    const page = youtubePlaylistSchema.safeParse(await response.json());
+    if (!page.success) {
+      throw new MediaLookupError('PLAYLIST_LOOKUP_FAILED', 'YouTube returned an unexpected playlist.', 502);
+    }
+    for (const item of page.data.items) {
+      urls.push(`https://www.youtube.com/watch?v=${item.contentDetails.videoId}`);
+    }
+    pageToken = page.data.nextPageToken;
+  } while (pageToken && urls.length < limit);
+
+  return urls.slice(0, limit);
+}
+
+/**
+ * Only SoundCloud is searchable. YouTube's search costs a hundred quota units a
+ * call against a ten thousand a day allowance, which one busy evening would eat.
+ */
+export async function searchSoundCloud(query: string, limit: number): Promise<SearchResult[]> {
+  soundCloudClient ??= new Soundcloud();
+  let found: { collection?: unknown[] };
+  try {
+    found = await soundCloudClient.tracks.search({ q: query, limit });
+  } catch (error) {
+    if (statusOf(error) === 401) {
+      await soundCloudClient.api.getClientId(true);
+      found = await soundCloudClient.tracks.search({ q: query, limit });
+    } else {
+      throw new MediaLookupError('SEARCH_FAILED', 'SoundCloud could not be reached.', 502);
+    }
+  }
+
+  return (found.collection ?? [])
+    .map((entry) => soundCloudTrackSchema.safeParse(entry))
+    .filter((parsed) => parsed.success)
+    .map(({ data: track }) => ({
+      provider: 'soundcloud' as const,
+      url: track.permalink_url,
+      title: track.title,
+      artist: track.user.username,
+      durationSeconds: Math.ceil(track.duration / 1_000),
+      thumbnailUrl: track.artwork_url ?? null,
+    }));
 }
 
 export async function lookupMedia(

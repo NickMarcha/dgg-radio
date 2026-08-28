@@ -28,6 +28,23 @@ export const ruleUpdateSchema = ruleSchema.partial().extend({
   position: z.number().int().min(0).optional(),
 });
 
+export const searchSchema = z.object({
+  q: z.string().trim().min(2).max(120),
+});
+
+export const playlistSchema = z.object({
+  url: z.url(),
+});
+
+export interface SearchResult {
+  provider: MediaProvider;
+  url: string;
+  title: string;
+  artist: string;
+  durationSeconds: number;
+  thumbnailUrl: string | null;
+}
+
 export const reorderQueueSchema = z.object({
   orderedIds: z.array(z.uuid()).min(1).max(500),
 });

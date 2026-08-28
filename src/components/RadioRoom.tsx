@@ -24,7 +24,13 @@ import {
   initClientAnalytics,
   resetClientUser,
 } from '../client/analytics';
-import type { ApiErrorBody, QueueItem, RoomSnapshot, RoomUser } from '../shared/contracts';
+import type {
+  ApiErrorBody,
+  QueueItem,
+  RoomSnapshot,
+  RoomUser,
+  SearchResult,
+} from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
 import './RadioRoom.css';
 
@@ -41,6 +47,21 @@ class ApiRequestError extends Error {
   ) {
     super(message);
     this.name = 'ApiRequestError';
+  }
+}
+
+interface PlaylistImport {
+  added: number;
+  skipped: { title: string; reason: string }[];
+}
+
+/** YouTube carries the playlist in `list`, SoundCloud puts `/sets/` in the path. */
+function looksLikePlaylist(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.searchParams.has('list') || url.pathname.toLowerCase().includes('/sets/');
+  } catch {
+    return false;
   }
 }
 
@@ -167,6 +188,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [requestUrl, setRequestUrl] = useState('');
+  const [mode, setMode] = useState<'link' | 'search'>('link');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [importReport, setImportReport] = useState<PlaylistImport | null>(null);
   const [maxMinutes, setMaxMinutes] = useState('7');
   const reconnectTimer = useRef<number | undefined>(undefined);
   const identifiedUserId = useRef<string | null>(null);
@@ -264,22 +290,27 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     };
   }, [apiUrl, refreshRoom]);
 
-  const mutate = async (path: string, method: 'POST' | 'PATCH', body?: unknown) => {
+  /** Returns the response body on success and null on failure, so callers can read it. */
+  const mutate = async <T,>(
+    path: string,
+    method: 'POST' | 'PATCH',
+    body?: unknown,
+  ): Promise<T | null> => {
     setBusy(true);
     setNotice(null);
     try {
-      await apiRequest(path, {
+      const payload = await apiRequest<T>(path, {
         method,
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       await refreshRoom();
-      return true;
+      return payload;
     } catch (error) {
       if (error instanceof ApiRequestError && error.status >= 500) {
         captureClientException(error, { area: 'api_mutation', path, status: error.status });
       }
       setNotice(error instanceof Error ? error.message : 'The request failed.');
-      return false;
+      return null;
     } finally {
       setBusy(false);
     }
@@ -287,8 +318,45 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const submitRequest = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!requestUrl.trim()) return;
-    if (await mutate('/api/queue', 'POST', { url: requestUrl.trim() })) setRequestUrl('');
+    const url = requestUrl.trim();
+    if (!url) return;
+
+    // One box for both: a playlist link takes the bulk path on its own.
+    if (looksLikePlaylist(url)) {
+      const imported = await mutate<PlaylistImport>('/api/queue/playlist', 'POST', { url });
+      if (imported) {
+        setRequestUrl('');
+        setImportReport(imported);
+      }
+      return;
+    }
+    if (await mutate('/api/queue', 'POST', { url })) setRequestUrl('');
+  };
+
+  const addSearchResult = async (result: SearchResult) => {
+    if (await mutate('/api/queue', 'POST', { url: result.url })) {
+      setResults((current) => current.filter((entry) => entry.url !== result.url));
+    }
+  };
+
+  const runSearch = async (event: SubmitEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    if (query.length < 2) return;
+    setSearching(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`, {
+        credentials: 'include',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error?.message ?? 'Search failed.');
+      setResults(payload.results);
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : 'Search failed.');
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
   };
 
   const vote = async (value: -1 | 1) => {
@@ -427,25 +495,127 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
           <section className="request-section">
             <h2>Request a track</h2>
-            <form className="request-form" onSubmit={(event) => void submitRequest(event)}>
-              <label htmlFor="track-url">YouTube or SoundCloud URL</label>
-              <div>
-                <input
-                  id="track-url"
-                  type="url"
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  value={requestUrl}
-                  disabled={!room?.me || busy}
-                  onChange={(event) => setRequestUrl(event.target.value)}
-                />
-                <button type="submit" disabled={!room?.me || !requestUrl.trim() || busy}>
-                  Add to queue
+            <div className="request-modes" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'link'}
+                className={mode === 'link' ? 'mode-active' : ''}
+                onClick={() => setMode('link')}
+              >
+                Paste a link
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'search'}
+                className={mode === 'search' ? 'mode-active' : ''}
+                onClick={() => setMode('search')}
+              >
+                Search SoundCloud
+              </button>
+            </div>
+
+            {mode === 'link' ? (
+              <>
+                <form className="request-form" onSubmit={(event) => void submitRequest(event)}>
+                  <label htmlFor="track-url">Track or playlist URL</label>
+                  <div>
+                    <input
+                      id="track-url"
+                      type="url"
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      value={requestUrl}
+                      disabled={!room?.me || busy}
+                      onChange={(event) => setRequestUrl(event.target.value)}
+                    />
+                    <button type="submit" disabled={!room?.me || !requestUrl.trim() || busy}>
+                      {looksLikePlaylist(requestUrl.trim()) ? 'Import playlist' : 'Add to queue'}
+                    </button>
+                  </div>
+                </form>
+                <p>
+                  A playlist or set link adds up to 50 of its tracks to your queue. Requests are
+                  checked for availability in {room?.settings.targetCountry ?? 'the playback region'},
+                  embedding, age restriction, and the length limit first.
+                </p>
+              </>
+            ) : (
+              <>
+                <form className="request-form" onSubmit={(event) => void runSearch(event)}>
+                  <label htmlFor="track-search">Search SoundCloud by title or artist</label>
+                  <div>
+                    <input
+                      id="track-search"
+                      type="search"
+                      placeholder="Boards of Canada"
+                      value={searchQuery}
+                      disabled={!room?.me || busy}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!room?.me || searchQuery.trim().length < 2 || busy}
+                    >
+                      {searching ? 'Searching...' : 'Search'}
+                    </button>
+                  </div>
+                </form>
+                {results.length > 0 && (
+                  <ul className="search-results">
+                    {results.map((result) => (
+                      <li key={result.url}>
+                        {result.thumbnailUrl ? (
+                          <img src={result.thumbnailUrl} alt="" loading="lazy" />
+                        ) : (
+                          <span className="search-art-empty">
+                            <ListMusic size={16} />
+                          </span>
+                        )}
+                        <div className="search-copy">
+                          <strong>{result.title}</strong>
+                          <span>
+                            {result.artist} - {formatDuration(result.durationSeconds)}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void addSearchResult(result)}
+                        >
+                          Add
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p>
+                  Only SoundCloud is searchable. A YouTube search costs a hundred times the API quota
+                  of a link lookup, so paste YouTube links instead.
+                </p>
+              </>
+            )}
+
+            {importReport && (
+              <div className="import-report">
+                <p>
+                  Added {importReport.added} track{importReport.added === 1 ? '' : 's'}.
+                  {importReport.skipped.length > 0 && ` Skipped ${importReport.skipped.length}.`}
+                </p>
+                {importReport.skipped.length > 0 && (
+                  <ul>
+                    {importReport.skipped.slice(0, 8).map((item) => (
+                      <li key={item.title}>
+                        <strong>{item.title}</strong> - {item.reason}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button type="button" onClick={() => setImportReport(null)}>
+                  Dismiss
                 </button>
               </div>
-            </form>
-            <p>
-              YouTube requests are checked for UAE availability, embedding, age restriction, and the {room ? Math.floor(room.settings.maxDurationSeconds / 60) : 7}-minute limit before they enter the queue.
-            </p>
+            )}
           </section>
 
           <section className="stats-section">

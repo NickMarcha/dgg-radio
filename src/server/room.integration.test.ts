@@ -14,13 +14,37 @@ process.env.DGG_CLIENT_SECRET ??= 'test-secret';
 process.env.DGG_REDIRECT_URI ??= 'http://localhost:8787/api/auth/callback';
 process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
-vi.mock('./media-cache', () => ({ lookupMediaCached: vi.fn() }));
+const { cachedLookup } = vi.hoisted(() => ({ cachedLookup: vi.fn() }));
+
+vi.mock('./media-cache', () => ({
+  lookupMediaCached: cachedLookup,
+  // The real one resolves in parallel and keeps failures; this mirrors that
+  // over whatever the single-lookup stub is doing.
+  lookupManyCached: vi.fn(async (urls: string[], country: string, db: unknown) => {
+    const resolved = new Map<string, unknown>();
+    for (const url of urls) {
+      try {
+        resolved.set(url, await cachedLookup(url, country, db));
+      } catch (error) {
+        resolved.set(url, error);
+      }
+    }
+    return resolved;
+  }),
+}));
+
+vi.mock('./media', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./media')>()),
+  listPlaylistTrackUrls: vi.fn(),
+}));
 
 const { lookupMediaCached } = await import('./media-cache');
+const { listPlaylistTrackUrls } = await import('./media');
 const {
   advanceCurrentTrack,
   advanceIfExpired,
   clearUserQueue,
+  enqueuePlaylist,
   reorderMyQueue,
   blockQueueItemMedia,
   enqueueMedia,
@@ -358,6 +382,45 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     expect(snapshot.queue).toEqual([]);
     // The track already playing is left alone.
     expect(snapshot.current).not.toBeNull();
+  });
+
+  it('imports a playlist, reporting what it could not take', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const good = track('aaaaaaaaaaa');
+    const alsoGood = track('bbbbbbbbbbb');
+    const tooLong = track('ccccccccccc', 9_999);
+
+    vi.mocked(listPlaylistTrackUrls).mockResolvedValue([
+      good.canonicalUrl,
+      alsoGood.canonicalUrl,
+      tooLong.canonicalUrl,
+    ]);
+    resolveTracks(good, alsoGood, tooLong);
+
+    const imported = await enqueuePlaylist(
+      'https://www.youtube.com/playlist?list=PL123',
+      nathan,
+      db,
+    );
+
+    expect(imported.added).toBe(2);
+    expect(imported.skipped).toHaveLength(1);
+    expect(imported.skipped[0]?.reason).toMatch(/minutes or shorter/);
+
+    const snapshot = await getRoomSnapshot(nathan, 1, db);
+    expect(snapshot.current?.media.providerMediaId).toBe('aaaaaaaaaaa');
+    expect(snapshot.myQueue.map((i) => i.media.providerMediaId)).toEqual(['bbbbbbbbbbb']);
+  });
+
+  it('refuses a playlist with nothing playable in it', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    vi.mocked(listPlaylistTrackUrls).mockResolvedValue([]);
+
+    await expect(
+      enqueuePlaylist('https://www.youtube.com/playlist?list=PL123', nathan, db),
+    ).rejects.toMatchObject({ code: 'PLAYLIST_EMPTY' });
   });
 
   it('refuses a vote on your own request', async () => {

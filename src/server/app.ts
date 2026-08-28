@@ -7,7 +7,9 @@ import {
   adminRoleSchema,
   blockMediaSchema,
   clearQueueSchema,
+  playlistSchema,
   reorderQueueSchema,
+  searchSchema,
   removeQueueItemSchema,
   ruleSchema,
   ruleUpdateSchema,
@@ -36,11 +38,12 @@ import {
 } from './rules';
 import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
 import { getEnv } from './env';
-import { MediaLookupError } from './media';
+import { MediaLookupError, searchSoundCloud } from './media';
 import {
   blockQueueItemMedia,
   clearUserQueue,
   enqueueMedia,
+  enqueuePlaylist,
   reorderMyQueue,
   getRoomSnapshot,
   removeQueuedTrack,
@@ -182,6 +185,18 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
+    .get('/api/search', requireUser, zValidator('query', searchSchema), async (context) =>
+      context.json({ results: await searchSoundCloud(context.req.valid('query').q, 15) }),
+    )
+    .post('/api/queue/playlist', requireUser, zValidator('json', playlistSchema), async (context) => {
+      const imported = await enqueuePlaylist(context.req.valid('json').url, context.get('user'));
+      captureServerEvent(context.get('user').id, 'playlist_imported', {
+        added: imported.added,
+        skipped: imported.skipped.length,
+      });
+      dependencies.onRoomChanged();
+      return context.json(imported);
+    })
     .patch('/api/queue/order', requireUser, zValidator('json', reorderQueueSchema), async (context) => {
       await reorderMyQueue(context.req.valid('json').orderedIds, context.get('user'));
       dependencies.onRoomChanged();

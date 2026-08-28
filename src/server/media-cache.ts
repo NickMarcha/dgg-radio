@@ -30,6 +30,34 @@ function isFresh(provider: MediaMetadata['provider'], checkedAt: Date): boolean 
  * leaves the stored row untouched, so the next attempt checks again rather than
  * serving something known to be stale.
  */
+/**
+ * Resolves several links at once so a playlist import does not make one round
+ * trip after another. Failures are kept: the caller reports which tracks it
+ * could not take and why.
+ */
+export async function lookupManyCached(
+  urls: string[],
+  targetCountry: string,
+  db: Database = getDatabase(),
+): Promise<Map<string, MediaMetadata | Error>> {
+  const results = new Map<string, MediaMetadata | Error>();
+  const concurrency = 5;
+
+  for (let start = 0; start < urls.length; start += concurrency) {
+    const batch = urls.slice(start, start + concurrency);
+    await Promise.all(
+      batch.map(async (url) => {
+        try {
+          results.set(url, await lookupMediaCached(url, targetCountry, db));
+        } catch (error) {
+          results.set(url, error instanceof Error ? error : new Error('Lookup failed.'));
+        }
+      }),
+    );
+  }
+  return results;
+}
+
 export async function lookupMediaCached(
   url: string,
   targetCountry: string,
