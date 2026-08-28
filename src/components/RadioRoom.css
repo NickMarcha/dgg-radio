@@ -1104,3 +1104,11 @@
   color: var(--text);
   font-weight: 500;
 }
+
+a.admin-label {
+  text-decoration: none;
+}
+
+a.admin-label:hover {
+  color: var(--accent-hover);
+}

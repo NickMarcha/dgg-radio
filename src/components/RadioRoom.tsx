@@ -305,7 +305,6 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   const [results, setResults] = useState<SearchResult[]>([]);
   const [importReport, setImportReport] = useState<PlaylistImport | null>(null);
   const [blockTarget, setBlockTarget] = useState<BlockTarget | null>(null);
-  const [maxMinutes, setMaxMinutes] = useState('7');
   const reconnectTimer = useRef<number | undefined>(undefined);
   const identifiedUserId = useRef<string | null>(null);
   const capturedConnection = useRef(false);
@@ -352,7 +351,6 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     try {
       const snapshot = await apiRequest<RoomSnapshot>('/api/room');
       setRoom(snapshot);
-      setMaxMinutes(String(snapshot.settings.maxDurationSeconds / 60));
       setNotice(null);
     } catch (error) {
       if (error instanceof ApiRequestError && error.status >= 500) {
@@ -531,12 +529,6 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     setBlockTarget({ item: room.current, fromPlayer: true });
   };
 
-  const saveSettings = async (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const seconds = Math.round(Number(maxMinutes) * 60);
-    await mutate('/api/settings', 'PATCH', { maxDurationSeconds: seconds });
-  };
-
   const logout = async () => {
     if (await mutate('/api/auth/logout', 'POST')) await refreshRoom();
   };
@@ -564,7 +556,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
               <span className="account-name">
                 {room.me.username} <TeamLabel user={room.me} />
               </span>
-              {admin && <span className="admin-label"><Shield size={13} /> mod</span>}
+              {admin && (
+                <a className="admin-label" href="/admin" title="Room admin">
+                  <Shield size={13} /> admin
+                </a>
+              )}
               <button className="text-button" type="button" onClick={() => void logout()} disabled={busy}>
                 <LogOut size={15} /> Sign out
               </button>
@@ -884,25 +880,6 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                 </ol>
               )}
             </>
-          )}
-
-          {admin && (
-            <form className="room-settings" onSubmit={(event) => void saveSettings(event)}>
-              <div><Shield size={16} /><h3>Room settings</h3></div>
-              <label htmlFor="max-minutes">Maximum track length in minutes</label>
-              <div>
-                <input
-                  id="max-minutes"
-                  type="number"
-                  min="1"
-                  max="30"
-                  step="0.5"
-                  value={maxMinutes}
-                  onChange={(event) => setMaxMinutes(event.target.value)}
-                />
-                <button type="submit" disabled={busy}>Save</button>
-              </div>
-            </form>
           )}
 
           <div className="identity-note">

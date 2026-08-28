@@ -4,6 +4,7 @@ import {
   ListMusic,
   Loader2,
   Shield,
+  Pencil,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -165,88 +166,18 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         ) : (
           <ul className="admin-list">
             {rules.map((rule) => (
-              <li key={rule.id}>
-                <div className="admin-row">
-                  <div>
-                    <strong className={rule.active ? undefined : 'admin-inactive'}>{rule.name}</strong>
-                    <span className="admin-meta">
-                      {rule.enforcement === 'blocklist'
-                        ? `${rule.entryCount} blocked`
-                        : 'advisory only'}
-                    </span>
-                    {!rule.active && <span className="admin-meta">switched off</span>}
-                    {rule.description && <p className="admin-description">{rule.description}</p>}
-                  </div>
-                  <div className="admin-row-actions">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        void act(
-                          () => call(`/api/rules/${rule.id}`, 'PATCH', { active: !rule.active }),
-                          rule.active
-                            ? `"${rule.name}" is switched off.`
-                            : `"${rule.name}" is back on.`,
-                        )
-                      }
-                    >
-                      {rule.active ? (
-                        <>
-                          <ToggleRight size={15} /> On
-                        </>
-                      ) : (
-                        <>
-                          <ToggleLeft size={15} /> Off
-                        </>
-                      )}
-                    </button>
-                    {rule.enforcement === 'blocklist' && (
-                      <button type="button" onClick={() => void toggleEntries(rule.id)}>
-                        {entries[rule.id] ? 'Hide list' : 'Show list'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={busy}
-                      onClick={() =>
-                        void act(
-                          () => call(`/api/rules/${rule.id}`, 'DELETE'),
-                          `Deleted "${rule.name}".`,
-                        )
-                      }
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-
-                {entries[rule.id] && (
-                  <ul className="admin-entries">
-                    {entries[rule.id]!.length === 0 && <li className="admin-empty">Nothing listed.</li>}
-                    {entries[rule.id]!.map((entry) => (
-                      <li key={entry.id}>
-                        <span>
-                          <em>{entry.entryType}</em> · {entry.label}
-                          <span className="admin-meta">{entry.provider}</span>
-                        </span>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() =>
-                            void act(async () => {
-                              await call(`/api/rules/entries/${entry.id}`, 'DELETE');
-                              setEntries(({ [rule.id]: _drop, ...rest }) => rest);
-                            }, `Unblocked ${entry.label}.`)
-                          }
-                        >
-                          Unblock
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
+              <RuleRow
+                key={rule.id}
+                rule={rule}
+                busy={busy}
+                act={act}
+                call={call}
+                entries={entries[rule.id]}
+                onToggleEntries={() => void toggleEntries(rule.id)}
+                onEntryRemoved={() =>
+                  setEntries(({ [rule.id]: _removed, ...rest }) => rest)
+                }
+              />
             ))}
           </ul>
         )}
@@ -324,6 +255,156 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         </ul>
       </section>
     </main>
+  );
+}
+
+interface RuleRowProps {
+  rule: RuleSummary;
+  busy: boolean;
+  act: (work: () => Promise<unknown>, message: string) => Promise<void>;
+  call: (path: string, method?: string, body?: unknown) => Promise<any>;
+  entries: RuleEntrySummary[] | undefined;
+  onToggleEntries: () => void;
+  onEntryRemoved: () => void;
+}
+
+function RuleRow({ rule, busy, act, call, entries, onToggleEntries, onEntryRemoved }: RuleRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(rule.name);
+  const [description, setDescription] = useState(rule.description);
+
+  useEffect(() => {
+    setName(rule.name);
+    setDescription(rule.description);
+  }, [rule.name, rule.description]);
+
+  function save() {
+    if (!name.trim()) return;
+    void act(async () => {
+      await call(`/api/rules/${rule.id}`, 'PATCH', {
+        name: name.trim(),
+        description: description.trim(),
+      });
+      setEditing(false);
+    }, `Saved "${name.trim()}".`);
+  }
+
+  if (editing) {
+    return (
+      <li>
+        <div className="admin-form admin-form-edit">
+          <label>
+            Rule name
+            <input type="text" value={name} onChange={(event) => setName(event.currentTarget.value)} />
+          </label>
+          <label className="admin-wide">
+            Description
+            <textarea
+              rows={3}
+              value={description}
+              onChange={(event) => setDescription(event.currentTarget.value)}
+            />
+          </label>
+          <div className="admin-row-actions">
+            <button type="button" disabled={busy || !name.trim()} onClick={save}>
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setName(rule.name);
+                setDescription(rule.description);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li>
+      <div className="admin-row">
+        <div>
+          <strong className={rule.active ? undefined : 'admin-inactive'}>{rule.name}</strong>
+          <span className="admin-meta">
+            {rule.enforcement === 'blocklist' ? `${rule.entryCount} blocked` : 'advisory only'}
+          </span>
+          {!rule.active && <span className="admin-meta">switched off</span>}
+          {rule.description && <p className="admin-description">{rule.description}</p>}
+        </div>
+        <div className="admin-row-actions">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void act(
+                () => call(`/api/rules/${rule.id}`, 'PATCH', { active: !rule.active }),
+                rule.active ? `"${rule.name}" is switched off.` : `"${rule.name}" is back on.`,
+              )
+            }
+          >
+            {rule.active ? (
+              <>
+                <ToggleRight size={15} /> On
+              </>
+            ) : (
+              <>
+                <ToggleLeft size={15} /> Off
+              </>
+            )}
+          </button>
+          <button type="button" onClick={() => setEditing(true)}>
+            <Pencil size={15} /> Edit
+          </button>
+          {rule.enforcement === 'blocklist' && (
+            <button type="button" onClick={onToggleEntries}>
+              {entries ? 'Hide list' : 'Show list'}
+            </button>
+          )}
+          <button
+            type="button"
+            className="danger"
+            disabled={busy}
+            onClick={() =>
+              void act(() => call(`/api/rules/${rule.id}`, 'DELETE'), `Deleted "${rule.name}".`)
+            }
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+
+      {entries && (
+        <ul className="admin-entries">
+          {entries.length === 0 && <li className="admin-empty">Nothing listed.</li>}
+          {entries.map((entry) => (
+            <li key={entry.id}>
+              <span>
+                <em>{entry.entryType}</em> · {entry.label}
+                <span className="admin-meta">{entry.provider}</span>
+                {entry.note && <span className="admin-meta">{entry.note}</span>}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void act(async () => {
+                    await call(`/api/rules/entries/${entry.id}`, 'DELETE');
+                    onEntryRemoved();
+                  }, `Unblocked ${entry.label}.`)
+                }
+              >
+                Unblock
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 
