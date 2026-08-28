@@ -1,4 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+const { resolveTrack, forceNewClientId } = vi.hoisted(() => ({
+  resolveTrack: vi.fn(),
+  forceNewClientId: vi.fn(),
+}));
+
+vi.mock('soundcloud.ts', () => {
+  class Soundcloud {
+    resolve = { get: resolveTrack };
+    api = { getClientId: forceNewClientId };
+  }
+  return { Soundcloud, default: Soundcloud };
+});
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { isYouTubeAvailableInTargetCountry, lookupMedia, parseMediaUrl } from './media';
 
 describe('parseMediaUrl', () => {
@@ -44,30 +57,42 @@ describe('isYouTubeAvailableInTargetCountry', () => {
 });
 
 describe('lookupMedia against SoundCloud', () => {
-  const credentials = { youtubeApiKey: 'unused', apifyApiToken: 'apify-token' };
+  const credentials = { youtubeApiKey: 'unused' };
   const trackUrl = 'https://soundcloud.com/artist/a-track';
 
-  const actorItem = {
-    type: 'track',
+  const resolved = {
+    kind: 'track',
     id: 2343609734,
     title: 'A Track',
-    url: trackUrl,
-    artworkUrl: 'https://i1.sndcdn.com/artwork.png',
     duration: 210_400,
+    permalink_url: trackUrl,
+    artwork_url: 'https://i1.sndcdn.com/artwork.png',
     streamable: true,
-    userName: 'Artist',
+    policy: 'MONETIZE',
+    user: { username: 'Artist' },
   };
 
-  const run = (fetcher: unknown) =>
-    lookupMedia(trackUrl, credentials, 'AE', fetcher as typeof fetch);
+  const run = () => lookupMedia(trackUrl, credentials, 'AE');
 
-  it('resolves one track URL through the actor', async () => {
-    const fetcher = vi.fn(async (_endpoint: string, _init: RequestInit) =>
-      Response.json([actorItem]),
-    );
-    const media = await run(fetcher);
+  beforeEach(() => {
+    resolveTrack.mockReset();
+    forceNewClientId.mockReset();
+  });
 
-    expect(media).toEqual({
+  // The package sets both `export default` and `module.exports.default`, so a
+  // default import lands on a wrapper object rather than the class. Mocked tests
+  // cannot see that; this checks the real module.
+  it('exports a constructor that is actually usable', async () => {
+    const actual = await vi.importActual<typeof import('soundcloud.ts')>('soundcloud.ts');
+    const client = new actual.Soundcloud();
+    expect(typeof client.resolve.get).toBe('function');
+    expect(typeof client.api.getClientId).toBe('function');
+  });
+
+  it('maps a resolved track onto the room media shape', async () => {
+    resolveTrack.mockResolvedValue(resolved);
+
+    await expect(run()).resolves.toEqual({
       provider: 'soundcloud',
       providerMediaId: '2343609734',
       canonicalUrl: trackUrl,
@@ -76,37 +101,40 @@ describe('lookupMedia against SoundCloud', () => {
       durationSeconds: 211,
       thumbnailUrl: 'https://i1.sndcdn.com/artwork.png',
     });
-
-    const [endpoint, init] = fetcher.mock.calls[0]!;
-    expect(endpoint).toContain('/run-sync-get-dataset-items');
-    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer apify-token');
-    expect(JSON.parse(init.body as string)).toMatchObject({
-      mode: 'trackUrl',
-      startUrls: [trackUrl],
-      maxResults: 1,
-    });
+    expect(resolveTrack).toHaveBeenCalledWith(trackUrl, true);
   });
 
-  it('reports an unavailable track when the run returns nothing', async () => {
-    const fetcher = vi.fn(async () => Response.json([]));
-    await expect(run(fetcher)).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_FOUND' });
+  it('forces a new client id and retries once when the cached one is stale', async () => {
+    resolveTrack.mockRejectedValueOnce(new Error('Status code 401')).mockResolvedValueOnce(resolved);
+
+    await expect(run()).resolves.toMatchObject({ providerMediaId: '2343609734' });
+    expect(forceNewClientId).toHaveBeenCalledWith(true);
+    expect(resolveTrack).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up if the track is still unreachable after a new client id', async () => {
+    resolveTrack.mockRejectedValue(new Error('Status code 401'));
+
+    await expect(run()).rejects.toMatchObject({ code: 'SOUNDCLOUD_LOOKUP_FAILED', status: 502 });
+    expect(forceNewClientId).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an unavailable track on a 404', async () => {
+    resolveTrack.mockRejectedValue(new Error('Status code 404'));
+    await expect(run()).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_FOUND' });
+    expect(forceNewClientId).not.toHaveBeenCalled();
   });
 
   it('rejects a URL that resolves to something other than a track', async () => {
-    const fetcher = vi.fn(async () => Response.json([{ ...actorItem, type: 'playlist' }]));
-    await expect(run(fetcher)).rejects.toMatchObject({ code: 'SOUNDCLOUD_TRACK_REQUIRED' });
+    resolveTrack.mockResolvedValue({ ...resolved, kind: 'playlist' });
+    await expect(run()).rejects.toMatchObject({ code: 'SOUNDCLOUD_TRACK_REQUIRED' });
   });
 
-  it('rejects a track SoundCloud will not stream', async () => {
-    const fetcher = vi.fn(async () => Response.json([{ ...actorItem, streamable: false }]));
-    await expect(run(fetcher)).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_STREAMABLE' });
-  });
-
-  it('surfaces an actor failure as an upstream error', async () => {
-    const fetcher = vi.fn(async () => new Response('nope', { status: 500 }));
-    await expect(run(fetcher)).rejects.toMatchObject({
-      code: 'SOUNDCLOUD_LOOKUP_FAILED',
-      status: 502,
-    });
+  it.each([
+    ['not streamable', { streamable: false }],
+    ['blocked by policy', { policy: 'BLOCK' }],
+  ])('rejects a track that is %s', async (_label, override) => {
+    resolveTrack.mockResolvedValue({ ...resolved, ...override });
+    await expect(run()).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_STREAMABLE' });
   });
 });

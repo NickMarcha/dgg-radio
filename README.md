@@ -77,15 +77,19 @@ Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. 
 
 ### SoundCloud
 
-SoundCloud's own API needs a paid subscription, so track metadata comes from the `automation-lab/soundcloud-scraper` actor on Apify. Set `APIFY_API_TOKEN`. Each submitted SoundCloud link is one synchronous actor run in `trackUrl` mode, taking roughly two seconds and costing well under a cent. The backend accepts items whose type is `track` and which the actor reports as streamable.
+SoundCloud closed its documented API behind a paid subscription. Track metadata comes from [`soundcloud.ts`](https://github.com/Moestash/soundcloud.ts), which talks to the same `api-v2` endpoints the SoundCloud website uses. There is nothing to configure: the library finds the public web client id itself, so the radio stores no SoundCloud credentials.
 
-A track is looked up twice: once when it is submitted and once again just before it plays. Both go through the `media_lookups` cache, so the second one usually costs nothing.
+That client id rotates. The library only looks one up when it has none, so the backend catches a `401`, forces a fresh id, and retries once.
+
+The backend accepts resolved objects whose kind is `track` and which SoundCloud reports as streamable and not `BLOCK` policy.
+
+A track is looked up twice: once when it is submitted and once again just before it plays. Both go through the `media_lookups` cache, so the second one is usually free.
 
 ### Lookup cache
 
 Provider answers are stored in `media_lookups`, keyed by YouTube video ID or SoundCloud permalink path, so the same track submitted through different URL forms is one entry.
 
-SoundCloud entries never expire, because an actor run costs money and reports nothing that changes on its own. YouTube entries expire after 24 hours, because a video can become region blocked, age restricted, or non-embeddable after it was accepted. An expired entry is rechecked and overwritten in place; a recheck that fails throws and leaves the previous row untouched, so the next attempt checks again rather than serving a known-stale answer.
+SoundCloud entries never expire, because nothing they report changes on its own and the api-v2 endpoint is unofficial enough to be worth asking sparingly. YouTube entries expire after 24 hours, because a video can become region blocked, age restricted, or non-embeddable after it was accepted. An expired entry is rechecked and overwritten in place; a recheck that fails throws and leaves the previous row untouched, so the next attempt checks again rather than serving a known-stale answer.
 
 One consequence worth knowing: the check just before playback only reaches YouTube for tracks that have been queued more than a day. Anything queued and played inside 24 hours serves the cached answer. Runtime player failures remain the backstop for a video that breaks in between.
 

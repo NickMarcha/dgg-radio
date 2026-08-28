@@ -17,16 +17,6 @@ interface YouTubePlayerEvent {
   data?: number;
 }
 
-interface SoundCloudWidget {
-  bind(event: string, callback: (value?: unknown) => void): void;
-  unbind(event: string): void;
-  play(): void;
-  pause(): void;
-  seekTo(milliseconds: number): void;
-  getPosition(callback: (milliseconds: number) => void): void;
-  setVolume(volume: number): void;
-}
-
 declare global {
   interface Window {
     YT?: {
@@ -43,11 +33,6 @@ declare global {
       ) => YouTubePlayer;
     };
     onYouTubeIframeAPIReady?: () => void;
-    SC?: {
-      Widget: ((iframe: HTMLIFrameElement) => SoundCloudWidget) & {
-        Events: { READY: string; ERROR: string };
-      };
-    };
   }
 }
 

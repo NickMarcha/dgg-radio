@@ -1,3 +1,4 @@
+import { Soundcloud } from 'soundcloud.ts';
 import { parse as parseDuration } from 'tinyduration';
 import { z } from 'zod';
 import type { MediaProvider } from '../shared/contracts';
@@ -24,7 +25,6 @@ export interface MediaMetadata {
 
 export interface MediaLookupCredentials {
   youtubeApiKey: string;
-  apifyApiToken: string;
 }
 
 export class MediaLookupError extends Error {
@@ -237,45 +237,54 @@ async function lookupYouTube(
 }
 
 /**
- * SoundCloud's own API now requires a paid subscription, so track metadata comes
- * from an Apify actor instead. One track URL is a single synchronous run.
+ * SoundCloud's documented API now needs a paid subscription. soundcloud.ts talks
+ * to the same api-v2 endpoints the website uses, and finds the public web client
+ * id itself, so the radio holds no SoundCloud credentials at all.
  */
-const SOUNDCLOUD_ACTOR = 'PGINBOPOGlNeBsYci';
-
-const apifyTrackSchema = z.object({
-  type: z.literal('track'),
+const soundCloudTrackSchema = z.object({
+  kind: z.literal('track'),
   id: z.union([z.string(), z.number()]).transform(String),
   title: z.string().min(1),
-  url: z.url(),
   duration: z.number().int().positive(),
-  artworkUrl: z.url().nullable().optional(),
-  userName: z.string().min(1),
+  permalink_url: z.url(),
+  artwork_url: z.url().nullable().optional(),
   streamable: z.boolean().optional(),
+  policy: z.string().optional(),
+  user: z.object({ username: z.string().min(1) }),
 });
 
-async function lookupSoundCloud(
-  parsed: ParsedMediaUrl,
-  apifyApiToken: string,
-  fetcher: typeof fetch,
-): Promise<MediaMetadata> {
-  const endpoint = `https://api.apify.com/v2/acts/${SOUNDCLOUD_ACTOR}/run-sync-get-dataset-items`;
-  const response = await fetcher(endpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apifyApiToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      mode: 'trackUrl',
-      startUrls: [parsed.url.toString()],
-      maxResults: 1,
-      includeUserDetails: false,
-    }),
-    // A scrape run is slower than a plain API read, so this gets its own budget.
-    signal: AbortSignal.timeout(45_000),
-  });
+let soundCloudClient: Soundcloud | undefined;
 
-  if (!response.ok) {
+function statusOf(error: unknown): number | null {
+  const matched = /Status code (\d{3})/.exec(error instanceof Error ? error.message : '');
+  return matched ? Number(matched[1]) : null;
+}
+
+/**
+ * The web client id rotates, and the library only discovers one when it has
+ * none. A 401 means the cached id went stale, so force a new one and retry once.
+ */
+async function resolveSoundCloudTrack(url: string): Promise<unknown> {
+  soundCloudClient ??= new Soundcloud();
+  try {
+    return await soundCloudClient.resolve.get(url, true);
+  } catch (error) {
+    if (statusOf(error) !== 401) throw error;
+    await soundCloudClient.api.getClientId(true);
+    return soundCloudClient.resolve.get(url, true);
+  }
+}
+
+async function lookupSoundCloud(parsed: ParsedMediaUrl): Promise<MediaMetadata> {
+  let resolved: unknown;
+  try {
+    resolved = await resolveSoundCloudTrack(parsed.url.toString());
+  } catch (error) {
+    const status = statusOf(error);
+    if (status === null) throw error;
+    if (status === 404) {
+      throw new MediaLookupError('SOUNDCLOUD_NOT_FOUND', 'That SoundCloud track is unavailable.');
+    }
     throw new MediaLookupError(
       'SOUNDCLOUD_LOOKUP_FAILED',
       'SoundCloud could not be reached. Try again in a moment.',
@@ -283,29 +292,23 @@ async function lookupSoundCloud(
     );
   }
 
-  const items: unknown = await response.json().catch(() => null);
-  const first = Array.isArray(items) ? items[0] : undefined;
-  if (first === undefined) {
-    throw new MediaLookupError('SOUNDCLOUD_NOT_FOUND', 'That SoundCloud track is unavailable.');
-  }
-
-  const result = apifyTrackSchema.safeParse(first);
+  const result = soundCloudTrackSchema.safeParse(resolved);
   if (!result.success) {
     throw new MediaLookupError('SOUNDCLOUD_TRACK_REQUIRED', 'Link directly to one SoundCloud track.');
   }
   const track = result.data;
-  if (track.streamable === false) {
+  if (track.streamable === false || track.policy === 'BLOCK') {
     throw new MediaLookupError('SOUNDCLOUD_NOT_STREAMABLE', 'That SoundCloud track is not streamable.');
   }
 
   return {
     provider: 'soundcloud',
     providerMediaId: track.id,
-    canonicalUrl: track.url,
+    canonicalUrl: track.permalink_url,
     title: track.title,
-    artist: track.userName,
+    artist: track.user.username,
     durationSeconds: Math.ceil(track.duration / 1_000),
-    thumbnailUrl: track.artworkUrl ?? null,
+    thumbnailUrl: track.artwork_url ?? null,
   };
 }
 
@@ -318,5 +321,5 @@ export async function lookupMedia(
   const parsed = parseMediaUrl(value);
   return parsed.provider === 'youtube'
     ? lookupYouTube(parsed, credentials.youtubeApiKey, targetCountry, fetcher)
-    : lookupSoundCloud(parsed, credentials.apifyApiToken, fetcher);
+    : lookupSoundCloud(parsed);
 }

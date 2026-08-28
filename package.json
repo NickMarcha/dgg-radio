@@ -39,6 +39,7 @@
     "posthog-node": "^5.51.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "soundcloud.ts": "^0.7.4",
     "tinyduration": "^3.4.1",
     "ws": "^8.21.3",
     "zod": "^4.4.3"

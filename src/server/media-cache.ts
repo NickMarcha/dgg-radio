@@ -51,10 +51,7 @@ export async function lookupMediaCached(
   const env = getEnv();
   const metadata = await lookupMedia(
     url,
-    {
-      youtubeApiKey: env.YOUTUBE_API_KEY,
-      apifyApiToken: env.APIFY_API_TOKEN,
-    },
+    { youtubeApiKey: env.YOUTUBE_API_KEY },
     targetCountry,
   );
 
