@@ -69,7 +69,7 @@ describe('lookupMedia against SoundCloud', () => {
     artwork_url: 'https://i1.sndcdn.com/artwork.png',
     streamable: true,
     policy: 'MONETIZE',
-    user: { username: 'Artist' },
+    user: { id: 987654, username: 'Artist' },
   };
 
   const run = () => lookupMedia(trackUrl, credentials, 'AE');
@@ -95,6 +95,7 @@ describe('lookupMedia against SoundCloud', () => {
     await expect(run()).resolves.toEqual({
       provider: 'soundcloud',
       providerMediaId: '2343609734',
+      providerArtistId: '987654',
       canonicalUrl: trackUrl,
       title: 'A Track',
       artist: 'Artist',

@@ -31,6 +31,7 @@ function metadata(overrides: Partial<MediaMetadata> = {}): MediaMetadata {
   return {
     provider: 'youtube',
     providerMediaId: 'dQw4w9WgXcQ',
+    providerArtistId: 'UC-channel',
     canonicalUrl: youtubeUrl,
     title: 'A Track',
     artist: 'An Artist',

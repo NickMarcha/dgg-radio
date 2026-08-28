@@ -16,6 +16,8 @@ export interface ParsedMediaUrl {
 export interface MediaMetadata {
   provider: MediaProvider;
   providerMediaId: string;
+  /** Channel on YouTube, uploader on SoundCloud. Rules block artists by this. */
+  providerArtistId: string;
   canonicalUrl: string;
   title: string;
   artist: string;
@@ -99,6 +101,7 @@ const youtubeResponseSchema = z.object({
       id: z.string(),
       snippet: z.object({
         title: z.string(),
+        channelId: z.string(),
         channelTitle: z.string(),
         thumbnails: z
           .record(
@@ -228,6 +231,7 @@ async function lookupYouTube(
   return {
     provider: 'youtube',
     providerMediaId: id,
+    providerArtistId: video.snippet.channelId,
     canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
     title: video.snippet.title,
     artist: video.snippet.channelTitle,
@@ -250,7 +254,10 @@ const soundCloudTrackSchema = z.object({
   artwork_url: z.url().nullable().optional(),
   streamable: z.boolean().optional(),
   policy: z.string().optional(),
-  user: z.object({ username: z.string().min(1) }),
+  user: z.object({
+    id: z.union([z.string(), z.number()]).transform(String),
+    username: z.string().min(1),
+  }),
 });
 
 let soundCloudClient: Soundcloud | undefined;
@@ -304,6 +311,7 @@ async function lookupSoundCloud(parsed: ParsedMediaUrl): Promise<MediaMetadata> 
   return {
     provider: 'soundcloud',
     providerMediaId: track.id,
+    providerArtistId: track.user.id,
     canonicalUrl: track.permalink_url,
     title: track.title,
     artist: track.user.username,

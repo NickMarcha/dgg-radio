@@ -35,6 +35,7 @@ function track(id: string, durationSeconds = 120): MediaMetadata {
   return {
     provider: 'youtube',
     providerMediaId: id,
+    providerArtistId: `channel-${id}`,
     canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
     title: `Track ${id}`,
     artist: 'Test Artist',

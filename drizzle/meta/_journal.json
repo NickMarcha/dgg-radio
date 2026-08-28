@@ -15,6 +15,13 @@
       "when": 1787890908229,
       "tag": "0001_famous_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787894682194,
+      "tag": "0002_puzzling_slyde",
+      "breakpoints": true
     }
   ]
 }

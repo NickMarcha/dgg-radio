@@ -82,6 +82,7 @@ export const media = pgTable(
     id: uuid('id').defaultRandom().primaryKey(),
     provider: mediaProvider('provider').notNull(),
     providerMediaId: text('provider_media_id').notNull(),
+    providerArtistId: text('provider_artist_id').notNull(),
     canonicalUrl: text('canonical_url').notNull(),
     title: text('title').notNull(),
     artist: text('artist').notNull(),

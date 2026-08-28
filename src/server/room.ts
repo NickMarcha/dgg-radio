@@ -233,6 +233,7 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
       await transaction
         .update(media)
         .set({
+          providerArtistId: checked.providerArtistId,
           title: checked.title,
           artist: checked.artist,
           durationSeconds: checked.durationSeconds,
@@ -370,6 +371,7 @@ export async function enqueueMedia(
       target: [media.provider, media.providerMediaId],
       set: {
         canonicalUrl: metadata.canonicalUrl,
+        providerArtistId: metadata.providerArtistId,
         title: metadata.title,
         artist: metadata.artist,
         durationSeconds: metadata.durationSeconds,
