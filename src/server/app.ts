@@ -38,6 +38,7 @@ import {
   RuleError,
   updateRule,
 } from './rules';
+import { ChatLookupError, requestChatCheck } from './chat';
 import { listPlaybackRegions, RegionLookupError } from './regions';
 import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
 import {
@@ -146,7 +147,8 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof RuleError ||
       error instanceof AdminError ||
       error instanceof CommunityError ||
-      error instanceof RegionLookupError
+      error instanceof RegionLookupError ||
+      error instanceof ChatLookupError
     ) {
       if (error.status >= 500) {
         captureServerException(error, context.get('user')?.id, {
@@ -186,9 +188,13 @@ export function createApp(dependencies: AppDependencies) {
       const user = await getSessionUser(context);
       return context.json(await getRoomSnapshot(user, dependencies.listenerCount()));
     })
-    .get('/api/profiles/:username', zValidator('param', usernameParamSchema), async (context) =>
-      context.json(await getUserProfile(context.req.valid('param').username)),
-    )
+    // Public, but a signed-in viewer is looked up anyway so the page can tell
+    // whether it is showing someone their own profile.
+    .get('/api/profiles/:username', zValidator('param', usernameParamSchema), async (context) => {
+      const viewer = await getSessionUser(context);
+      const username = context.req.valid('param').username;
+      return context.json(await getUserProfile(username, viewer?.id ?? null));
+    })
     .get('/api/history', zValidator('query', historyQuerySchema), async (context) =>
       context.json({ history: await listHistory(context.req.valid('query').limit) }),
     )
@@ -358,6 +364,13 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
+    .post('/api/me/chat-check', requireUser, async (context) => {
+      const user = context.get('user');
+      const result = await requestChatCheck({ id: user.id, username: user.username });
+      captureServerEvent(user.id, 'chat_check_requested');
+      dependencies.onRoomChanged();
+      return context.json(result);
+    })
     .get('/api/regions', requireAdmin, async (context) =>
       context.json({ regions: await listPlaybackRegions() }),
     )

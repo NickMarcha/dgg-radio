@@ -80,6 +80,7 @@ export async function listUsers(
       avatarUrl: users.avatarUrl,
       role: users.role,
       team: users.team,
+      topEmote: users.topEmote,
       lastSeenAt: users.lastSeenAt,
       queuedCount: sql<number>`coalesce(${queued.queuedCount}, 0)`.mapWith(Number),
     })

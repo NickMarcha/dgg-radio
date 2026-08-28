@@ -55,6 +55,27 @@
   font-size: 22px;
 }
 
+/* Natural size, for the same reason as the room: sprite offsets are pixel-exact. */
+.community-avatar-emote {
+  width: auto;
+  height: auto;
+  flex: none;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+
+/*
+ * The profile heading wants a bigger one. transform scales the painted result
+ * and leaves background-position alone, which background-size would not.
+ */
+.community-avatar-large.community-avatar-emote .emote {
+  transform: scale(1.8);
+  transform-origin: left center;
+  margin-right: 2rem;
+}
+
 .community-avatar img {
   width: 100%;
   height: 100%;
@@ -157,6 +178,13 @@
 
 .history-table th:first-child,
 .history-table td:first-child {
+  width: 50%;
+  min-width: 330px;
+}
+
+/* Same track cell as the history table, one column further along past the rank. */
+.track-table th:nth-child(2),
+.track-table td:nth-child(2) {
   width: 50%;
   min-width: 330px;
 }
@@ -341,4 +369,37 @@
   .community-section-heading > span {
     text-align: left;
   }
+}
+
+.profile-check {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0.6rem 0 0;
+}
+
+.profile-check button {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.profile-check button:hover:not(:disabled) {
+  background: var(--line);
+}
+
+.profile-check button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.profile-check span {
+  color: var(--faint);
+  font-size: 0.8rem;
 }

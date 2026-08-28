@@ -8,12 +8,14 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
 
 - Destiny's custom OAuth flow with one-use, five-minute login state, returning to a frontend callback
 - Database-backed mods and admins, with root admins named in the environment who cannot be demoted
-- A DJ rotation over unlimited per-person queues, reorderable by mods and admins; listeners control their own queue
+- A DJ rotation over unlimited per-person queues, reorderable by mods and admins; listeners reorder their own queue and can take a track back out before it plays
 - Synchronized YouTube and SoundCloud playback from the server clock
 - Region, embeddability, age restriction, live status, processing state, and duration checks, cached per track
-- Admin-managed rules that accumulate the tracks and artists that broke them
-- SoundCloud search, and playlist import for both providers
+- A playback region chosen from YouTube's own list of the countries it recognises
+- Admin-managed rules, arranged in the order listeners read them, that accumulate the tracks and artists that broke them
+- YouTube and SoundCloud search, and playlist import for both providers
 - Per-play upvotes and downvotes, no voting on your own request, and a configurable downvote skip
+- Team YEE and Team PEPE read from Destiny chat, with each listener's most used dancing emote as their avatar
 - Optionally hiding requesters until a track ends, so votes are cast on the track
 - Volume and play state remembered per browser
 - Responsive desktop and mobile room layouts
@@ -64,16 +66,17 @@ The callback is a frontend route, not an API route. Destiny redirects the browse
 
 Destiny's flow is not standard PKCE. The backend implements the secret-bound challenge described in the project's [OAuth research](docs/research/dgg-oauth-netlify.md). Keep the client secret on the API host.
 
-Admins can assign listener, mod, and admin roles on `/admin`. Destiny can also promote an account at sign-in:
+Admins assign listener, mod, and admin roles on `/admin`. The only role sign-in grants is admin, to a username in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
 
-- Destiny `ADMIN` maps to radio admin, while Destiny `MODERATOR` maps to radio mod. This is still unverified because the observed `roles` arrays have been empty.
-- The username appears in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
+Destiny's own `ADMIN` and `MODERATOR` roles are deliberately not read. The mapping existed but no login has ever arrived carrying either, so it was never confirmed against a real response and is switched off until it can be; see the [backlog](docs/backlog.md). The identity's `roles` array is still stored, so the first sign-in by a real Destiny moderator will show what it actually contains.
 
-Sign-in only ever promotes, so a role granted on the admin page remains in place.
+Signing in never overwrites a role granted on the admin page.
 
 ### YouTube
 
 Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. Restrict the key to that API. The backend rejects a video when the room's playback region is blocked, an explicit country allow-list omits it, embedding is disabled, the video is age-restricted or live, processing is incomplete, or its duration exceeds the room setting.
+
+That playback region is picked on `/admin` from YouTube's own `i18nRegions` list, which is the set of countries its availability checks recognise, rather than typed as a bare ISO code. The list is cached in `playback_regions` and refreshed after 30 days.
 
 ### SoundCloud
 
@@ -88,6 +91,8 @@ A track is looked up twice: once when it is submitted and once again just before
 ### Lookup cache
 
 Provider answers are stored in `media_lookups`, keyed by YouTube video ID or SoundCloud permalink path, so the same track submitted through different URL forms is one entry.
+
+This is the per-track cache. YouTube's region list is cached separately in `playback_regions`, on its own much longer schedule, because it is a property of the API rather than of any track.
 
 SoundCloud entries never expire, because nothing they report changes on its own and the api-v2 endpoint is unofficial enough to be worth asking sparingly. YouTube entries expire after 24 hours, because a video can become region blocked, age restricted, or non-embeddable after it was accepted. An expired entry is rechecked and overwritten in place; a recheck that fails throws and leaves the previous row untouched, so the next attempt checks again rather than serving a known-stale answer.
 
@@ -138,8 +143,8 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 | Path | |
 | --- | --- |
 | `/` and `/player` | the room: player, room queue, your own queue, request form |
-| `/admin` | room settings, rules and their blocklists, roles, clearing queues |
-| `/stats` | room totals, teams, and top jammers |
+| `/admin` | room settings, rules with their order and blocklists, roles, clearing queues |
+| `/stats` | room totals, teams, most played tracks, and top jammers |
 | `/history` | completed and skipped tracks |
 | `/profile/:username` | one listener's stats and play history |
 | `/auth/callback` | where Destiny returns after sign-in |
@@ -182,6 +187,6 @@ Three values must agree, and two of them are only knowable after the first deplo
 
 ## Current limits
 
-- The Team PEPE and Team YEE mapping comes from the current production flair catalog. Verify it with real OAuth responses before using it in public profiles. Team never grants permissions.
+- Team comes from counting yee and pepe messages through `polecat.me`, a third-party API with no uptime guarantee and a sixty-a-minute limit. A check is eleven requests, so they are queued one at a time and run behind sign-in rather than blocking it. A failed check changes nothing. Team never grants permissions.
 - The YouTube Data API check cannot promise playback. A rights holder can add a domain restriction or change availability after validation. The player reports runtime failures so a moderator can skip.
 - There is one room by design. The backend serializes its transitions with a Postgres advisory lock. One backend instance is enough; Redis is not part of this version.

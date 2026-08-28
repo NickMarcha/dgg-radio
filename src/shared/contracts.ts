@@ -85,12 +85,20 @@ export interface PlaybackRegion {
 
 export type UserRole = 'listener' | 'mod' | 'admin';
 
+/** Stands in wherever someone has no counted emote of their own. Never counted itself. */
+export const DEFAULT_EMOTE = 'MMMM';
+
+/** Which side of the room someone falls on, or none when their chat is mixed. */
+export type Team = 'pepe' | 'yee' | null;
+
 export interface RoomUser {
   id: string;
   username: string;
   avatarUrl: string | null;
   role: UserRole;
-  team: 'pepe' | 'yee' | null;
+  team: Team;
+  /** Their most used dancing emote, or null until their chat has been counted. */
+  topEmote: string | null;
 }
 
 export interface RoomMedia {
@@ -141,6 +149,10 @@ export interface UserProfile {
   user: RoomUser;
   joinedAt: string;
   lastSeenAt: string;
+  /** True when the signed-in viewer is looking at their own profile. */
+  isSelf: boolean;
+  /** When their chat was last counted, or null if it never has been. */
+  chatCheckedAt: string | null;
   stats: {
     requests: number;
     plays: number;
@@ -164,6 +176,15 @@ export interface TeamStats {
   score: number;
 }
 
+/** One track and how the room has received it across every play. */
+export interface TrackStats {
+  media: RoomMedia;
+  plays: number;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+}
+
 export interface CommunityStats {
   totals: {
     members: number;
@@ -172,6 +193,7 @@ export interface CommunityStats {
   };
   jammers: SelectorStats[];
   teams: TeamStats[];
+  tracks: TrackStats[];
 }
 
 export type RuleEnforcement = 'blocklist' | 'advisory';
@@ -211,7 +233,7 @@ export interface RoomMember {
   username: string;
   avatarUrl: string | null;
   role: UserRole;
-  team: 'pepe' | 'yee' | null;
+  team: Team;
   /** Named in the environment, so always an admin and not removable here. */
   isRoot: boolean;
   queuedCount: number;

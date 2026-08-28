@@ -121,6 +121,92 @@
   }
 }
 
+/*
+ * The dancing and music emotes, used as avatars. Ported the same way: local
+ * paths, and finite iteration counts swapped for infinite because an avatar
+ * never settles the way a chat message does.
+ *
+ * Sizes are the originals on purpose. catJAM and RaveDoge animate by stepping
+ * background-position across one long strip, so their offsets are tied to the
+ * declared width; changing background-size would desynchronise every frame.
+ * Scaling one of these is safe only through transform, which resizes the
+ * painted box and leaves the offsets alone.
+ */
+
+.emote.AlienPls {
+  width: 28px;
+  height: 28px;
+  background-image: url('/emotes/AlienPls.webp');
+}
+
+.emote.CamOnIngerland {
+  width: 42px;
+  height: 32px;
+  background-image: url('/emotes/CamOnIngerland.gif');
+}
+
+.emote.GatoPls {
+  width: 45px;
+  height: 38px;
+  background-image: url('/emotes/GatoPls.png');
+}
+
+.emote.Listening {
+  width: 48px;
+  height: 33px;
+  background-image: url('/emotes/Listening.png');
+}
+
+.emote.RainbowPls {
+  width: 32px;
+  height: 32px;
+  background-image: url('/emotes/RainbowPls.png');
+}
+
+/* A 7144px strip of 188 frames, shown 38px at a time. */
+.emote.catJAM {
+  width: 38px;
+  height: 30px;
+  background-image: url('/emotes/catJAM.png');
+  animation: catJAM-anim 6.5s steps(188) infinite;
+}
+
+@keyframes catJAM-anim {
+  100% {
+    background-position: -7144px;
+  }
+}
+
+/* Two 1350px halves; the first is the one that plays on its own. */
+.emote.RaveDoge {
+  --start: 0px;
+  --end: -1350px;
+  width: 50px;
+  height: 34px;
+  background-image: url('/emotes/RaveDoge.avif');
+  animation: RaveDoge-anim 1.62s steps(27) infinite -0.67s;
+}
+
+@keyframes RaveDoge-anim {
+  from {
+    background-position: var(--start);
+  }
+  to {
+    background-position: var(--end);
+  }
+}
+
+/*
+ * Two frames side by side in one 56px file. The left frame is the one everyone
+ * gets; the right belongs to a single chat username upstream and is not used.
+ */
+.emote.MMMM {
+  width: 28px;
+  height: 28px;
+  background-image: url('/emotes/MMMM.png');
+  background-position: 0;
+}
+
 /* Something that never stops moving is worth switching off on request. */
 @media (prefers-reduced-motion: reduce) {
   .emote,

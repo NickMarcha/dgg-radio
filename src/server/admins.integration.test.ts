@@ -17,7 +17,7 @@ process.env.ADMIN_DGG_USERNAMES = 'picklesnathan, StrawWaffle';
 
 const { AdminError, isRootAdmin, listAdmins, listUsers, setUserRole } = await import('./admins');
 const schema = await import('./db/schema');
-const { media, queueItems, users } = schema;
+const { media, queueItems, users, userChatCounts } = schema;
 
 const connectionString = testConnectionString();
 
@@ -34,7 +34,7 @@ describe.skipIf(!connectionString)('admin management', () => {
   });
 
   afterEach(async () => {
-    await db.execute(sql`truncate table ${queueItems}, ${media}, ${users} cascade`);
+    await db.execute(sql`truncate table ${userChatCounts}, ${queueItems}, ${media}, ${users} cascade`);
   });
 
   async function createUser(username: string, role: UserRole = 'listener') {

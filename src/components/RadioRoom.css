@@ -73,6 +73,21 @@
   object-fit: cover;
 }
 
+/*
+ * An emote avatar keeps its own size rather than being squeezed into the
+ * circle. catJAM and RaveDoge step through a sprite strip by pixel offset, so
+ * anything that changed their painted width would tear the animation apart.
+ */
+.avatar-emote {
+  width: auto;
+  height: auto;
+  flex: none;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+
 .team-label,
 .admin-label {
   border-radius: 5px;

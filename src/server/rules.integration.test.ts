@@ -28,7 +28,7 @@ const {
   updateRule,
 } = await import('./rules');
 const schema = await import('./db/schema');
-const { rules, ruleEntries, users } = schema;
+const { rules, ruleEntries, users, userChatCounts } = schema;
 
 const connectionString = testConnectionString();
 
@@ -60,7 +60,7 @@ describe.skipIf(!connectionString)('room rules', () => {
   });
 
   afterEach(async () => {
-    await db.execute(sql`truncate table ${ruleEntries}, ${rules}, ${users} cascade`);
+    await db.execute(sql`truncate table ${userChatCounts}, ${ruleEntries}, ${rules}, ${users} cascade`);
   });
 
   async function makeAdmin(): Promise<AuthenticatedUser> {
@@ -74,6 +74,7 @@ describe.skipIf(!connectionString)('room rules', () => {
         role: users.role,
         avatarUrl: users.avatarUrl,
         team: users.team,
+        topEmote: users.topEmote,
         dggUserId: users.dggUserId,
         dggRoles: users.dggRoles,
         dggFeatures: users.dggFeatures,

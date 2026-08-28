@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { testConnectionString } from './test-support';
@@ -14,7 +14,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
 const { getCommunityStats, getUserProfile, listHistory } = await import('./community');
 const schema = await import('./db/schema');
-const { media, queueItems, users, votes } = schema;
+const { media, queueItems, users, votes, userChatCounts } = schema;
 const connectionString = testConnectionString();
 
 describe.skipIf(!connectionString)('community profiles, stats, and history', () => {
@@ -31,7 +31,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
 
   afterEach(async () => {
     await db.execute(
-      sql`truncate table ${votes}, ${queueItems}, ${media}, ${users} restart identity cascade`,
+      sql`truncate table ${userChatCounts}, ${votes}, ${queueItems}, ${media}, ${users} restart identity cascade`,
     );
   });
 
@@ -84,6 +84,22 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     return item.id;
   }
 
+  /** Queues and plays an existing track again, so one media row has several plays. */
+  async function replay(providerMediaId: string, requesterId: string, startedAt: Date) {
+    const [track] = await db
+      .select({ id: media.id })
+      .from(media)
+      .where(eq(media.providerMediaId, providerMediaId));
+    if (!track) throw new Error('Could not find media');
+    await db.insert(queueItems).values({
+      mediaId: track.id,
+      requestedByUserId: requesterId,
+      status: 'played',
+      startedAt,
+      finishedAt: startedAt,
+    });
+  }
+
   async function seedCommunity() {
     const alice = await createUser('Alice', 'pepe');
     const bob = await createUser('Bob', 'yee');
@@ -110,7 +126,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
   it('builds a case-insensitive profile with per-play averages and recent plays', async () => {
     await seedCommunity();
 
-    const profile = await getUserProfile('alice', db);
+    const profile = await getUserProfile('alice', null, db);
 
     expect(profile.user).toMatchObject({ username: 'Alice', team: 'pepe' });
     expect(profile.stats).toEqual({
@@ -126,6 +142,19 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     });
     expect(profile.history.map((item) => item.status)).toEqual(['skipped', 'played']);
     expect(profile.history[0]).toMatchObject({ upvotes: 0, downvotes: 1 });
+  });
+
+  it('ranks tracks by plays, then by score, and ignores ones that never started', async () => {
+    const { alice } = await seedCommunity();
+    await replay('ccccccccccc', alice, new Date('2026-08-28T13:00:00.000Z'));
+
+    const { tracks } = await getCommunityStats(db);
+
+    expect(tracks.map(({ media: track, plays, score }) => [track.providerMediaId, plays, score])).toEqual([
+      ['ccccccccccc', 2, 1],
+      ['aaaaaaaaaaa', 1, 2],
+      ['bbbbbbbbbbb', 1, -1],
+    ]);
   });
 
   it('orders completed room history newest first and excludes queued requests', async () => {
@@ -156,7 +185,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
   });
 
   it('returns a clear 404 error for an unknown username', async () => {
-    await expect(getUserProfile('missing', db)).rejects.toMatchObject({
+    await expect(getUserProfile('missing', null, db)).rejects.toMatchObject({
       code: 'PROFILE_NOT_FOUND',
       status: 404,
     });

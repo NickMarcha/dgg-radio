@@ -5,6 +5,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import type { RoomUser, UserRole } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
+import { enqueueChatCheck } from './chat';
 import { oauthLoginTransactions, sessions, users } from './db/schema';
 import { getAdminUsernames, getEnv, type ServerEnv } from './env';
 
@@ -58,21 +59,16 @@ function buildDggCodeChallenge(codeVerifier: string, clientSecret: string): stri
   return Buffer.from(challengeDigestHex, 'utf8').toString('base64');
 }
 
-export function teamFromFeatures(features: string[]): 'pepe' | 'yee' | null {
-  const hasPepe = features.includes('flair35');
-  const hasYee = features.includes('flair36');
-  if (hasPepe === hasYee) return null;
-  return hasPepe ? 'pepe' : 'yee';
-}
-
-export function radioRole(
-  username: string,
-  roles: string[],
-  env: ServerEnv,
-): UserRole {
-  const configuredAdmin = getAdminUsernames(env).has(username.toLowerCase());
-  if (roles.includes('ADMIN') || configuredAdmin) return 'admin';
-  return roles.includes('MODERATOR') ? 'mod' : 'listener';
+/**
+ * Only ADMIN_DGG_USERNAMES grants a role at sign-in. Destiny's own ADMIN and
+ * MODERATOR roles are deliberately not read: no login has yet arrived carrying
+ * either, so the mapping was never confirmed against a real response and is off
+ * until it can be. Every other role is granted on the admin page. The identity's
+ * roles are still stored, so a future login by a real Destiny mod shows what the
+ * array actually contains.
+ */
+export function radioRole(username: string, env: ServerEnv): UserRole {
+  return getAdminUsernames(env).has(username.toLowerCase()) ? 'admin' : 'listener';
 }
 
 export function canModerate(role: UserRole): boolean {
@@ -167,8 +163,7 @@ export async function completeAuthorization(
   const verifier = await consumeLoginTransaction(state, db);
   const accessToken = await exchangeAuthorizationCode(code, verifier, env);
   const identity = await fetchDggIdentity(accessToken);
-  const role = radioRole(identity.username, identity.roles, env);
-  const team = teamFromFeatures(identity.features);
+  const role = radioRole(identity.username, env);
 
   const [user] = await db
     .insert(users)
@@ -179,7 +174,6 @@ export async function completeAuthorization(
       dggRoles: identity.roles,
       dggFeatures: identity.features,
       role,
-      team,
     })
     .onConflictDoUpdate({
       target: users.dggUserId,
@@ -188,21 +182,23 @@ export async function completeAuthorization(
         dggStatus: identity.status,
         dggRoles: identity.roles,
         dggFeatures: identity.features,
-        // Sign-in can promote from Destiny roles, but never demotes a role an
-        // admin granted inside the radio.
-        role:
-          role === 'admin'
-            ? 'admin'
-            : role === 'mod'
-              ? sql`case when ${users.role} = 'listener' then 'mod'::user_role else ${users.role} end`
-              : sql`${users.role}`,
-        team,
+        // A configured root admin is re-asserted on every sign-in. Everyone
+        // else keeps whatever the admin page granted them.
+        role: role === 'admin' ? 'admin' : sql`${users.role}`,
         lastSeenAt: new Date(),
       },
     })
-    .returning({ id: users.id });
+    .returning({ id: users.id, username: users.username, chatCheckedAt: users.chatCheckedAt });
 
   if (!user) throw new AuthenticationError('The local account could not be created.');
+
+  // Someone signing in for the first time has no team or emote yet. The count
+  // is eleven requests against a third-party API with no uptime promise, so it
+  // runs behind the login rather than in front of it: a slow or broken chat
+  // search must never be the reason nobody can sign in.
+  if (!user.chatCheckedAt) {
+    void enqueueChatCheck({ id: user.id, username: user.username }, fetch, db).catch(() => undefined);
+  }
 
   const sessionToken = randomToken();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
@@ -254,6 +250,7 @@ export async function getSessionUserByToken(
       avatarUrl: users.avatarUrl,
       role: users.role,
       team: users.team,
+      topEmote: users.topEmote,
       dggRoles: users.dggRoles,
       dggFeatures: users.dggFeatures,
     })

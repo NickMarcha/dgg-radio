@@ -1,5 +1,6 @@
 import { ListMusic } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { DEFAULT_EMOTE } from '../shared/contracts';
 import type {
   ApiErrorBody,
   CommunityStats,
@@ -38,9 +39,19 @@ function profileUrl(username: string): string {
 }
 
 function Avatar({ user, large = false }: { user: RoomUser; large?: boolean }) {
+  const classes = [
+    'community-avatar',
+    large ? 'community-avatar-large' : '',
+    user.avatarUrl ? '' : 'community-avatar-emote',
+  ].filter(Boolean).join(' ');
+
   return (
-    <span className={large ? 'community-avatar community-avatar-large' : 'community-avatar'}>
-      {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : user.username.slice(0, 1).toUpperCase()}
+    <span className={classes}>
+      {user.avatarUrl ? (
+        <img src={user.avatarUrl} alt="" />
+      ) : (
+        <span className={`emote ${user.topEmote ?? DEFAULT_EMOTE}`} />
+      )}
     </span>
   );
 }
@@ -114,7 +125,51 @@ function HistoryTable({ entries, showRequester }: { entries: HistoryEntry[]; sho
   );
 }
 
-function ProfileView({ profile }: { profile: UserProfile }) {
+const CHECK_COOLDOWN_MS = 24 * 60 * 60 * 1_000;
+
+/** Your own team and emote come from Destiny chat, and can be recounted daily. */
+function ChatCheck({ profile, apiUrl }: { profile: UserProfile; apiUrl: string }) {
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const checkedAt = profile.chatCheckedAt ? new Date(profile.chatCheckedAt).getTime() : null;
+  const readyAt = checkedAt === null ? null : checkedAt + CHECK_COOLDOWN_MS;
+  const waiting = readyAt !== null && readyAt > Date.now();
+
+  async function check() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const response = await fetch(`${apiUrl}/api/me/chat-check`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error?.message ?? 'The check did not run.');
+      setNotice('Counted. Reload to see the result.');
+    } catch (caught) {
+      setNotice(caught instanceof Error ? caught.message : 'The check did not run.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <p className="profile-check">
+      <button type="button" disabled={busy || waiting} onClick={() => void check()}>
+        {busy ? 'Counting…' : 'Recount my chat'}
+      </button>
+      <span>
+        {notice ??
+          (waiting
+            ? `Counted ${formatDate(profile.chatCheckedAt!)}. Once a day.`
+            : 'Reads your yee and pepe messages, and your emotes, from Destiny chat.')}
+      </span>
+    </p>
+  );
+}
+
+function ProfileView({ profile, apiUrl }: { profile: UserProfile; apiUrl: string }) {
   const { stats } = profile;
   return (
     <>
@@ -123,6 +178,7 @@ function ProfileView({ profile }: { profile: UserProfile }) {
         <div>
           <h1>{profile.user.username}</h1>
           <p><TeamText team={profile.user.team} /> · Joined {formatDate(profile.joinedAt)}</p>
+          {profile.isSelf && <ChatCheck profile={profile} apiUrl={apiUrl} />}
         </div>
       </header>
 
@@ -180,6 +236,49 @@ function StatsView({ stats }: { stats: CommunityStats }) {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="community-section">
+        <div className="community-section-heading">
+          <h2>Top Played</h2>
+          <span>Times a track reached the player, then its score</span>
+        </div>
+        {stats.tracks.length ? (
+          <div className="community-table-wrap">
+            <table className="community-table track-table">
+              <thead><tr><th>#</th><th>Track</th><th>Plays</th><th>Up</th><th>Down</th><th>Score</th></tr></thead>
+              <tbody>
+                {stats.tracks.map((entry, index) => (
+                  <tr key={entry.media.id}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <div className="history-track">
+                        {entry.media.thumbnailUrl ? (
+                          <img src={entry.media.thumbnailUrl} alt="" loading="lazy" />
+                        ) : (
+                          <span className="history-art-empty"><ListMusic size={16} /></span>
+                        )}
+                        <div>
+                          <a href={entry.media.canonicalUrl} target="_blank" rel="noreferrer">
+                            {entry.media.title}
+                          </a>
+                          <span>
+                            <span className={`provider-text provider-${entry.media.provider}`}>
+                              {entry.media.provider === 'youtube' ? 'YouTube' : 'SoundCloud'}
+                            </span>
+                            {' · '}{entry.media.artist}{' · '}{formatDuration(entry.media.durationSeconds)}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{entry.plays}</td><td>{entry.upvotes}</td><td>{entry.downvotes}</td>
+                    <td><Score value={entry.score} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="community-empty">No tracks have played yet.</p>}
       </section>
 
       <section className="community-section">
@@ -268,7 +367,7 @@ export default function CommunityPage({ apiUrl, view }: CommunityPageProps) {
         {error ? <div className="community-error" role="alert">{error}</div> : !data ? (
           <p className="community-loading">Loading...</p>
         ) : view === 'profile' ? (
-          <ProfileView profile={data as UserProfile} />
+          <ProfileView profile={data as UserProfile} apiUrl={apiUrl} />
         ) : view === 'stats' ? (
           <StatsView stats={data as CommunityStats} />
         ) : (

@@ -13,6 +13,7 @@ import type {
   RoomUser,
   SelectorStats,
   TeamStats,
+  TrackStats,
   UserProfile,
 } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
@@ -59,6 +60,7 @@ function historySelection() {
     requesterAvatarUrl: users.avatarUrl,
     requesterRole: users.role,
     requesterTeam: users.team,
+    requesterTopEmote: users.topEmote,
     upvotes: upvoteCount,
     downvotes: downvoteCount,
   };
@@ -83,6 +85,7 @@ type HistoryRow = {
   requesterAvatarUrl: string | null;
   requesterRole: 'listener' | 'mod' | 'admin';
   requesterTeam: 'pepe' | 'yee' | null;
+  requesterTopEmote: string | null;
   upvotes: number;
   downvotes: number;
 };
@@ -109,6 +112,7 @@ function toHistoryEntry(row: HistoryRow): HistoryEntry {
       avatarUrl: row.requesterAvatarUrl,
       role: row.requesterRole,
       team: row.requesterTeam,
+      topEmote: row.requesterTopEmote,
     },
     status: row.status as HistoryEntry['status'],
     requestedAt: row.requestedAt.toISOString(),
@@ -146,6 +150,7 @@ export async function listJammers(
       avatarUrl: users.avatarUrl,
       role: users.role,
       team: users.team,
+      topEmote: users.topEmote,
       plays: countDistinct(queueItems.id).mapWith(Number),
       upvotes: sql<number>`count(*) filter (where ${votes.value} = 1)`.mapWith(Number),
       downvotes: sql<number>`count(*) filter (where ${votes.value} = -1)`.mapWith(Number),
@@ -155,7 +160,7 @@ export async function listJammers(
     .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
     .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
     .where(isNotNull(queueItems.startedAt))
-    .groupBy(users.id, users.username, users.avatarUrl, users.role, users.team)
+    .groupBy(users.id, users.username, users.avatarUrl, users.role, users.team, users.topEmote)
     .orderBy(desc(scoreExpression), desc(countDistinct(queueItems.id)))
     .limit(limit);
 
@@ -165,12 +170,56 @@ export async function listJammers(
       username: row.username,
       avatarUrl: row.avatarUrl,
       role: row.role,
+      topEmote: row.topEmote,
       team: row.team,
     },
     plays: row.plays,
     upvotes: row.upvotes,
     downvotes: row.downvotes,
     score: row.score,
+  }));
+}
+
+/**
+ * The tracks the room has actually reached, most played first. A play is a
+ * queue item that started, so a track skipped part-way still counts as one:
+ * the room heard it and voted on it.
+ */
+export async function listTopTracks(
+  limit = 100,
+  db: Database = getDatabase(),
+): Promise<TrackStats[]> {
+  const playExpression = countDistinct(queueItems.id).mapWith(Number);
+  const scoreExpression = sql<number>`coalesce(sum(${votes.value}), 0)`.mapWith(Number);
+  const rows = await db
+    .select({
+      id: media.id,
+      provider: media.provider,
+      providerMediaId: media.providerMediaId,
+      canonicalUrl: media.canonicalUrl,
+      title: media.title,
+      artist: media.artist,
+      durationSeconds: media.durationSeconds,
+      thumbnailUrl: media.thumbnailUrl,
+      plays: playExpression,
+      upvotes: sql<number>`count(*) filter (where ${votes.value} = 1)`.mapWith(Number),
+      downvotes: sql<number>`count(*) filter (where ${votes.value} = -1)`.mapWith(Number),
+      score: scoreExpression,
+    })
+    .from(queueItems)
+    .innerJoin(media, eq(queueItems.mediaId, media.id))
+    .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
+    .where(isNotNull(queueItems.startedAt))
+    .groupBy(media.id)
+    .orderBy(desc(playExpression), desc(scoreExpression))
+    .limit(limit);
+
+  return rows.map(({ plays, upvotes, downvotes, score, ...media }) => ({
+    media,
+    plays,
+    upvotes,
+    downvotes,
+    score,
   }));
 }
 
@@ -210,7 +259,11 @@ async function teamStats(db: Database): Promise<TeamStats[]> {
 export async function getCommunityStats(
   db: Database = getDatabase(),
 ): Promise<CommunityStats> {
-  const [jammers, teams] = await Promise.all([listJammers(100, db), teamStats(db)]);
+  const [jammers, teams, tracks] = await Promise.all([
+    listJammers(100, db),
+    teamStats(db),
+    listTopTracks(100, db),
+  ]);
   return {
     totals: {
       members: teams.reduce((total, team) => total + team.members, 0),
@@ -219,11 +272,13 @@ export async function getCommunityStats(
     },
     jammers,
     teams,
+    tracks,
   };
 }
 
 export async function getUserProfile(
   username: string,
+  viewerId: string | null = null,
   db: Database = getDatabase(),
 ): Promise<UserProfile> {
   const [user] = await db
@@ -233,8 +288,10 @@ export async function getUserProfile(
       avatarUrl: users.avatarUrl,
       role: users.role,
       team: users.team,
+      topEmote: users.topEmote,
       joinedAt: users.createdAt,
       lastSeenAt: users.lastSeenAt,
+      chatCheckedAt: users.chatCheckedAt,
     })
     .from(users)
     .where(sql`lower(${users.username}) = lower(${username})`)
@@ -286,12 +343,15 @@ export async function getUserProfile(
     avatarUrl: user.avatarUrl,
     role: user.role,
     team: user.team,
+    topEmote: user.topEmote,
   };
 
   return {
     user: roomUser,
     joinedAt: user.joinedAt.toISOString(),
     lastSeenAt: user.lastSeenAt.toISOString(),
+    isSelf: viewerId === user.id,
+    chatCheckedAt: user.chatCheckedAt?.toISOString() ?? null,
     stats: {
       ...summary,
       averageVotesPerPlay: summary.plays > 0 ? voteCount / summary.plays : 0,

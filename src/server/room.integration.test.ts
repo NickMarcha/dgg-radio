@@ -90,7 +90,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
   afterEach(async () => {
     await db.execute(
-      sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.ruleEntries}, ${schema.rules}, ${roomState}, ${schema.roomSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${users} restart identity cascade`,
+      sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.ruleEntries}, ${schema.rules}, ${roomState}, ${schema.roomSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${schema.userChatCounts}, ${users} restart identity cascade`,
     );
     vi.mocked(lookupMediaCached).mockReset();
   });
@@ -113,6 +113,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
         role: users.role,
         avatarUrl: users.avatarUrl,
         team: users.team,
+        topEmote: users.topEmote,
         dggUserId: users.dggUserId,
         dggRoles: users.dggRoles,
         dggFeatures: users.dggFeatures,

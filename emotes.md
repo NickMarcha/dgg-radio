@@ -11,6 +11,8 @@ The emotes in `public/emotes/` were downloaded from the Destiny.gg CDN on 2026-0
 
 `public/favicon.png` is a copy of `public/emotes/TeddYEE.png` used as the frontend favicon.
 
+`public/emotes/MMMM.png` was added later, from the same manifest, as the stand-in avatar for anyone whose chat has not been counted yet. It is two 28-pixel frames in one 56-pixel file; the snapshot shows the left one by default and reserves the right for a single chat username upstream, which this site does not use.
+
 ## Animation
 
 Emotes animate in three different ways, and the difference decides how they can be rendered.
@@ -35,4 +37,6 @@ Repeats are louder than singles. Rules under `:nth-of-type(2n)` add a rainbow `d
 
 ### What this project uses
 
-`src/styles/emotes.css` holds the rules for only the emotes this site renders, rewritten to point at the local `/emotes/` paths and to loop. The snapshot is not imported: it carries thousands of rules for emotes that were never downloaded, all referencing hashed CDN filenames that do not exist here. Adding an emote to the interface means porting its rules across in the same way.
+`src/styles/emotes.css` holds the rules for only the emotes this site renders, rewritten to point at the local `/emotes/` paths and to loop. That now covers the nine dancing and music emotes used as avatars, plus `MMMM`.
+
+Their declared sizes are the originals on purpose. `catJAM` and `RaveDoge` animate by stepping `background-position` across one long strip, so their frame offsets are tied to the declared width: changing `background-size` to fit an avatar into a circle would desynchronise every frame. Resizing one of these is only safe through `transform`, which scales the painted result and leaves the offsets alone. That is why an emote avatar keeps its natural size instead of being clipped into the circular slot the letter used. The snapshot is not imported: it carries thousands of rules for emotes that were never downloaded, all referencing hashed CDN filenames that do not exist here. Adding an emote to the interface means porting its rules across in the same way.

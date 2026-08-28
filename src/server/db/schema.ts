@@ -46,6 +46,10 @@ export const users = pgTable(
     avatarUrl: text('avatar_url'),
     role: userRole('role').notNull().default('listener'),
     team: userTeam('team'),
+    /** Their most used dancing emote, shown wherever an avatar is. */
+    topEmote: text('top_emote'),
+    /** When chat was last counted for this user. Null means never, which is what schedules the first check. */
+    chatCheckedAt: timestamp('chat_checked_at', { withTimezone: true }),
     dggStatus: text('dgg_status').notNull(),
     dggRoles: text('dgg_roles').array().notNull().default(sql`'{}'::text[]`),
     dggFeatures: text('dgg_features').array().notNull().default(sql`'{}'::text[]`),
@@ -129,6 +133,23 @@ export const mediaLookups = pgTable('media_lookups', {
   metadata: jsonb('metadata').$type<MediaMetadata>().notNull(),
   checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Every term counted for one person in Destiny chat, kept raw rather than only
+ * as the team and emote derived from them, so a surprising result can be read
+ * back rather than guessed at. Rewritten wholesale on each check.
+ */
+export const userChatCounts = pgTable(
+  'user_chat_counts',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    term: text('term').notNull(),
+    count: integer('count').notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.term] })],
+);
 
 /**
  * YouTube's i18nRegions answer, kept so the admin panel does not ask for it on

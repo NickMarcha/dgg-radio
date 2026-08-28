@@ -92,6 +92,7 @@ function queueRowSelection() {
     requesterAvatarUrl: users.avatarUrl,
     requesterRole: users.role,
     requesterTeam: users.team,
+    requesterTopEmote: users.topEmote,
   };
 }
 
@@ -120,6 +121,7 @@ function toQueueRow(row: ReturnType<typeof queueRowSelection> extends never ? ne
       avatarUrl: row.requesterAvatarUrl,
       role: row.requesterRole,
       team: row.requesterTeam,
+      topEmote: row.requesterTopEmote,
     },
   };
 }
@@ -951,6 +953,7 @@ export async function getRoomSnapshot(
           id: me.id,
           username: me.username,
           avatarUrl: me.avatarUrl,
+          topEmote: me.topEmote,
           role: me.role,
           team: me.team,
         }

@@ -25,6 +25,7 @@ import {
   initClientAnalytics,
   resetClientUser,
 } from '../client/analytics';
+import { DEFAULT_EMOTE } from '../shared/contracts';
 import type {
   ApiErrorBody,
   PublicRule,
@@ -185,19 +186,22 @@ function formatDuration(seconds: number): string {
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-function userInitial(user: RoomUser): string {
-  return user.username.slice(0, 1).toUpperCase();
-}
-
 function TeamLabel({ user }: { user: RoomUser }) {
   if (!user.team) return null;
   return <span className={`team-label team-${user.team}`}>{user.team.toUpperCase()}</span>;
 }
 
 function UserAvatar({ user }: { user: RoomUser }) {
+  if (!user.avatarUrl) {
+    return (
+      <span className="avatar avatar-emote" aria-hidden="true">
+        <span className={`emote ${user.topEmote ?? DEFAULT_EMOTE}`} />
+      </span>
+    );
+  }
   return (
     <span className="avatar" aria-hidden="true">
-      {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : userInitial(user)}
+      {<img src={user.avatarUrl} alt="" />}
     </span>
   );
 }
