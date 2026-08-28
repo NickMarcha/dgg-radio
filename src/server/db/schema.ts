@@ -46,6 +46,8 @@ export const users = pgTable(
     avatarUrl: text('avatar_url'),
     role: userRole('role').notNull().default('listener'),
     team: userTeam('team'),
+    /** The Destiny flair their username takes its colour from, or null for no colour. */
+    flair: text('flair'),
     /** Their most used dancing emote, shown wherever an avatar is. */
     topEmote: text('top_emote'),
     /** When chat was last counted for this user. Null means never, which is what schedules the first check. */

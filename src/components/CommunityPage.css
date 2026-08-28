@@ -403,3 +403,13 @@
   color: var(--faint);
   font-size: 0.8rem;
 }
+
+/* The heading explains where team and the emote come from, on hover. */
+.profile-heading [title] {
+  cursor: help;
+}
+
+.profile-heading p [title] {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}

@@ -1,6 +1,7 @@
 import { ListMusic } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { DEFAULT_EMOTE } from '../shared/contracts';
+import { userClass } from './flair';
 import type {
   ApiErrorBody,
   CommunityStats,
@@ -38,7 +39,15 @@ function profileUrl(username: string): string {
   return `/profile/${encodeURIComponent(username)}`;
 }
 
-function Avatar({ user, large = false }: { user: RoomUser; large?: boolean }) {
+function Avatar({
+  user,
+  large = false,
+  title,
+}: {
+  user: RoomUser;
+  large?: boolean;
+  title?: string;
+}) {
   const classes = [
     'community-avatar',
     large ? 'community-avatar-large' : '',
@@ -46,7 +55,7 @@ function Avatar({ user, large = false }: { user: RoomUser; large?: boolean }) {
   ].filter(Boolean).join(' ');
 
   return (
-    <span className={classes}>
+    <span className={classes} title={title}>
       {user.avatarUrl ? (
         <img src={user.avatarUrl} alt="" />
       ) : (
@@ -56,9 +65,23 @@ function Avatar({ user, large = false }: { user: RoomUser; large?: boolean }) {
   );
 }
 
-function TeamText({ team }: { team: RoomUser['team'] }) {
-  if (!team) return <span className="team-unassigned">team unassigned</span>;
-  return <span className={`team-${team}`}>{team === 'pepe' ? 'Team PEPE' : 'Team YEE'}</span>;
+const TEAM_EXPLAINER =
+  'Team is counted from your Destiny chat: whichever of "yee" or "pepe" you say at least ' +
+  'three times out of four. A more even mix, or neither word, leaves you unassigned.';
+
+const EMOTE_EXPLAINER =
+  'Your profile emote is the dancing or music emote you use most in Destiny chat. ' +
+  'MMMM stands in until your chat has been counted.';
+
+function TeamText({ team, title }: { team: RoomUser['team']; title?: string }) {
+  if (!team) {
+    return <span className="team-unassigned" title={title}>team unassigned</span>;
+  }
+  return (
+    <span className={`team-${team}`} title={title}>
+      {team === 'pepe' ? 'Team PEPE' : 'Team YEE'}
+    </span>
+  );
 }
 
 function Score({ value }: { value: number }) {
@@ -109,7 +132,10 @@ function HistoryTable({ entries, showRequester }: { entries: HistoryEntry[]; sho
               </td>
               {showRequester && (
                 <td>
-                  <a className="profile-link" href={profileUrl(entry.requestedBy.username)}>
+                  <a
+                    className={userClass(entry.requestedBy, 'profile-link')}
+                    href={profileUrl(entry.requestedBy.username)}
+                  >
                     {entry.requestedBy.username}
                   </a>
                 </td>
@@ -174,10 +200,13 @@ function ProfileView({ profile, apiUrl }: { profile: UserProfile; apiUrl: string
   return (
     <>
       <header className="profile-heading">
-        <Avatar user={profile.user} large />
+        <Avatar user={profile.user} large title={EMOTE_EXPLAINER} />
         <div>
-          <h1>{profile.user.username}</h1>
-          <p><TeamText team={profile.user.team} /> · Joined {formatDate(profile.joinedAt)}</p>
+          <h1 className={userClass(profile.user)}>{profile.user.username}</h1>
+          <p>
+            <TeamText team={profile.user.team} title={TEAM_EXPLAINER} /> ·{' '}
+            Joined {formatDate(profile.joinedAt)}
+          </p>
           {profile.isSelf && <ChatCheck profile={profile} apiUrl={apiUrl} />}
         </div>
       </header>
@@ -294,7 +323,9 @@ function StatsView({ stats }: { stats: CommunityStats }) {
                     <td>
                       <div className="jammer-user">
                         <Avatar user={entry.user} />
-                        <a className="profile-link" href={profileUrl(entry.user.username)}>{entry.user.username}</a>
+                        <a className={userClass(entry.user, 'profile-link')} href={profileUrl(entry.user.username)}>
+                          {entry.user.username}
+                        </a>
                         <TeamText team={entry.user.team} />
                       </div>
                     </td>

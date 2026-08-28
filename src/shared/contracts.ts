@@ -97,6 +97,8 @@ export interface RoomUser {
   avatarUrl: string | null;
   role: UserRole;
   team: Team;
+  /** The Destiny flair their username is coloured after, or null when none colours it. */
+  flair: string | null;
   /** Their most used dancing emote, or null until their chat has been counted. */
   topEmote: string | null;
 }

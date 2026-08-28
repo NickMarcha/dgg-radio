@@ -26,6 +26,7 @@ import {
   resetClientUser,
 } from '../client/analytics';
 import { DEFAULT_EMOTE } from '../shared/contracts';
+import { userClass } from './flair';
 import type {
   ApiErrorBody,
   PublicRule,
@@ -270,7 +271,10 @@ function QueueRow({
         <span className="requester">
           {item.requestedBy ? (
             <>
-              <a className="profile-link" href={`/profile/${encodeURIComponent(item.requestedBy.username)}`}>
+              <a
+                className={userClass(item.requestedBy, 'profile-link')}
+                href={`/profile/${encodeURIComponent(item.requestedBy.username)}`}
+              >
                 {item.requestedBy.username}
               </a>{' '}
               <TeamLabel user={item.requestedBy} />
@@ -634,7 +638,10 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             <>
               <UserAvatar user={room.me} />
               <span className="account-name">
-                <a className="profile-link" href={`/profile/${encodeURIComponent(room.me.username)}`}>
+                <a
+                  className={userClass(room.me, 'profile-link')}
+                  href={`/profile/${encodeURIComponent(room.me.username)}`}
+                >
                   {room.me.username}
                 </a>{' '}
                 <TeamLabel user={room.me} />
@@ -860,7 +867,10 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                         <td>
                           <span className="rank">{index + 1}</span>
                           <UserAvatar user={entry.user} />
-                          <a className="profile-link" href={`/profile/${encodeURIComponent(entry.user.username)}`}>
+                          <a
+                            className={userClass(entry.user, 'profile-link')}
+                            href={`/profile/${encodeURIComponent(entry.user.username)}`}
+                          >
                             {entry.user.username}
                           </a>
                           <TeamLabel user={entry.user} />

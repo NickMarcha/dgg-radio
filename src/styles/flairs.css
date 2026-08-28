@@ -1,0 +1,74 @@
+/*
+ * Username colours, ported from the snapshot at
+ * https://cdn.destiny.gg/flairs/flairs.css so a name reads here the way it
+ * reads in Destiny chat.
+ *
+ * Upstream every rule is `.user.<flair>` at one specificity, so which flair
+ * wins is decided purely by source order. That order is encoded in
+ * src/server/flair.ts, which resolves one winning flair per person, so these
+ * rules never have to compete with each other. Keep the two in step: a colour
+ * added here needs its place in that list, or it will never be chosen.
+ *
+ * The `move` keyframes upstream are renamed, being far too general a name to
+ * put in a shared stylesheet.
+ */
+
+:root {
+  --flair-rainbow-saturation: 100%;
+  --flair-rainbow-lightness: 65%;
+}
+
+.flair-moderator { color: #db4c1c; }
+.flair-flair125 { color: #ffd88c; }
+.flair-flair11 { color: #929292; }
+.flair-bot { color: #0088cc; }
+.flair-subscriber,
+.flair-flair9,
+.flair-flair13,
+.flair-flair32 { color: #59aeea; }
+.flair-flair1,
+.flair-flair22 { color: #2addc8; }
+.flair-flair3,
+.flair-flair24 { color: #4db524; }
+.flair-flair8,
+.flair-flair26 { color: #dd29d2; }
+.flair-flair12 { color: #e79015; }
+.flair-flair7 { color: #fc4c02; }
+.flair-flair18 { color: #f082bb; }
+.flair-admin { color: #ee1f1f; }
+.flair-flair17 { color: #fce205; }
+
+/* Two flairs are a moving gradient rather than a colour. */
+.flair-flair42,
+.flair-flair33 {
+  color: transparent;
+  background: repeating-linear-gradient(
+    90deg,
+    hsl(0, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(45, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(90, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(135, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(180, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(225, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(270, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(315, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
+    hsl(360, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)) 50%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: flair-rainbow 3s linear infinite;
+}
+
+@keyframes flair-rainbow {
+  to {
+    background-position-x: -100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flair-flair42,
+  .flair-flair33 {
+    animation: none;
+  }
+}

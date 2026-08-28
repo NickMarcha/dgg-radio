@@ -113,6 +113,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
         role: users.role,
         avatarUrl: users.avatarUrl,
         team: users.team,
+        flair: users.flair,
         topEmote: users.topEmote,
         dggUserId: users.dggUserId,
         dggRoles: users.dggRoles,

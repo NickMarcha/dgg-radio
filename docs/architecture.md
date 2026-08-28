@@ -55,6 +55,12 @@ Sign-in grants exactly one role, admin, and only to a configured root admin. Des
 
 Team is read from how someone talks in Destiny chat rather than from OAuth, which never delivered a team flair. On the first sign-in, and on request from your own profile at most once a day, `polecat.me` is asked how many times that username has said each counted word. Someone whose yee and pepe messages are at least three quarters one way takes that side; anyone more mixed, or silent, has none. Team never affects permissions.
 
+Usernames are coloured the way Destiny chat colours them, from the flairs in the
+OAuth `features` array. Which flair wins is decided by the source order of the
+upstream stylesheet rather than by anything explicit; `flairs.md` covers the
+trap in that. The winner is resolved once at sign-in and stored on
+`users.flair`.
+
 The same pass counts nine dancing and music emotes, and the most used one becomes that person's avatar wherever a name appears. Every raw count is kept in `user_chat_counts` rather than only the two values derived from it, so a surprising team or emote can be read back instead of guessed at.
 
 That is eleven requests per person against an API allowing sixty a minute, which shapes the design: checks run one at a time process-wide, they stop rather than wait when a window is exhausted, and the first one runs *behind* the login instead of in front of it. A chat search that is slow or down must never be why nobody can sign in, so a failed check leaves the stored counts alone and the person keeps whatever they had, defaulting to the `MMMM` emote until a check succeeds.

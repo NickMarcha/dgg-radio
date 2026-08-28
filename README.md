@@ -16,6 +16,7 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
 - YouTube and SoundCloud search, and playlist import for both providers
 - Per-play upvotes and downvotes, no voting on your own request, and a configurable downvote skip
 - Team YEE and Team PEPE read from Destiny chat, with each listener's most used dancing emote as their avatar
+- Usernames coloured by Destiny flair, the same way they appear in chat
 - Optionally hiding requesters until a track ends, so votes are cast on the track
 - Volume and play state remembered per browser
 - Responsive desktop and mobile room layouts

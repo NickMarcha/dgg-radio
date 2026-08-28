@@ -60,6 +60,7 @@ function historySelection() {
     requesterAvatarUrl: users.avatarUrl,
     requesterRole: users.role,
     requesterTeam: users.team,
+    requesterFlair: users.flair,
     requesterTopEmote: users.topEmote,
     upvotes: upvoteCount,
     downvotes: downvoteCount,
@@ -85,6 +86,7 @@ type HistoryRow = {
   requesterAvatarUrl: string | null;
   requesterRole: 'listener' | 'mod' | 'admin';
   requesterTeam: 'pepe' | 'yee' | null;
+  requesterFlair: string | null;
   requesterTopEmote: string | null;
   upvotes: number;
   downvotes: number;
@@ -112,6 +114,7 @@ function toHistoryEntry(row: HistoryRow): HistoryEntry {
       avatarUrl: row.requesterAvatarUrl,
       role: row.requesterRole,
       team: row.requesterTeam,
+      flair: row.requesterFlair,
       topEmote: row.requesterTopEmote,
     },
     status: row.status as HistoryEntry['status'],
@@ -150,6 +153,7 @@ export async function listJammers(
       avatarUrl: users.avatarUrl,
       role: users.role,
       team: users.team,
+      flair: users.flair,
       topEmote: users.topEmote,
       plays: countDistinct(queueItems.id).mapWith(Number),
       upvotes: sql<number>`count(*) filter (where ${votes.value} = 1)`.mapWith(Number),
@@ -160,7 +164,7 @@ export async function listJammers(
     .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
     .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
     .where(isNotNull(queueItems.startedAt))
-    .groupBy(users.id, users.username, users.avatarUrl, users.role, users.team, users.topEmote)
+    .groupBy(users.id, users.username, users.avatarUrl, users.role, users.team, users.flair, users.topEmote)
     .orderBy(desc(scoreExpression), desc(countDistinct(queueItems.id)))
     .limit(limit);
 
@@ -170,6 +174,7 @@ export async function listJammers(
       username: row.username,
       avatarUrl: row.avatarUrl,
       role: row.role,
+      flair: row.flair,
       topEmote: row.topEmote,
       team: row.team,
     },
@@ -288,6 +293,7 @@ export async function getUserProfile(
       avatarUrl: users.avatarUrl,
       role: users.role,
       team: users.team,
+      flair: users.flair,
       topEmote: users.topEmote,
       joinedAt: users.createdAt,
       lastSeenAt: users.lastSeenAt,
@@ -343,6 +349,7 @@ export async function getUserProfile(
     avatarUrl: user.avatarUrl,
     role: user.role,
     team: user.team,
+    flair: user.flair,
     topEmote: user.topEmote,
   };
 

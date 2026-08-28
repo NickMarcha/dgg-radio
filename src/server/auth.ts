@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { RoomUser, UserRole } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
 import { enqueueChatCheck } from './chat';
+import { resolveFlair } from './flair';
 import { oauthLoginTransactions, sessions, users } from './db/schema';
 import { getAdminUsernames, getEnv, type ServerEnv } from './env';
 
@@ -164,6 +165,7 @@ export async function completeAuthorization(
   const accessToken = await exchangeAuthorizationCode(code, verifier, env);
   const identity = await fetchDggIdentity(accessToken);
   const role = radioRole(identity.username, env);
+  const flair = resolveFlair(identity.features);
 
   const [user] = await db
     .insert(users)
@@ -173,6 +175,7 @@ export async function completeAuthorization(
       dggStatus: identity.status,
       dggRoles: identity.roles,
       dggFeatures: identity.features,
+      flair,
       role,
     })
     .onConflictDoUpdate({
@@ -182,6 +185,7 @@ export async function completeAuthorization(
         dggStatus: identity.status,
         dggRoles: identity.roles,
         dggFeatures: identity.features,
+        flair,
         // A configured root admin is re-asserted on every sign-in. Everyone
         // else keeps whatever the admin page granted them.
         role: role === 'admin' ? 'admin' : sql`${users.role}`,
@@ -250,6 +254,7 @@ export async function getSessionUserByToken(
       avatarUrl: users.avatarUrl,
       role: users.role,
       team: users.team,
+      flair: users.flair,
       topEmote: users.topEmote,
       dggRoles: users.dggRoles,
       dggFeatures: users.dggFeatures,

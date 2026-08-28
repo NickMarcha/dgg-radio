@@ -52,6 +52,7 @@ function user(role: AuthenticatedUser['role']): AuthenticatedUser {
     avatarUrl: null,
     role,
     team: null,
+    flair: null,
     topEmote: null,
     dggRoles: [],
     dggFeatures: [],
