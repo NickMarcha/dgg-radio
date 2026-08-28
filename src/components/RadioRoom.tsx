@@ -8,7 +8,6 @@ import {
   ListMusic,
   LogIn,
   LogOut,
-  Radio,
   Shield,
   SkipForward,
   ThumbsDown,
@@ -538,11 +537,15 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   return (
     <div className="radio-app">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="DGG Radio home">
-          <Radio size={22} />
-          <span>DGG Radio</span>
-          <span className="beta-badge">beta</span>
-        </a>
+        <div className="brand-block">
+          <a className="brand" href="/player" aria-label="DGG Radio home">
+            <img className="emote" src="/emotes/pepeJAM.png" alt="" width={33} height={30} />
+            <span>DGG Radio</span>
+            <img className="emote" src="/emotes/YAM.png" alt="" width={30} height={30} />
+            <span className="beta-badge">beta</span>
+          </a>
+          <span className="disclaimer">Not affiliated with destiny.gg</span>
+        </div>
         <div className="room-presence">
           <span className={connected ? 'connection-ok' : 'connection-wait'}>
             {connected ? 'Connected' : 'Reconnecting'}
@@ -752,14 +755,14 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
           <section className="stats-section">
             <div className="section-heading">
-              <h2>Top selectors</h2>
+              <h2>Top Jammers</h2>
               <span>Votes received on played tracks</span>
             </div>
             {room?.selectorStats.length ? (
               <div className="stats-table-wrap">
                 <table className="stats-table">
                   <thead>
-                    <tr><th>Selector</th><th>Plays</th><th>Up</th><th>Down</th><th>Score</th></tr>
+                    <tr><th>Jammer</th><th>Plays</th><th>Up</th><th>Down</th><th>Score</th></tr>
                   </thead>
                   <tbody>
                     {room.selectorStats.map((entry, index) => (

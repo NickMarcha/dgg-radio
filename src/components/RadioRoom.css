@@ -5,7 +5,7 @@
 .topbar {
   height: 60px;
   border-bottom: 1px solid var(--line);
-  background: #171714;
+  background: var(--surface);
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -19,8 +19,9 @@
   align-items: center;
   gap: 9px;
   color: var(--text);
-  font-size: 18px;
-  font-weight: 680;
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
   text-decoration: none;
 }
 
@@ -41,7 +42,7 @@
 .room-presence {
   gap: 14px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .room-presence > span {
@@ -49,11 +50,11 @@
 }
 
 .connection-ok {
-  color: #a8c887;
+  color: var(--success);
 }
 
 .connection-wait {
-  color: #d8b06d;
+  color: var(--accent-soft);
 }
 
 .account {
@@ -78,9 +79,9 @@
   overflow: hidden;
   border: 1px solid var(--line-strong);
   border-radius: 50%;
-  background: #2a2924;
+  background: var(--surface-raised);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -93,7 +94,7 @@
 .team-label,
 .admin-label {
   border-radius: 5px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 18px;
 }
@@ -106,20 +107,20 @@
 }
 
 .team-pepe {
-  background: #263924;
-  color: #b8d5a4;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .team-yee {
-  background: #43351c;
-  color: #e6c77b;
+  background: var(--accent-bg);
+  color: var(--accent-soft);
 }
 
 .admin-label {
   gap: 4px;
   padding: 0 6px;
-  border: 1px solid #66512d;
-  color: #e4b663;
+  border: 1px solid var(--accent);
+  color: var(--accent-soft);
 }
 
 .text-button,
@@ -136,9 +137,9 @@
 }
 
 .login-button {
-  border-color: #a76d20;
-  background: #d98d28;
-  color: #171109;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
   font-weight: 650;
 }
 
@@ -150,10 +151,10 @@
 .notice {
   width: min(1320px, calc(100% - 48px));
   margin: 16px auto 0;
-  border: 1px solid #784a41;
+  border: 1px solid var(--danger-line);
   border-radius: 7px;
-  background: #2a1b18;
-  color: #f0b4a9;
+  background: var(--danger-bg);
+  color: var(--danger);
   padding: 10px 13px;
 }
 
@@ -191,7 +192,7 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  background-color: #090908;
+  background-color: #0b0c0d;
   background-position: center;
   background-size: cover;
 }
@@ -200,7 +201,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(5, 5, 4, 0.42);
+  background: rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
 
@@ -229,9 +230,9 @@
   align-items: center;
   gap: 9px;
   padding: 11px 15px;
-  border-color: #a66d20;
-  background: #d98d28;
-  color: #171109;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
   font-weight: 670;
 }
 
@@ -241,8 +242,8 @@
 }
 
 .player-empty {
-  color: #d6d2c6;
-  font-size: 16px;
+  color: var(--text);
+  font-size: 20px;
 }
 
 .player-info {
@@ -266,13 +267,13 @@
 }
 
 .track-copy strong {
-  font-size: 17px;
+  font-size: 21px;
 }
 
 .track-copy span {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .playback-controls {
@@ -299,7 +300,7 @@
 .progress-track {
   height: 3px;
   margin: 0 17px;
-  background: #383730;
+  background: var(--line-strong);
 }
 
 .progress-track > div {
@@ -313,7 +314,7 @@
   padding: 5px 17px 11px;
   color: var(--faint);
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .player-error {
@@ -322,10 +323,10 @@
   gap: 7px;
   margin: 0;
   padding: 10px 17px;
-  border-top: 1px solid #643f37;
-  background: #281916;
-  color: #e8a89c;
-  font-size: 13px;
+  border-top: 1px solid var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 16px;
 }
 
 .now-controls {
@@ -337,7 +338,7 @@
   border: 1px solid var(--line);
   border-top: 0;
   border-radius: 0 0 9px 9px;
-  background: #171714;
+  background: var(--surface);
   padding: 8px 12px;
 }
 
@@ -361,17 +362,17 @@
 .vote-group > span {
   margin-left: 4px;
   color: var(--faint);
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .vote-active.vote-up {
-  border-color: #70884e;
-  color: #b8d68d;
+  border-color: var(--success-line);
+  color: var(--success);
 }
 
 .vote-active.vote-down {
-  border-color: #865047;
-  color: #ef9f91;
+  border-color: var(--danger-line);
+  color: var(--danger);
 }
 
 .request-section,
@@ -391,7 +392,7 @@
 .queue-heading h2,
 .room-settings h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 20px;
 }
 
 .request-form {
@@ -403,7 +404,7 @@
   display: block;
   margin-bottom: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -423,9 +424,9 @@
 .room-settings button {
   flex: 0 0 auto;
   padding: 0 14px;
-  border-color: #9d6923;
-  background: #c88225;
-  color: #171109;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
   font-weight: 650;
 }
 
@@ -437,7 +438,7 @@
 
 .request-section > p {
   margin: 9px 0 0;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .section-heading,
@@ -451,7 +452,7 @@
 .section-heading > span,
 .queue-heading span {
   color: var(--faint);
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .stats-table-wrap {
@@ -476,7 +477,7 @@
 .stats-table th {
   height: 34px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -504,11 +505,11 @@
 }
 
 .positive-score {
-  color: #b3d38b;
+  color: var(--success);
 }
 
 .negative-score {
-  color: #e89a8e;
+  color: var(--danger);
 }
 
 .rules-section summary {
@@ -535,7 +536,7 @@
 
 .rules-content {
   padding: 10px 20px 18px;
-  color: #cfcbc0;
+  color: var(--text);
 }
 
 .rules-content li + li {
@@ -551,7 +552,7 @@
 
 .examples-grid h3 {
   margin: 0 0 8px;
-  font-size: 14px;
+  font-size: 18px;
 }
 
 .examples-grid ul {
@@ -563,7 +564,7 @@
 .rules-content > p {
   margin: 18px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .queue-column {
@@ -608,7 +609,7 @@
 
 .queue-position {
   color: var(--faint);
-  font-size: 12px;
+  font-size: 15px;
   text-align: center;
 }
 
@@ -617,7 +618,7 @@
   height: 52px;
   border-radius: 5px;
   object-fit: cover;
-  background: #11110f;
+  background: var(--page);
 }
 
 .queue-art-empty {
@@ -640,7 +641,7 @@
 
 .queue-copy a {
   color: var(--text);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 620;
   text-decoration: none;
 }
@@ -655,7 +656,7 @@
 
 .queue-copy > span {
   color: var(--faint);
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .queue-copy .requester {
@@ -700,13 +701,13 @@
 
 .queue-empty span {
   max-width: 260px;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .room-settings {
   padding: 14px;
   border-top: 1px solid var(--line);
-  background: #171714;
+  background: var(--surface);
 }
 
 .room-settings > div:first-child {
@@ -714,12 +715,12 @@
   align-items: center;
   gap: 7px;
   margin-bottom: 12px;
-  color: #d7b06b;
+  color: var(--accent-soft);
 }
 
 .room-settings h3 {
   color: var(--text);
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .room-settings input {
@@ -733,7 +734,7 @@
   gap: 9px;
   padding: 13px 14px;
   border-top: 1px solid var(--line);
-  background: #141411;
+  background: var(--page);
 }
 
 .identity-note svg {
@@ -744,7 +745,7 @@
 
 .identity-note p {
   margin: 0;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 @media (max-width: 900px) {
@@ -796,7 +797,7 @@
   }
 
   .login-button {
-    font-size: 12px;
+    font-size: 15px;
   }
 
   .room-layout,
@@ -849,9 +850,10 @@
 
 .beta-badge {
   align-self: center;
-  background: var(--accent);
-  border-radius: 999px;
-  color: #1a1200;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent-soft);
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -885,7 +887,7 @@
 .request-modes button {
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 6px;
   color: var(--muted);
   cursor: pointer;
   font: inherit;
@@ -1085,7 +1087,7 @@
   background: var(--accent);
   border: none;
   border-radius: 7px;
-  color: #1a1200;
+  color: #ffffff;
   cursor: pointer;
   font: inherit;
   font-size: 0.88rem;
@@ -1111,4 +1113,42 @@ a.admin-label {
 
 a.admin-label:hover {
   color: var(--accent-hover);
+}
+
+/*
+ * Share Tech Mono for anything read rather than glanced at. VT323 is charming
+ * on labels and chrome but loses too much at the sizes track titles need.
+ */
+.track-copy strong,
+.track-copy span,
+.queue-copy a,
+.queue-copy span,
+.search-copy strong,
+.search-copy span,
+.progress-times,
+.player-times,
+.stats-table td,
+.stats-table th,
+.account-name,
+.request-form input,
+.rules-content p {
+  font-family: var(--font-mono);
+}
+
+.brand-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.brand {
+  align-items: center;
+  display: flex;
+  gap: 0.45rem;
+}
+
+.disclaimer {
+  color: var(--muted);
+  font-size: 14px;
+  letter-spacing: 0.01em;
 }

@@ -1,19 +1,41 @@
 :root {
   color-scheme: dark;
-  font-family: 'IBM Plex Sans Variable', sans-serif;
   font-synthesis: none;
-  --page: #11110f;
-  --surface: #1a1a17;
-  --surface-raised: #22221e;
-  --line: #34342e;
-  --line-strong: #4b4a40;
-  --text: #f0ede4;
-  --muted: #aaa79b;
-  --faint: #747269;
-  --accent: #e8a13a;
-  --accent-hover: #f0b256;
-  --danger: #dd6b5d;
-  --success: #7ea05a;
+
+  /*
+   * Taken from destiny.gg's rendered homepage, recorded in styles.md: a
+   * near-black canvas with one electric blue used for action and emphasis.
+   * Blue is an accent here, never a surface.
+   */
+  --page: #111113;
+  --surface: #18191b;
+  --surface-raised: #1f2023;
+  --line: #26282c;
+  --line-strong: #43484e;
+  --text: #edeef0;
+  --muted: #777b84;
+  --faint: #5b5f67;
+  --accent: #0090ff;
+  --accent-hover: #33a6ff;
+  --accent-soft: #70b8ff;
+  --accent-bg: #0d2847;
+  --danger: #ff9592;
+  --danger-bg: #3b1219;
+  --danger-line: #72232d;
+  --success: #1fd8a4;
+  --success-bg: #0f2e22;
+  --success-line: #1b5745;
+
+  /*
+   * VT323 is a terminal face with a small x-height, so it reads a size or two
+   * smaller than a normal sans at the same px value. Share Tech Mono is the
+   * legible one, and carries anything a listener actually has to read closely:
+   * track titles, artists, times, counts.
+   */
+  --font-display: 'VT323', 'Share Tech Mono', ui-monospace, monospace;
+  --font-mono: 'Share Tech Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  font-family: var(--font-display);
 }
 
 * {
@@ -30,12 +52,21 @@ body {
   min-height: 100vh;
   background: var(--page);
   color: var(--text);
-  font-size: 15px;
-  line-height: 1.45;
+  font-size: 19px;
+  line-height: 1.4;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -44,23 +75,30 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+a {
+  color: var(--accent-soft);
+}
+
 button {
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  background: var(--surface-raised);
+  border-radius: 6px;
+  background: var(--surface);
   color: var(--text);
   cursor: pointer;
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 button:hover:not(:disabled) {
-  border-color: #6b695d;
-  background: #2b2b25;
+  border-color: #5c626a;
+  background: var(--surface-raised);
 }
 
 button:focus-visible,
 input:focus-visible,
-summary:focus-visible {
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+a:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -70,15 +108,37 @@ button:disabled {
   opacity: 0.5;
 }
 
-input {
+input,
+select,
+textarea {
   min-width: 0;
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
-  background: #121210;
+  border-radius: 6px;
+  background: #0d0e10;
   color: var(--text);
 }
 
+/* Anything read closely rather than glanced at uses the legible face. */
+input,
+select,
+textarea,
+code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+}
+
 ::selection {
-  background: #76501f;
+  background: var(--accent-bg);
   color: #fff;
+}
+
+/*
+ * DGG emotes are fixed-size bitmaps. These two are single frames at their
+ * natural size; catJAM and RaveDoge are sprite strips and would need the
+ * keyframes from public/emotes/emotes.css instead.
+ */
+.emote {
+  display: inline-block;
+  vertical-align: middle;
+  image-rendering: pixelated;
 }
