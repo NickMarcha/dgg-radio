@@ -86,6 +86,43 @@ interface MediaPlayerProps {
   serverTime: string | null;
 }
 
+const PLAYER_STATE_KEY = 'dgg-radio.player';
+
+/** How long to give a restored player to actually start before giving up on it. */
+const AUTOPLAY_GRACE_MS = 3_000;
+
+interface StoredPlayerState {
+  listening: boolean;
+  volume: number;
+}
+
+/**
+ * Playback preferences are per listener, not part of the room, so they live in
+ * this browser. Reads and writes are guarded: a private window or blocked site
+ * data throws, and the player has to work anyway.
+ */
+function readPlayerState(): StoredPlayerState | null {
+  try {
+    const raw = window.localStorage.getItem(PLAYER_STATE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const { listening, volume } = parsed as Partial<StoredPlayerState>;
+    if (typeof volume !== 'number' || Number.isNaN(volume)) return null;
+    return { listening: listening === true, volume: Math.min(100, Math.max(0, volume)) };
+  } catch {
+    return null;
+  }
+}
+
+function writePlayerState(state: StoredPlayerState): void {
+  try {
+    window.localStorage.setItem(PLAYER_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // Preferences simply do not persist here.
+  }
+}
+
 export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<PlaybackController | null>(null);
@@ -93,6 +130,9 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
   const [volume, setVolume] = useState(80);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [playerError, setPlayerError] = useState<string | null>(null);
+  /** Set when listening resumed from storage rather than from a click. */
+  const restoredWithoutGesture = useRef(false);
+  const skipFirstWrite = useRef(true);
 
   const serverOffset = useMemo(
     () => (serverTime ? new Date(serverTime).getTime() - Date.now() : 0),
@@ -114,6 +154,7 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
   };
 
   const toggleListening = () => {
+    restoredWithoutGesture.current = false;
     setListening((value) => {
       const next = !value;
       if (next && current) {
@@ -122,6 +163,26 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
       return next;
     });
   };
+
+  // Restore after mount rather than in the initial state, so the server-rendered
+  // markup and the first client render agree.
+  useEffect(() => {
+    const stored = readPlayerState();
+    if (!stored) return;
+    setVolume(stored.volume);
+    if (stored.listening) {
+      restoredWithoutGesture.current = true;
+      setListening(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (skipFirstWrite.current) {
+      skipFirstWrite.current = false;
+      return;
+    }
+    writePlayerState({ listening, volume });
+  }, [listening, volume]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setElapsedSeconds(desiredPosition()), 500);
@@ -180,7 +241,8 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
             play: () => player.playVideo(),
             pause: () => player.pauseVideo(),
             seek: (seconds) => player.seekTo(seconds, true),
-            position: async () => player.getCurrentTime() || 0,
+            position: async () =>
+              typeof player.getCurrentTime === 'function' ? player.getCurrentTime() || 0 : 0,
             setVolume: (nextVolume) => player.setVolume(nextVolume),
             destroy: () => player.destroy(),
           };
@@ -215,6 +277,21 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
           };
         }
         syncTimer = window.setInterval(() => void sync(), 10_000);
+
+        // A refresh carries no user gesture, so the browser may refuse to start
+        // audio. If the position has not moved, fall back to the paused state
+        // rather than showing a playing indicator over silence.
+        if (restoredWithoutGesture.current) {
+          restoredWithoutGesture.current = false;
+          try {
+            const before = (await controllerRef.current?.position()) ?? 0;
+            await new Promise((resolve) => window.setTimeout(resolve, AUTOPLAY_GRACE_MS));
+            const after = (await controllerRef.current?.position()) ?? 0;
+            if (!cancelled && after <= before) setListening(false);
+          } catch {
+            // Could not tell. Leave playback alone rather than interrupting it.
+          }
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'The player failed to load.';
         reportPlayerError(message);
