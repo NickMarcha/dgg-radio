@@ -26,11 +26,32 @@ without ever erroring.
 `src/server/flair.ts` encodes that source order as a list and picks the last
 match. `resolveFlair` is called once at sign-in and the winner is stored on
 `users.flair`, so every read is a plain column rather than a resolution.
-`src/styles/flairs.css` then only has to name each rule; the rules never
-compete, because one winner has already been chosen.
+`src/styles/flairs.css` then only has to name each rule; the flair rules never
+compete with each other, because one winner has already been chosen.
 
 Keep the two in step. A colour added to the stylesheet needs its place in that
 list, in the same relative position, or it will never be selected.
+
+## Why every selector is written twice
+
+The rules read `.flair-flair1.flair-flair1`, naming the same class twice. That
+is deliberate.
+
+A username here is almost always a link that is already coloured by the
+component it sits in. `.profile-link` sets `color: inherit` in the room and
+`color: var(--text)` on the community pages, both a single class, so whichever
+stylesheet loads last wins. Worse, `.queue-copy a` sets a colour at one class
+plus one element, which a single class cannot beat at any source order.
+
+Doubling the class raises each rule above those defaults without this file
+having to know the name of every rule it competes with, and without an
+`!important` that nothing later could override. It is safe because nothing sets
+`color` on these elements at higher specificity: the `:hover` rules only touch
+`text-decoration`.
+
+The symptom, if this is ever undone, is specific and misleading: the colour
+keeps working on the profile heading, which is an `h1` carrying no
+`.profile-link`, and quietly stops everywhere else.
 
 ## Flairs that are not colours
 

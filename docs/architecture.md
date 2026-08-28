@@ -53,7 +53,7 @@ Roles live in the database. Admins can assign listener, mod, or admin on `/admin
 
 Sign-in grants exactly one role, admin, and only to a configured root admin. Destiny's own `ADMIN` and `MODERATOR` roles are read from the identity and stored, but not acted on: no login has yet delivered either, so the mapping was never confirmed and is off until it can be. Signing in never overwrites a role granted inside the radio.
 
-Team is read from how someone talks in Destiny chat rather than from OAuth, which never delivered a team flair. On the first sign-in, and on request from your own profile at most once a day, `polecat.me` is asked how many times that username has said each counted word. Someone whose yee and pepe messages are at least three quarters one way takes that side; anyone more mixed, or silent, has none. Team never affects permissions.
+Team is read from how someone talks in Destiny chat rather than from OAuth, which never delivered a team flair. The `features` array itself arrives populated, and username colours are read straight out of it, so the mechanism was never the problem: `flair35` and `flair36` simply never appear in it, which may mean team is not expressed as a flair at all. On the first sign-in, and on request from your own profile at most once a day, `polecat.me` is asked how many times that username has said each counted word. Someone whose yee and pepe messages are at least three quarters one way takes that side; anyone more mixed, or silent, has none. Team never affects permissions.
 
 Usernames are coloured the way Destiny chat colours them, from the flairs in the
 OAuth `features` array. Which flair wins is decided by the source order of the

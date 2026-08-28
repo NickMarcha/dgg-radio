@@ -3,18 +3,6 @@
 Work that is understood but deliberately not being done yet, and why. Items
 leave this file when they ship or when they stop mattering.
 
-## Team affiliation is never detected
-
-**Closed.** Team is no longer read from OAuth at all. `flair35`/`flair36` never
-arrived on any login, so `teamFromFeatures` was removed and team now comes from
-counting yee and pepe messages in Destiny chat through `polecat.me`.
-
-What remains worth knowing, if that source ever has to be replaced: the OAuth
-`features` array does arrive populated — `{flair5, flair1, subscriber}` and the
-like — so the mechanism was never broken. Those two particular flair ids simply
-never appear, which may mean team is not expressed as a flair at all.
-
-
 ## Destiny roles do not grant radio roles
 
 `radioRole` used to map Destiny's `ADMIN` to radio admin and `MODERATOR` to
