@@ -1,6 +1,7 @@
 import {
   Ban,
   ChevronDown,
+  ChevronUp,
   Clock3,
   ExternalLink,
   Headphones,
@@ -72,9 +73,21 @@ interface QueueRowProps {
   admin: boolean;
   busy: boolean;
   onModerate: (action: 'remove' | 'block', item: QueueItem) => void;
+  onMove?: (item: QueueItem, direction: -1 | 1) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
 }
 
-function QueueRow({ item, index, admin, busy, onModerate }: QueueRowProps) {
+function QueueRow({
+  item,
+  index,
+  admin,
+  busy,
+  onModerate,
+  onMove,
+  canMoveUp,
+  canMoveDown,
+}: QueueRowProps) {
   return (
     <li className="queue-row">
       <span className="queue-position">{index + 1}</span>
@@ -91,9 +104,37 @@ function QueueRow({ item, index, admin, busy, onModerate }: QueueRowProps) {
           {item.media.artist} · {formatDuration(item.media.durationSeconds)}
         </span>
         <span className="requester">
-          {item.requestedBy.username} <TeamLabel user={item.requestedBy} />
+          {item.requestedBy ? (
+            <>
+              {item.requestedBy.username} <TeamLabel user={item.requestedBy} />
+            </>
+          ) : (
+            <em>requester hidden</em>
+          )}
         </span>
       </div>
+      {onMove && (
+        <div className="row-actions">
+          <button
+            type="button"
+            disabled={busy || !canMoveUp}
+            onClick={() => onMove(item, -1)}
+            title="Move up"
+            aria-label={`Move ${item.media.title} up`}
+          >
+            <ChevronUp size={15} />
+          </button>
+          <button
+            type="button"
+            disabled={busy || !canMoveDown}
+            onClick={() => onMove(item, 1)}
+            title="Move down"
+            aria-label={`Move ${item.media.title} down`}
+          >
+            <ChevronDown size={15} />
+          </button>
+        </div>
+      )}
       {admin && (
         <div className="row-actions">
           <button
@@ -266,6 +307,19 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     }
     return reason;
   };
+
+  const moveMyTrack = useCallback(
+    async (item: QueueItem, direction: -1 | 1) => {
+      const current = room?.myQueue ?? [];
+      const from = current.findIndex(({ id }) => id === item.id);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= current.length) return;
+      const ordered = current.map(({ id }) => id);
+      [ordered[from], ordered[to]] = [ordered[to]!, ordered[from]!];
+      await mutate('/api/queue/order', 'PATCH', { orderedIds: ordered });
+    },
+    [room?.myQueue, mutate],
+  );
 
   const moderateQueueItem = async (action: 'remove' | 'block', item: QueueItem) => {
     const reason = askReason(action === 'block' ? `Block ${item.media.title}` : `Remove ${item.media.title}`);
@@ -447,7 +501,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
           <div className="queue-heading">
             <div>
               <h2>Up next</h2>
-              <span>{room?.queue.length ?? 0} tracks · round robin</span>
+              <span>{room?.queue.length ?? 0} waiting · one turn each</span>
             </div>
             <Clock3 size={18} />
           </div>
@@ -470,6 +524,39 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
               <p>No requests waiting.</p>
               <span>Each person gets one turn before their next track plays.</span>
             </div>
+          )}
+
+          {room?.me && (
+            <>
+              <div className="queue-heading queue-heading-mine">
+                <div>
+                  <h2>Your queue</h2>
+                  <span>
+                    {room.myQueue.length
+                      ? `${room.myQueue.length} waiting · the top one plays on your turn`
+                      : 'Nothing queued'}
+                  </span>
+                </div>
+                <ListMusic size={18} />
+              </div>
+              {room.myQueue.length > 0 && (
+                <ol className="queue-list">
+                  {room.myQueue.map((item, index) => (
+                    <QueueRow
+                      key={item.id}
+                      item={item}
+                      index={index}
+                      admin={false}
+                      busy={busy}
+                      onModerate={(action, selected) => void moderateQueueItem(action, selected)}
+                      onMove={(selected, direction) => void moveMyTrack(selected, direction)}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < room.myQueue.length - 1}
+                    />
+                  ))}
+                </ol>
+              )}
+            </>
           )}
 
           {admin && (

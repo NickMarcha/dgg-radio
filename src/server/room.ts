@@ -1,10 +1,12 @@
 import {
   and,
+  asc,
   countDistinct,
   desc,
   eq,
   inArray,
   isNotNull,
+  isNull,
   sql,
 } from 'drizzle-orm';
 import type {
@@ -28,10 +30,10 @@ import {
 import { lookupMediaCached } from './media-cache';
 import { addRuleEntry, findBlockingRule } from './rules';
 import { MediaLookupError, type MediaMetadata } from './media';
-import { orderQueueRoundRobin } from './queue-order';
 
 const ROOM_LOCK_ID = 1_349_922;
-const MAX_QUEUED_PER_USER = 5;
+/** How close to the end a track must be before a hidden requester is revealed. */
+const REVEAL_REQUESTER_WITHIN_SECONDS = 15;
 
 export class RoomError extends Error {
   constructor(
@@ -46,9 +48,14 @@ export class RoomError extends Error {
 
 type QueueStatus = QueueItem['status'];
 
+/** Either the pool or an open transaction on it. */
+type Executor = Database | Parameters<Parameters<Database['transaction']>[0]>[0];
+
 interface QueueRow {
   id: string;
   status: QueueStatus;
+  position: number;
+  rotationSeq: number | null;
   requestedAt: Date;
   startedAt: Date | null;
   requesterLastPlayedAt: Date | null;
@@ -60,6 +67,8 @@ function queueRowSelection() {
   return {
     id: queueItems.id,
     status: queueItems.status,
+    position: queueItems.position,
+    rotationSeq: users.rotationSeq,
     requestedAt: queueItems.requestedAt,
     startedAt: queueItems.startedAt,
     requesterLastPlayedAt: users.lastPlayedAt,
@@ -83,6 +92,8 @@ function toQueueRow(row: ReturnType<typeof queueRowSelection> extends never ? ne
   return {
     id: row.id,
     status: row.status,
+    position: row.position,
+    rotationSeq: row.rotationSeq,
     requestedAt: row.requestedAt,
     startedAt: row.startedAt,
     requesterLastPlayedAt: row.requesterLastPlayedAt,
@@ -118,24 +129,45 @@ async function bumpRevision(db: Database): Promise<void> {
     .where(eq(roomState.id, 1));
 }
 
-async function queuedRows(db: Database): Promise<QueueRow[]> {
-  const rows = await db
+/** The first track of whoever is at the front of the rotation. */
+async function nextQueuedRow(db: Database): Promise<QueueRow | null> {
+  const [row] = await db
     .select(queueRowSelection())
     .from(queueItems)
     .innerJoin(media, eq(queueItems.mediaId, media.id))
     .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
-    .where(eq(queueItems.status, 'queued'));
-  return rows.map(toQueueRow);
+    .where(and(eq(queueItems.status, 'queued'), isNotNull(users.rotationSeq)))
+    .orderBy(asc(users.rotationSeq), asc(queueItems.position), asc(queueItems.requestedAt))
+    .limit(1);
+  return row ? toQueueRow(row) : null;
 }
 
-async function nextQueuedRow(db: Database): Promise<QueueRow | null> {
-  const ordered = orderQueueRoundRobin(
-    (await queuedRows(db)).map((row) => ({
-      ...row,
-      requesterId: row.requestedBy.id,
-    })),
-  );
-  return ordered[0] ?? null;
+async function hasQueuedTracks(userId: string, db: Executor): Promise<boolean> {
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    .from(queueItems)
+    .where(and(eq(queueItems.requestedByUserId, userId), eq(queueItems.status, 'queued')));
+  return count > 0;
+}
+
+/** Joins the back of the rotation, unless already waiting somewhere in it. */
+async function joinRotation(userId: string, db: Executor): Promise<void> {
+  await db
+    .update(users)
+    .set({ rotationSeq: sql`nextval('dj_rotation_seq')` })
+    .where(and(eq(users.id, userId), isNull(users.rotationSeq)));
+}
+
+/**
+ * Called once a person's track is done with. They go to the back if they still
+ * have something queued, and otherwise leave the rotation until they queue again.
+ */
+async function cycleRotation(userId: string, db: Executor): Promise<void> {
+  const stillQueued = await hasQueuedTracks(userId, db);
+  await db
+    .update(users)
+    .set({ rotationSeq: stillQueued ? sql`nextval('dj_rotation_seq')` : null })
+    .where(eq(users.id, userId));
 }
 
 async function getSettings(db: Database) {
@@ -270,10 +302,12 @@ export async function advanceCurrentTrack(
     if (expectedQueueItemId && state.currentQueueItemId !== expectedQueueItemId) return false;
 
     const now = new Date();
-    await transaction
+    const [finished] = await transaction
       .update(queueItems)
       .set({ status, finishedAt: now, moderationReason: reason })
-      .where(eq(queueItems.id, state.currentQueueItemId));
+      .where(eq(queueItems.id, state.currentQueueItemId))
+      .returning({ requestedByUserId: queueItems.requestedByUserId });
+    if (finished) await cycleRotation(finished.requestedByUserId, transaction);
     await transaction
       .update(roomState)
       .set({
@@ -331,14 +365,6 @@ export async function enqueueMedia(
     throw new RoomError('MEDIA_BLOCKED', `${scope} under "${blocked.ruleName}".`);
   }
 
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)`.mapWith(Number) })
-    .from(queueItems)
-    .where(and(eq(queueItems.requestedByUserId, user.id), eq(queueItems.status, 'queued')));
-  if (count >= MAX_QUEUED_PER_USER) {
-    throw new RoomError('QUEUE_LIMIT', `You can have at most ${MAX_QUEUED_PER_USER} queued tracks.`);
-  }
-
   const [activeDuplicate] = await db
     .select({ id: queueItems.id })
     .from(queueItems)
@@ -370,12 +396,20 @@ export async function enqueueMedia(
     .returning({ id: media.id });
   if (!storedMedia) throw new RoomError('QUEUE_FAILED', 'The track could not be saved.', 500);
 
+  const [{ nextPosition }] = await db
+    .select({
+      nextPosition: sql<number>`coalesce(max(${queueItems.position}), -1) + 1`.mapWith(Number),
+    })
+    .from(queueItems)
+    .where(and(eq(queueItems.requestedByUserId, user.id), eq(queueItems.status, 'queued')));
+
   const [item] = await db
     .insert(queueItems)
-    .values({ mediaId: storedMedia.id, requestedByUserId: user.id })
+    .values({ mediaId: storedMedia.id, requestedByUserId: user.id, position: nextPosition })
     .returning({ id: queueItems.id });
   if (!item) throw new RoomError('QUEUE_FAILED', 'The request could not be queued.', 500);
 
+  await joinRotation(user.id, db);
   await bumpRevision(db);
   await startNextTrack(db);
   return {
@@ -389,14 +423,18 @@ export async function voteOnCurrentTrack(
   queueItemId: string,
   value: -1 | 0 | 1,
   user: AuthenticatedUser,
+  listenerCount: number,
   db: Database = getDatabase(),
 ): Promise<void> {
   const [item] = await db
-    .select({ id: queueItems.id })
+    .select({ id: queueItems.id, requestedByUserId: queueItems.requestedByUserId })
     .from(queueItems)
     .where(and(eq(queueItems.id, queueItemId), eq(queueItems.status, 'playing')))
     .limit(1);
   if (!item) throw new RoomError('NOT_PLAYING', 'Voting has closed for that track.');
+  if (item.requestedByUserId === user.id) {
+    throw new RoomError('OWN_TRACK', 'You cannot vote on your own request.');
+  }
 
   if (value === 0) {
     await db
@@ -412,6 +450,81 @@ export async function voteOnCurrentTrack(
       });
   }
   await bumpRevision(db);
+
+  if (value === -1 && (await downvotesForceSkip(queueItemId, listenerCount, db))) {
+    await advanceCurrentTrack('skipped', 'Skipped by room vote.', queueItemId, db);
+  }
+}
+
+/**
+ * Whether the room has voted a track off. In ratio mode the bar moves with the
+ * audience, and a room with nobody in it can never reach it.
+ */
+async function downvotesForceSkip(
+  queueItemId: string,
+  listenerCount: number,
+  db: Database,
+): Promise<boolean> {
+  const settings = await getSettings(db);
+  const [{ downvotes }] = await db
+    .select({ downvotes: sql<number>`count(*)`.mapWith(Number) })
+    .from(votes)
+    .where(and(eq(votes.queueItemId, queueItemId), eq(votes.value, -1)));
+
+  if (settings.skipMode === 'absolute') return downvotes >= settings.skipDownvotes;
+  if (listenerCount < 1) return false;
+  return (downvotes * 100) / listenerCount >= settings.skipRatioPercent;
+}
+
+/**
+ * Rewrites the caller's own ordering. Ids not given keep their relative order
+ * behind the ones that were, so a partial list cannot lose tracks.
+ */
+export async function reorderMyQueue(
+  orderedIds: string[],
+  user: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<void> {
+  const mine = await db
+    .select({ id: queueItems.id })
+    .from(queueItems)
+    .where(and(eq(queueItems.requestedByUserId, user.id), eq(queueItems.status, 'queued')))
+    .orderBy(asc(queueItems.position));
+
+  const owned = new Set(mine.map(({ id }) => id));
+  const unknown = orderedIds.find((id) => !owned.has(id));
+  if (unknown) throw new RoomError('NOT_YOUR_TRACK', 'That track is not in your queue.');
+
+  const ordered = [...orderedIds, ...mine.map(({ id }) => id).filter((id) => !orderedIds.includes(id))];
+  await db.transaction(async (transaction) => {
+    for (const [position, id] of ordered.entries()) {
+      await transaction.update(queueItems).set({ position }).where(eq(queueItems.id, id));
+    }
+  });
+  await bumpRevision(db);
+}
+
+/** Admin action: drop everything a person has waiting and take them out of the rotation. */
+export async function clearUserQueue(
+  userId: string,
+  reason: string,
+  admin: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<number> {
+  const cleared = await db
+    .update(queueItems)
+    .set({ status: 'removed', finishedAt: new Date(), moderationReason: reason })
+    .where(and(eq(queueItems.requestedByUserId, userId), eq(queueItems.status, 'queued')))
+    .returning({ id: queueItems.id });
+
+  await db.update(users).set({ rotationSeq: null }).where(eq(users.id, userId));
+  await db.insert(moderationActions).values({
+    actorUserId: admin.id,
+    action: 'clear_queue',
+    details: { userId, reason, removed: cleared.length },
+  });
+  await bumpRevision(db);
+  return cleared.length;
 }
 
 export async function skipCurrentTrack(
@@ -444,8 +557,11 @@ export async function removeQueuedTrack(
     .update(queueItems)
     .set({ status: 'removed', finishedAt: new Date(), moderationReason: reason })
     .where(and(eq(queueItems.id, queueItemId), eq(queueItems.status, 'queued')))
-    .returning({ id: queueItems.id });
+    .returning({ id: queueItems.id, requestedByUserId: queueItems.requestedByUserId });
   if (!removed) throw new RoomError('NOT_QUEUED', 'That track is no longer queued.');
+  if (!(await hasQueuedTracks(removed.requestedByUserId, db))) {
+    await db.update(users).set({ rotationSeq: null }).where(eq(users.id, removed.requestedByUserId));
+  }
   await db.insert(moderationActions).values({
     actorUserId: admin.id,
     action: 'remove',
@@ -649,16 +765,52 @@ export async function getRoomSnapshot(
 
   if (!state) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
   const currentRow = activeRows.find(({ id }) => id === state.currentQueueItemId) ?? null;
-  const orderedQueue = orderQueueRoundRobin(
-    activeRows
-      .filter(({ status }) => status === 'queued')
-      .map((row) => ({ ...row, requesterId: row.requestedBy.id })),
-  );
+
+  const playingRequesterId = currentRow?.requestedBy.id;
+  const seatOf = (row: QueueRow) =>
+    row.requestedBy.id === playingRequesterId
+      ? Number.MAX_SAFE_INTEGER
+      : row.rotationSeq ?? Number.MAX_SAFE_INTEGER - 1;
+  const queuedRows = activeRows
+    .filter(({ status }) => status === 'queued')
+    .sort(
+      (left, right) =>
+        seatOf(left) - seatOf(right) ||
+        left.position - right.position ||
+        left.requestedAt.getTime() - right.requestedAt.getTime(),
+    );
+
+  // The room queue is one track per person: what each of them plays on their
+  // next turn, in the order the room will reach them.
+  const seen = new Set<string>();
+  const roomQueueRows = queuedRows.filter(({ requestedBy }) => {
+    if (seen.has(requestedBy.id)) return false;
+    seen.add(requestedBy.id);
+    return true;
+  });
+  const myQueueRows = me ? queuedRows.filter(({ requestedBy }) => requestedBy.id === me.id) : [];
+
   const hydrated = await queueWithVotes(
-    [...(currentRow ? [currentRow] : []), ...orderedQueue],
+    [...(currentRow ? [currentRow] : []), ...roomQueueRows, ...myQueueRows],
     me?.id,
     db,
   );
+  const byId = new Map(hydrated.map((item) => [item.id, item]));
+  const current = currentRow ? byId.get(currentRow.id) ?? null : null;
+
+  /**
+   * With the requester hidden, votes are cast on the track alone. The name
+   * comes back as the track runs out, and admins always see it.
+   */
+  const secondsLeft =
+    current?.startedAt && current.media.durationSeconds
+      ? (new Date(current.startedAt).getTime() + current.media.durationSeconds * 1_000 - Date.now()) /
+        1_000
+      : Number.POSITIVE_INFINITY;
+  const privileged = me?.role === 'admin';
+  const censor = !settings.revealRequester && !privileged;
+  const hide = <T extends { id: string; requestedBy: RoomUser | null }>(item: T, reveal: boolean): T =>
+    censor && !reveal && item.requestedBy?.id !== me?.id ? { ...item, requestedBy: null } : item;
 
   return {
     serverTime: new Date().toISOString(),
@@ -674,8 +826,9 @@ export async function getRoomSnapshot(
           team: me.team,
         }
       : null,
-    current: currentRow ? hydrated[0] ?? null : null,
-    queue: currentRow ? hydrated.slice(1) : hydrated,
+    current: current ? hide(current, secondsLeft <= REVEAL_REQUESTER_WITHIN_SECONDS) : null,
+    queue: roomQueueRows.map((row) => hide(byId.get(row.id)!, false)),
+    myQueue: myQueueRows.map((row) => byId.get(row.id)!),
     selectorStats: stats,
   };
 }

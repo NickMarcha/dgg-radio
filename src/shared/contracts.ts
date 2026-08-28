@@ -27,6 +27,14 @@ export const ruleUpdateSchema = ruleSchema.partial().extend({
   position: z.number().int().min(0).optional(),
 });
 
+export const reorderQueueSchema = z.object({
+  orderedIds: z.array(z.uuid()).min(1).max(500),
+});
+
+export const clearQueueSchema = z.object({
+  reason: z.string().trim().min(3).max(240),
+});
+
 export const adminRoleSchema = z.object({
   role: z.enum(['listener', 'admin']),
 });
@@ -68,7 +76,8 @@ export interface RoomMedia {
 export interface QueueItem {
   id: string;
   media: RoomMedia;
-  requestedBy: RoomUser;
+  /** Null when the room is hiding requesters and the viewer may not see it. */
+  requestedBy: RoomUser | null;
   status: 'queued' | 'playing' | 'played' | 'skipped' | 'removed';
   requestedAt: string;
   startedAt: string | null;
@@ -99,7 +108,10 @@ export interface RoomSnapshot {
   };
   me: RoomUser | null;
   current: QueueItem | null;
+  /** One track per person waiting, in the order the room will reach them. */
   queue: QueueItem[];
+  /** Everything the signed-in user has waiting, in their own order. */
+  myQueue: QueueItem[];
   selectorStats: SelectorStats[];
 }
 

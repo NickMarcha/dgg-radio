@@ -254,7 +254,9 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
         <div className="track-copy">
           <strong>{current?.media.title ?? 'Nothing playing'}</strong>
           <span>
-            {current ? `${current.media.artist} · requested by ${current.requestedBy.username}` : 'Queue a YouTube or SoundCloud link'}
+            {current
+              ? `${current.media.artist} · ${current.requestedBy ? `requested by ${current.requestedBy.username}` : 'requester hidden until the track ends'}`
+              : 'Queue a YouTube or SoundCloud link'}
           </span>
         </div>
         <div className="playback-controls">

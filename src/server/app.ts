@@ -6,6 +6,8 @@ import { z } from 'zod';
 import {
   adminRoleSchema,
   blockMediaSchema,
+  clearQueueSchema,
+  reorderQueueSchema,
   removeQueueItemSchema,
   ruleSchema,
   ruleUpdateSchema,
@@ -37,7 +39,9 @@ import { getEnv } from './env';
 import { MediaLookupError } from './media';
 import {
   blockQueueItemMedia,
+  clearUserQueue,
   enqueueMedia,
+  reorderMyQueue,
   getRoomSnapshot,
   removeQueuedTrack,
   RoomError,
@@ -170,12 +174,33 @@ export function createApp(dependencies: AppDependencies) {
       async (context) => {
         const { id } = context.req.valid('param');
         const { value } = context.req.valid('json');
-        await voteOnCurrentTrack(id, value, context.get('user'));
+        await voteOnCurrentTrack(id, value, context.get('user'), dependencies.listenerCount());
         captureServerEvent(context.get('user').id, 'track_vote_changed', {
           vote: value === 1 ? 'up' : value === -1 ? 'down' : 'cleared',
         });
         dependencies.onRoomChanged();
         return context.json({ ok: true });
+      },
+    )
+    .patch('/api/queue/order', requireUser, zValidator('json', reorderQueueSchema), async (context) => {
+      await reorderMyQueue(context.req.valid('json').orderedIds, context.get('user'));
+      dependencies.onRoomChanged();
+      return context.json({ ok: true });
+    })
+    .post(
+      '/api/users/:id/clear-queue',
+      requireAdmin,
+      zValidator('param', idParamSchema),
+      zValidator('json', clearQueueSchema),
+      async (context) => {
+        const removed = await clearUserQueue(
+          context.req.valid('param').id,
+          context.req.valid('json').reason,
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'user_queue_cleared', { removed });
+        dependencies.onRoomChanged();
+        return context.json({ removed });
       },
     )
     .post(

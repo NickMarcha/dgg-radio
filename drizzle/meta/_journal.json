@@ -36,6 +36,13 @@
       "when": 1787895353470,
       "tag": "0004_add_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787895891941,
+      "tag": "0005_dj_rotation",
+      "breakpoints": true
     }
   ]
 }

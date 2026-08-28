@@ -17,7 +17,10 @@ vi.mock('./media-cache', () => ({ lookupMediaCached: vi.fn() }));
 
 const { lookupMediaCached } = await import('./media-cache');
 const {
+  advanceCurrentTrack,
   advanceIfExpired,
+  clearUserQueue,
+  reorderMyQueue,
   blockQueueItemMedia,
   enqueueMedia,
   ensureRoomExists,
@@ -28,7 +31,7 @@ const {
 } = await import('./room');
 const { createRule } = await import('./rules');
 const schema = await import('./db/schema');
-const { media, moderationActions, queueItems, roomState, users } = schema;
+const { media, moderationActions, queueItems, roomSettings, roomState, users } = schema;
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -138,19 +141,20 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await ensureRoomExists(db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
+    const admin = await createUser('mod', 'admin');
     const playing = track('aaaaaaaaaaa');
     resolveTracks(playing);
 
     const started = await enqueueMedia(playing.canonicalUrl, nathan, db);
-    await voteOnCurrentTrack(started.id, 1, nathan, db);
-    await voteOnCurrentTrack(started.id, -1, swagy, db);
+    await voteOnCurrentTrack(started.id, 1, swagy, 10, db);
+    await voteOnCurrentTrack(started.id, -1, admin, 10, db);
 
     const withBothVotes = await getRoomSnapshot(swagy, 2, db);
-    expect(withBothVotes.current).toMatchObject({ upvotes: 1, downvotes: 1, myVote: -1 });
+    expect(withBothVotes.current).toMatchObject({ upvotes: 1, downvotes: 1, myVote: 1 });
 
-    await voteOnCurrentTrack(started.id, 0, swagy, db);
+    await voteOnCurrentTrack(started.id, 0, swagy, 10, db);
     const afterClearing = await getRoomSnapshot(swagy, 2, db);
-    expect(afterClearing.current).toMatchObject({ upvotes: 1, downvotes: 0, myVote: 0 });
+    expect(afterClearing.current).toMatchObject({ upvotes: 0, downvotes: 1, myVote: 0 });
   });
 
   it('rejects a vote once the track is no longer playing', async () => {
@@ -163,7 +167,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     const started = await enqueueMedia(playing.canonicalUrl, nathan, db);
     await skipCurrentTrack('Meme song', admin, db);
 
-    await expect(voteOnCurrentTrack(started.id, 1, nathan, db)).rejects.toThrow(RoomError);
+    await expect(voteOnCurrentTrack(started.id, 1, admin, 10, db)).rejects.toThrow(RoomError);
   });
 
   it('skips the current track, records the action, and starts the next one', async () => {
@@ -255,6 +259,158 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     expect(state?.currentQueueItemId).toBe(promoted.id);
   });
 
+  it('alternates turns between two people who both have tracks waiting', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const [a1, a2, b1] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb'), track('ccccccccccc')];
+    resolveTracks(a1, a2, b1);
+
+    const first = await enqueueMedia(a1.canonicalUrl, nathan, db);
+    const nathanSecond = await enqueueMedia(a2.canonicalUrl, nathan, db);
+    const swagyFirst = await enqueueMedia(b1.canonicalUrl, swagy, db);
+
+    // Nathan holds his seat while playing, so Swagy is genuinely next.
+    expect((await getRoomSnapshot(null, 0, db)).queue.map((i) => i.id)).toEqual([
+      swagyFirst.id,
+      nathanSecond.id,
+    ]);
+
+    await advanceCurrentTrack('played', null, first.id, db);
+    const afterFirst = await getRoomSnapshot(null, 0, db);
+    expect(afterFirst.current?.id).toBe(swagyFirst.id);
+    expect(afterFirst.queue.map((i) => i.id)).toEqual([nathanSecond.id]);
+
+    await advanceCurrentTrack('played', null, swagyFirst.id, db);
+    expect((await getRoomSnapshot(null, 0, db)).current?.id).toBe(nathanSecond.id);
+  });
+
+  it('drops someone out of the rotation when their queue empties', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const playing = track('aaaaaaaaaaa');
+    resolveTracks(playing);
+
+    const started = await enqueueMedia(playing.canonicalUrl, nathan, db);
+    await advanceCurrentTrack('played', null, started.id, db);
+
+    const [row] = await db.select({ seq: users.rotationSeq }).from(users).where(eq(users.id, nathan.id));
+    expect(row?.seq).toBeNull();
+  });
+
+  it('keeps a personal queue in the order the owner sets', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const [playing, second, third] = [
+      track('aaaaaaaaaaa'),
+      track('bbbbbbbbbbb'),
+      track('ccccccccccc'),
+    ];
+    resolveTracks(playing, second, third);
+
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const b = await enqueueMedia(second.canonicalUrl, nathan, db);
+    const c = await enqueueMedia(third.canonicalUrl, nathan, db);
+
+    expect((await getRoomSnapshot(nathan, 1, db)).myQueue.map((i) => i.id)).toEqual([b.id, c.id]);
+
+    await reorderMyQueue([c.id, b.id], nathan, db);
+    const reordered = await getRoomSnapshot(nathan, 1, db);
+    expect(reordered.myQueue.map((i) => i.id)).toEqual([c.id, b.id]);
+    // The room queue shows only their next one, which is now the reordered first.
+    expect(reordered.queue.map((i) => i.id)).toEqual([c.id]);
+  });
+
+  it('refuses to reorder a track belonging to someone else', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, second);
+
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const theirs = await enqueueMedia(second.canonicalUrl, nathan, db);
+
+    await expect(reorderMyQueue([theirs.id], swagy, db)).rejects.toMatchObject({
+      code: 'NOT_YOUR_TRACK',
+    });
+  });
+
+  it('lets an admin clear a whole personal queue', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const admin = await createUser('mod', 'admin');
+    const [playing, second, third] = [
+      track('aaaaaaaaaaa'),
+      track('bbbbbbbbbbb'),
+      track('ccccccccccc'),
+    ];
+    resolveTracks(playing, second, third);
+
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    await enqueueMedia(second.canonicalUrl, nathan, db);
+    await enqueueMedia(third.canonicalUrl, nathan, db);
+
+    expect(await clearUserQueue(nathan.id, 'Queue full of memes', admin, db)).toBe(2);
+    const snapshot = await getRoomSnapshot(nathan, 1, db);
+    expect(snapshot.myQueue).toEqual([]);
+    expect(snapshot.queue).toEqual([]);
+    // The track already playing is left alone.
+    expect(snapshot.current).not.toBeNull();
+  });
+
+  it('refuses a vote on your own request', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const playing = track('aaaaaaaaaaa');
+    resolveTracks(playing);
+
+    const started = await enqueueMedia(playing.canonicalUrl, nathan, db);
+    await expect(voteOnCurrentTrack(started.id, 1, nathan, 10, db)).rejects.toMatchObject({
+      code: 'OWN_TRACK',
+    });
+  });
+
+  it('skips a track once enough of the room votes it down', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const [playing, next] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, next);
+
+    const started = await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const promoted = await enqueueMedia(next.canonicalUrl, nathan, db);
+    await db.update(roomSettings).set({ skipDownvotes: 2 }).where(eq(roomSettings.id, 1));
+
+    const voters = [await createUser('one'), await createUser('two')];
+    await voteOnCurrentTrack(started.id, -1, voters[0]!, 10, db);
+    expect((await getRoomSnapshot(null, 0, db)).current?.id).toBe(started.id);
+
+    await voteOnCurrentTrack(started.id, -1, voters[1]!, 10, db);
+    const afterSkip = await getRoomSnapshot(null, 0, db);
+    expect(afterSkip.current?.id).toBe(promoted.id);
+  });
+
+  it('hides requesters while the room is blind, except from admins', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const admin = await createUser('mod', 'admin');
+    const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, second);
+
+    await enqueueMedia(playing.canonicalUrl, nathan, db);
+    await enqueueMedia(second.canonicalUrl, swagy, db);
+    await db.update(roomSettings).set({ revealRequester: false }).where(eq(roomSettings.id, 1));
+
+    const listener = await getRoomSnapshot(swagy, 2, db);
+    expect(listener.current?.requestedBy).toBeNull();
+    // Your own track stays yours, since hiding it from you would be pointless.
+    expect(listener.myQueue[0]?.requestedBy?.username).toBe('swagy_swagerson');
+
+    const moderator = await getRoomSnapshot(admin, 2, db);
+    expect(moderator.current?.requestedBy?.username).toBe('picklesnathan');
+  });
+
   it('ranks selectors by the score their played tracks earned', async () => {
     await ensureRoomExists(db);
     const nathan = await createUser('picklesnathan');
@@ -266,10 +422,10 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
     const first = await enqueueMedia(liked.canonicalUrl, nathan, db);
     const second = await enqueueMedia(disliked.canonicalUrl, swagy, db);
-    await voteOnCurrentTrack(first.id, 1, swagy, db);
-    await voteOnCurrentTrack(first.id, 1, admin, db);
+    await voteOnCurrentTrack(first.id, 1, swagy, 10, db);
+    await voteOnCurrentTrack(first.id, 1, admin, 10, db);
     await skipCurrentTrack('Next', admin, db);
-    await voteOnCurrentTrack(second.id, -1, nathan, db);
+    await voteOnCurrentTrack(second.id, -1, nathan, 10, db);
 
     const snapshot = await getRoomSnapshot(null, 0, db);
     expect(snapshot.selectorStats.map((entry) => [entry.user.username, entry.score])).toEqual([

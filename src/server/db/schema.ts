@@ -1,12 +1,14 @@
 import { sql } from 'drizzle-orm';
 import type { MediaMetadata } from '../media';
 import {
+  bigint,
   boolean,
   check,
   index,
   integer,
   jsonb,
   pgEnum,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -18,6 +20,12 @@ import {
 export const userRole = pgEnum('user_role', ['listener', 'admin']);
 export const userTeam = pgEnum('user_team', ['pepe', 'yee']);
 export const mediaProvider = pgEnum('media_provider', ['youtube', 'soundcloud']);
+/**
+ * Positions in the DJ rotation. Joining the rotation or being sent to the back
+ * both take the next value, so ascending order is the play order.
+ */
+export const djRotation = pgSequence('dj_rotation_seq');
+
 export const ruleEnforcement = pgEnum('rule_enforcement', ['blocklist', 'advisory']);
 export const ruleEntryType = pgEnum('rule_entry_type', ['track', 'artist']);
 export const skipMode = pgEnum('skip_mode', ['absolute', 'ratio']);
@@ -42,11 +50,17 @@ export const users = pgTable(
     dggRoles: text('dgg_roles').array().notNull().default(sql`'{}'::text[]`),
     dggFeatures: text('dgg_features').array().notNull().default(sql`'{}'::text[]`),
     lastPlayedAt: timestamp('last_played_at', { withTimezone: true }),
+    /**
+     * Place in the DJ rotation, or null when the user has nothing queued.
+     * Lower plays sooner.
+     */
+    rotationSeq: bigint('rotation_seq', { mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex('users_dgg_user_id_unique').on(table.dggUserId),
+    index('users_rotation_index').on(table.rotationSeq),
     index('users_username_lower_index').on(sql`lower(${table.username})`),
   ],
 );
@@ -127,6 +141,8 @@ export const queueItems = pgTable(
       .notNull()
       .references(() => users.id),
     status: queueStatus('status').notNull().default('queued'),
+    /** Order within the requester's own queue. Only meaningful while queued. */
+    position: integer('position').notNull().default(0),
     requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
@@ -134,7 +150,11 @@ export const queueItems = pgTable(
   },
   (table) => [
     index('queue_items_status_requested_index').on(table.status, table.requestedAt),
-    index('queue_items_requester_status_index').on(table.requestedByUserId, table.status),
+    index('queue_items_requester_status_index').on(
+      table.requestedByUserId,
+      table.status,
+      table.position,
+    ),
     uniqueIndex('queue_items_one_playing_unique')
       .on(table.status)
       .where(sql`${table.status} = 'playing'`),
