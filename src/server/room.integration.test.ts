@@ -13,6 +13,7 @@ process.env.DGG_CLIENT_SECRET ??= 'test-secret';
 process.env.DGG_REDIRECT_URI ??= 'http://localhost:8787/api/auth/callback';
 process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 process.env.SOUNDCLOUD_CLIENT_ID ??= 'test-soundcloud-id';
+process.env.SOUNDCLOUD_CLIENT_SECRET ??= 'test-soundcloud-secret';
 
 vi.mock('./media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./media')>()),

@@ -163,6 +163,7 @@ async function validateForPlayback(
     {
       youtubeApiKey: env.YOUTUBE_API_KEY,
       soundCloudClientId: env.SOUNDCLOUD_CLIENT_ID,
+      soundCloudClientSecret: env.SOUNDCLOUD_CLIENT_SECRET,
     },
     targetCountry,
   );
@@ -334,6 +335,7 @@ export async function enqueueMedia(
     {
       youtubeApiKey: env.YOUTUBE_API_KEY,
       soundCloudClientId: env.SOUNDCLOUD_CLIENT_ID,
+      soundCloudClientSecret: env.SOUNDCLOUD_CLIENT_SECRET,
     },
     settings.targetCountry,
   );

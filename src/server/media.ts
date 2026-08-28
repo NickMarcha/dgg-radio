@@ -25,6 +25,7 @@ export interface MediaMetadata {
 export interface MediaLookupCredentials {
   youtubeApiKey: string;
   soundCloudClientId: string;
+  soundCloudClientSecret: string;
 }
 
 export class MediaLookupError extends Error {
@@ -250,16 +251,68 @@ const soundCloudTrackSchema = z.object({
   }),
 });
 
+const soundCloudTokenSchema = z.object({
+  access_token: z.string().min(1),
+  expires_in: z.number().int().positive(),
+});
+
+let soundCloudToken: { value: string; expiresAt: number } | undefined;
+
+/**
+ * SoundCloud rate limits token issuance hard (50 per 12 hours per app), so the
+ * token is held until it is nearly expired rather than fetched per lookup.
+ */
+async function getSoundCloudToken(
+  clientId: string,
+  clientSecret: string,
+  fetcher: typeof fetch,
+): Promise<string> {
+  if (soundCloudToken && soundCloudToken.expiresAt > Date.now() + 60_000) {
+    return soundCloudToken.value;
+  }
+
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const response = await fetcher('https://secure.soundcloud.com/oauth/token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+    signal: AbortSignal.timeout(8_000),
+  });
+
+  const parsed = soundCloudTokenSchema.safeParse(await response.json().catch(() => null));
+  if (!response.ok || !parsed.success) {
+    soundCloudToken = undefined;
+    throw new MediaLookupError(
+      'SOUNDCLOUD_AUTH_FAILED',
+      'SoundCloud rejected the radio credentials.',
+      502,
+    );
+  }
+
+  soundCloudToken = {
+    value: parsed.data.access_token,
+    expiresAt: Date.now() + parsed.data.expires_in * 1_000,
+  };
+  return soundCloudToken.value;
+}
+
 async function lookupSoundCloud(
   parsed: ParsedMediaUrl,
   clientId: string,
+  clientSecret: string,
   fetcher: typeof fetch,
 ): Promise<MediaMetadata> {
+  const token = await getSoundCloudToken(clientId, clientSecret, fetcher);
   const endpoint = new URL('https://api.soundcloud.com/resolve');
   endpoint.searchParams.set('url', parsed.url.toString());
-  endpoint.searchParams.set('client_id', clientId);
 
-  const response = await fetcher(endpoint, { signal: AbortSignal.timeout(8_000) });
+  const response = await fetcher(endpoint, {
+    headers: { Authorization: `OAuth ${token}` },
+    signal: AbortSignal.timeout(8_000),
+  });
   if (!response.ok) {
     throw new MediaLookupError(
       'SOUNDCLOUD_LOOKUP_FAILED',
@@ -297,5 +350,10 @@ export async function lookupMedia(
   const parsed = parseMediaUrl(value);
   return parsed.provider === 'youtube'
     ? lookupYouTube(parsed, credentials.youtubeApiKey, targetCountry, fetcher)
-    : lookupSoundCloud(parsed, credentials.soundCloudClientId, fetcher);
+    : lookupSoundCloud(
+        parsed,
+        credentials.soundCloudClientId,
+        credentials.soundCloudClientSecret,
+        fetcher,
+      );
 }
