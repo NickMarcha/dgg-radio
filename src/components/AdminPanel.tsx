@@ -1,6 +1,7 @@
 import {
   Ban,
   Check,
+  ExternalLink,
   ListMusic,
   Loader2,
   Shield,
@@ -140,9 +141,19 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           <h1>Room admin</h1>
           <p>Signed in as {me.username}</p>
         </div>
-        <a className="admin-link" href="/player">
-          Back to the room
-        </a>
+        <div className="admin-header-links">
+          <a
+            className="admin-link"
+            href="https://github.com/NickMarcha/dgg-radio"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Source on GitHub <ExternalLink size={13} />
+          </a>
+          <a className="admin-link" href="/player">
+            Back to the room
+          </a>
+        </div>
       </header>
 
       {error && <p className="admin-error">{error}</p>}

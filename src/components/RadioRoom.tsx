@@ -35,6 +35,7 @@ import type {
 } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
 import { moveQueueItem, type MoveDestination } from './queue-order';
+import SiteHeader from './SiteHeader';
 import SiteNav from './SiteNav';
 import './RadioRoom.css';
 
@@ -598,16 +599,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   return (
     <div className="radio-app">
-      <header className="topbar">
-        <div className="brand-block">
-          <a className="brand" href="/player" aria-label="DGG Radio home">
-            <span className="emote pepeJAM" aria-hidden="true" />
-            <span>DGG Radio</span>
-            <span className="emote YAM" aria-hidden="true" />
-            <span className="beta-badge">beta</span>
-          </a>
-          <span className="disclaimer">Not affiliated with destiny.gg</span>
-        </div>
+      <SiteHeader>
         <div className="room-presence">
           <span className={connected ? 'connection-ok' : 'connection-wait'}>
             {connected ? 'Connected' : 'Reconnecting'}
@@ -648,7 +640,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             </button>
           )}
         </div>
-      </header>
+      </SiteHeader>
 
       <SiteNav active="room" />
 

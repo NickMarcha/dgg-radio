@@ -1,4 +1,4 @@
-import { Headphones, ListMusic } from 'lucide-react';
+import { ListMusic } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type {
   ApiErrorBody,
@@ -7,6 +7,7 @@ import type {
   RoomUser,
   UserProfile,
 } from '../shared/contracts';
+import SiteHeader from './SiteHeader';
 import SiteNav from './SiteNav';
 import './CommunityPage.css';
 
@@ -261,9 +262,7 @@ export default function CommunityPage({ apiUrl, view }: CommunityPageProps) {
 
   return (
     <div className="community-app">
-      <header className="community-topbar">
-        <a href="/" className="community-brand"><Headphones size={23} /> DGG Radio <span>beta</span></a>
-      </header>
+      <SiteHeader />
       <SiteNav active={view === 'stats' || view === 'history' ? view : undefined} />
       <main className="community-main">
         {error ? <div className="community-error" role="alert">{error}</div> : !data ? (

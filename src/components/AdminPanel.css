@@ -33,9 +33,19 @@
   font-size: 0.9rem;
 }
 
+.admin-header-links {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
 .admin-link {
   color: var(--accent);
   font-size: 0.9rem;
+}
+
+.admin-link svg {
+  vertical-align: -1px;
 }
 
 .admin-card {
