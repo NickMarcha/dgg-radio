@@ -1,21 +1,21 @@
 # DGG Radio
 
-DGG Radio is one shared music room for the Destiny.gg community. Listeners sign in through Destiny, request YouTube or SoundCloud tracks, take turns through a round-robin queue, and vote on the track that is playing. Moderators can skip, remove, block, and change the room's maximum track length.
+DGG Radio is one shared music room for the Destiny.gg community. Listeners sign in through Destiny, queue YouTube or SoundCloud tracks, and take turns: everyone in the DJ rotation plays one track before anyone plays a second. Admins run the room from `/admin`.
 
 The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSockets, queue state, playback timing, and Postgres writes. Netlify cannot run the persistent WebSocket server, so that process needs an always-on Node host.
 
 ## What works
 
-- Destiny's custom OAuth flow with one-use, five-minute login state
-- DGG `ADMIN` and `MODERATOR` roles plus configured radio admins
-- Team PEPE and Team YEE from DGG flair features
-- YouTube and SoundCloud metadata checks before insertion, cached per track
-- UAE YouTube region checks, embeddability, age restriction, live status, processing state, and duration checks
-- A second media check immediately before playback
-- Fair turns when one person has several requests waiting
+- Destiny's custom OAuth flow with one-use, five-minute login state, returning to a frontend callback
+- Database-backed admins, with root admins named in the environment who cannot be demoted
+- A DJ rotation over unlimited per-person queues, reorderable by their owner
 - Synchronized YouTube and SoundCloud playback from the server clock
-- Per-play upvotes and downvotes with all-time selector scores
-- Admin skip, removal, exact-track block, maximum duration setting, and moderation history
+- Region, embeddability, age restriction, live status, processing state, and duration checks, cached per track
+- Admin-managed rules that accumulate the tracks and artists that broke them
+- SoundCloud search, and playlist import for both providers
+- Per-play upvotes and downvotes, no voting on your own request, and a configurable downvote skip
+- Optionally hiding requesters until a track ends, so votes are cast on the track
+- Volume and play state remembered per browser
 - Responsive desktop and mobile room layouts
 
 ## Local setup
@@ -64,16 +64,16 @@ The callback is a frontend route, not an API route. Destiny redirects the browse
 
 Destiny's flow is not standard PKCE. The backend implements the secret-bound challenge described in the project's [OAuth research](docs/research/dgg-oauth-netlify.md). Keep the client secret on the API host.
 
-Radio admin access is granted when either condition is true:
+Admins are stored in the database and managed on `/admin`. Two things also grant the role at sign-in:
 
-- Destiny returns `ADMIN` or `MODERATOR` in the user's roles.
-- The username appears in `ADMIN_DGG_USERNAMES`.
+- Destiny returns `ADMIN` or `MODERATOR` in the user's roles. This has not been seen to happen yet: the `roles` array came back empty even for a subscriber, so treat it as unverified.
+- The username appears in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
 
-The second option covers room-specific moderators who do not moderate the full DGG site.
+Sign-in only ever promotes, so an admin granted on the admin page keeps the role.
 
 ### YouTube
 
-Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. Restrict the key to that API. The backend rejects a video when `AE` is blocked, an explicit country allow-list omits `AE`, embedding is disabled, the video is age-restricted or live, processing is incomplete, or its duration exceeds the room setting.
+Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. Restrict the key to that API. The backend rejects a video when the room's playback region is blocked, an explicit country allow-list omits it, embedding is disabled, the video is age-restricted or live, processing is incomplete, or its duration exceeds the room setting.
 
 ### SoundCloud
 
