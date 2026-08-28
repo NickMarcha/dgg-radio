@@ -1,0 +1,90 @@
+.embed-document,
+.embed-document body {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.embed-root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.embed-player-root,
+.embed-media,
+.embed-media-stage {
+  width: 100%;
+  height: 100%;
+}
+
+.embed-player-root,
+.embed-media-stage {
+  background-color: #000;
+}
+
+.embed-media-stage {
+  position: relative;
+  overflow: hidden;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.embed-media-provider,
+.embed-media-provider iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.embed-media-provider iframe {
+  pointer-events: none;
+}
+
+.embed-playing-root {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 2.5vw, 28px);
+  padding: clamp(8px, 2vw, 24px);
+  color: #fff;
+  font-family: var(--font-mono);
+}
+
+.embed-playing-art {
+  width: auto;
+  height: min(100%, 180px);
+  aspect-ratio: 1;
+  flex: none;
+  object-fit: cover;
+}
+
+.embed-playing-copy {
+  min-width: 0;
+  text-shadow: 0 2px 5px #000, 0 0 12px #000;
+}
+
+.embed-playing-copy strong,
+.embed-playing-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.embed-playing-copy strong {
+  font-size: clamp(24px, 6vw, 72px);
+  line-height: 1.08;
+}
+
+.embed-playing-copy span {
+  margin-top: clamp(3px, 1vw, 10px);
+  color: #d8d8da;
+  font-size: clamp(16px, 3.5vw, 40px);
+  line-height: 1.15;
+}

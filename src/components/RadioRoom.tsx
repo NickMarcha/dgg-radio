@@ -669,7 +669,18 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
       <main className="room-layout" aria-busy={loading}>
         <div className="main-column">
-          <MediaPlayer current={room?.current ?? null} serverTime={room?.serverTime ?? null} />
+          <MediaPlayer
+            current={room?.current ?? null}
+            serverTime={room?.serverTime ?? null}
+            onListeningStarted={(provider) => captureClientEvent('listening_started', { provider })}
+            onPlayerError={(message, provider, errorCode) =>
+              captureClientException(new Error(message), {
+                area: 'media_player',
+                provider,
+                error_code: errorCode,
+              })
+            }
+          />
 
           <section className="now-controls">
             <div className="vote-group" aria-label="Vote on the current track">

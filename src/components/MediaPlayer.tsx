@@ -1,14 +1,15 @@
 import { AlertTriangle, Pause, Play, Volume2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { captureClientEvent, captureClientException } from '../client/analytics';
-import type { QueueItem } from '../shared/contracts';
+import type { MediaProvider, QueueItem } from '../shared/contracts';
 
 interface YouTubePlayer {
   playVideo(): void;
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   getCurrentTime(): number;
+  getIframe(): HTMLIFrameElement;
   setVolume(volume: number): void;
+  unMute(): void;
   destroy(): void;
 }
 
@@ -28,6 +29,7 @@ declare global {
           events: {
             onReady: (event: YouTubePlayerEvent) => void;
             onError: (event: YouTubePlayerEvent) => void;
+            onAutoplayBlocked?: () => void;
           };
         },
       ) => YouTubePlayer;
@@ -84,6 +86,9 @@ function formatTime(seconds: number): string {
 interface MediaPlayerProps {
   current: QueueItem | null;
   serverTime: string | null;
+  embedded?: boolean;
+  onListeningStarted?: (provider: MediaProvider) => void;
+  onPlayerError?: (message: string, provider: MediaProvider | undefined, errorCode?: number) => void;
 }
 
 const PLAYER_STATE_KEY = 'dgg-radio.player';
@@ -123,11 +128,17 @@ function writePlayerState(state: StoredPlayerState): void {
   }
 }
 
-export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
+export default function MediaPlayer({
+  current,
+  serverTime,
+  embedded = false,
+  onListeningStarted,
+  onPlayerError,
+}: MediaPlayerProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<PlaybackController | null>(null);
-  const [listening, setListening] = useState(false);
-  const [volume, setVolume] = useState(80);
+  const [listening, setListening] = useState(embedded);
+  const [volume, setVolume] = useState(embedded ? 100 : 80);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [playerError, setPlayerError] = useState<string | null>(null);
   /** Set when listening resumed from storage rather than from a click. */
@@ -146,11 +157,7 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
 
   const reportPlayerError = (message: string, errorCode?: number) => {
     setPlayerError(message);
-    captureClientException(new Error(message), {
-      area: 'media_player',
-      provider: current?.media.provider,
-      error_code: errorCode,
-    });
+    onPlayerError?.(message, current?.media.provider, errorCode);
   };
 
   const toggleListening = () => {
@@ -158,7 +165,7 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
     setListening((value) => {
       const next = !value;
       if (next && current) {
-        captureClientEvent('listening_started', { provider: current.media.provider });
+        onListeningStarted?.(current.media.provider);
       }
       return next;
     });
@@ -167,6 +174,7 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
   // Restore after mount rather than in the initial state, so the server-rendered
   // markup and the first client render agree.
   useEffect(() => {
+    if (embedded) return;
     const stored = readPlayerState();
     if (!stored) return;
     setVolume(stored.volume);
@@ -174,15 +182,16 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
       restoredWithoutGesture.current = true;
       setListening(true);
     }
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
+    if (embedded) return;
     if (skipFirstWrite.current) {
       skipFirstWrite.current = false;
       return;
     }
     writePlayerState({ listening, volume });
-  }, [listening, volume]);
+  }, [embedded, listening, volume]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setElapsedSeconds(desiredPosition()), 500);
@@ -204,6 +213,7 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
     const sync = async () => {
       const controller = controllerRef.current;
       if (!controller) return;
+      if (embedded) controller.play();
       const desired = desiredPosition();
       const actual = await controller.position();
       if (Math.abs(desired - actual) > 2.5) controller.seek(desired);
@@ -228,12 +238,17 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
             },
             events: {
               onReady: ({ target: readyPlayer }) => {
+                readyPlayer.getIframe().allow = 'autoplay; encrypted-media';
                 readyPlayer.setVolume(volume);
+                readyPlayer.unMute();
                 readyPlayer.seekTo(desiredPosition(), true);
                 readyPlayer.playVideo();
               },
               onError: ({ data }) => {
                 reportPlayerError(`YouTube playback failed${data ? ` with error ${data}` : ''}.`, data);
+              },
+              onAutoplayBlocked: () => {
+                reportPlayerError('YouTube blocked automatic playback.');
               },
             },
           });
@@ -252,7 +267,7 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
           const iframe = document.createElement('iframe');
           iframe.title = `SoundCloud player for ${current.media.title}`;
           iframe.allow = 'autoplay';
-          iframe.src = `https://w.soundcloud.com/player/?url=${encodeURIComponent(current.media.canonicalUrl)}&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&visual=true`;
+          iframe.src = `https://w.soundcloud.com/player/?url=${encodeURIComponent(current.media.canonicalUrl)}&auto_play=${embedded}&hide_related=true&show_comments=false&show_user=true&show_reposts=false&visual=true`;
           mount.replaceChildren(iframe);
           const widget = window.SC.Widget(iframe);
           const events = window.SC.Widget.Events;
@@ -306,10 +321,24 @@ export default function MediaPlayer({ current, serverTime }: MediaPlayerProps) {
       controllerRef.current = null;
       mount.replaceChildren();
     };
-  }, [current?.id, listening]);
+  }, [current?.id, embedded, listening]);
 
   const duration = current?.media.durationSeconds ?? 0;
   const progress = duration > 0 ? Math.min(100, (elapsedSeconds / duration) * 100) : 0;
+
+  if (embedded) {
+    const provider = current?.media.provider ?? 'empty';
+    return (
+      <section className={`embed-media embed-media-${provider}`} aria-label="Synchronized player">
+        <div
+          className="embed-media-stage"
+          style={current?.media.thumbnailUrl ? { backgroundImage: `url(${current.media.thumbnailUrl})` } : undefined}
+        >
+          <div ref={mountRef} className="embed-media-provider" />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="player-panel" aria-label="Now playing">

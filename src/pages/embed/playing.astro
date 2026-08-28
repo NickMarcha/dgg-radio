@@ -1,0 +1,11 @@
+---
+import EmbedView from '../../components/EmbedView';
+import EmbedLayout from '../../layouts/EmbedLayout.astro';
+
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+---
+
+<EmbedLayout title="DGG Radio now playing embed">
+  <EmbedView client:load apiUrl={apiUrl} mode="playing" />
+</EmbedLayout>

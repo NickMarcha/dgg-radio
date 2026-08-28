@@ -292,6 +292,27 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           {members.length === 0 && <li className="admin-empty">Nobody matches that.</li>}
         </ul>
       </section>
+
+      <section className="admin-card">
+        <h2>OBS browser sources</h2>
+        <p className="admin-help">
+          Add either URL as an OBS Browser Source. The player starts with sound and stays synced to the room.
+        </p>
+        <ul className="admin-embed-links">
+          <li>
+            <a className="admin-link" href="/embed/player" target="_blank" rel="noreferrer">
+              Synchronized video player <ExternalLink size={13} />
+            </a>
+            <code>/embed/player</code>
+          </li>
+          <li>
+            <a className="admin-link" href="/embed/playing" target="_blank" rel="noreferrer">
+              Now-playing overlay <ExternalLink size={13} />
+            </a>
+            <code>/embed/playing</code>
+          </li>
+        </ul>
+      </section>
     </main>
   );
 }

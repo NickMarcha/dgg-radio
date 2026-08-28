@@ -80,6 +80,27 @@
   padding: 0.75rem 0;
 }
 
+.admin-embed-links {
+  display: grid;
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-embed-links li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.admin-embed-links code {
+  color: var(--faint);
+}
+
 .admin-error,
 .admin-notice {
   margin: 0;
