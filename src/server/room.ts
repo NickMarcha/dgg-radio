@@ -1,8 +1,6 @@
 import {
   and,
   asc,
-  countDistinct,
-  desc,
   eq,
   inArray,
   isNotNull,
@@ -14,7 +12,6 @@ import type {
   RoomMedia,
   RoomSnapshot,
   RoomUser,
-  SelectorStats,
 } from '../shared/contracts';
 import type { AuthenticatedUser } from './auth';
 import { getDatabase, type Database } from './db/client';
@@ -28,6 +25,7 @@ import {
   votes,
 } from './db/schema';
 import { getEnv } from './env';
+import { listJammers } from './community';
 import { lookupManyCached, lookupMediaCached } from './media-cache';
 import { addRuleEntry, describeBlock, findBlockingRules, listActiveRules } from './rules';
 import {
@@ -131,7 +129,7 @@ export async function ensureRoomExists(db: Database = getDatabase()): Promise<vo
   await db.insert(roomState).values({ id: 1 }).onConflictDoNothing();
 }
 
-async function bumpRevision(db: Database): Promise<void> {
+async function bumpRevision(db: Executor): Promise<void> {
   await db
     .update(roomState)
     .set({ revision: sql`${roomState.revision} + 1`, updatedAt: new Date() })
@@ -568,6 +566,82 @@ export async function reorderMyQueue(
   await bumpRevision(db);
 }
 
+function orderedRoomQueueRows(activeRows: QueueRow[], currentQueueItemId: string | null): QueueRow[] {
+  const currentRow = activeRows.find(({ id }) => id === currentQueueItemId);
+  const currentRequesterId = currentRow?.requestedBy.id;
+  const seatOf = (row: QueueRow) =>
+    row.requestedBy.id === currentRequesterId
+      ? Number.MAX_SAFE_INTEGER
+      : row.rotationSeq ?? Number.MAX_SAFE_INTEGER - 1;
+  const queuedRows = activeRows
+    .filter(({ status }) => status === 'queued')
+    .sort(
+      (left, right) =>
+        seatOf(left) - seatOf(right) ||
+        left.position - right.position ||
+        left.requestedAt.getTime() - right.requestedAt.getTime(),
+    );
+
+  const seen = new Set<string>();
+  return queuedRows.filter(({ requestedBy }) => {
+    if (seen.has(requestedBy.id)) return false;
+    seen.add(requestedBy.id);
+    return true;
+  });
+}
+
+/** Reorders the DJ rotation shown in the room queue without changing personal queues. */
+export async function reorderRoomQueue(
+  orderedIds: string[],
+  moderator: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<void> {
+  await ensureRoomExists(db);
+  await db.transaction(async (transaction) => {
+    await transaction.execute(sql`select pg_advisory_xact_lock(${ROOM_LOCK_ID})`);
+    const [state] = await transaction
+      .select({ currentQueueItemId: roomState.currentQueueItemId })
+      .from(roomState)
+      .where(eq(roomState.id, 1));
+    const activeRows = await transaction
+      .select(queueRowSelection())
+      .from(queueItems)
+      .innerJoin(media, eq(queueItems.mediaId, media.id))
+      .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
+      .where(inArray(queueItems.status, ['queued', 'playing']))
+      .then((rows) => rows.map(toQueueRow));
+    const roomRows = orderedRoomQueueRows(activeRows, state?.currentQueueItemId ?? null);
+    const byId = new Map(roomRows.map((row) => [row.id, row]));
+
+    if (orderedIds.length !== roomRows.length || orderedIds.some((id) => !byId.has(id))) {
+      throw new RoomError('QUEUE_CHANGED', 'The room queue changed. Try the move again.', 409);
+    }
+
+    const currentRequesterId = activeRows.find(({ id }) => id === state?.currentQueueItemId)?.requestedBy.id;
+    const currentRequesterRow = roomRows.find(({ requestedBy }) => requestedBy.id === currentRequesterId);
+    if (currentRequesterRow && orderedIds.at(-1) !== currentRequesterRow.id) {
+      throw new RoomError(
+        'CURRENT_DJ_LOCKED',
+        "The current DJ's next turn must stay at the bottom until this track ends.",
+      );
+    }
+
+    for (const id of orderedIds) {
+      const row = byId.get(id)!;
+      await transaction
+        .update(users)
+        .set({ rotationSeq: sql`nextval('dj_rotation_seq')` })
+        .where(eq(users.id, row.requestedBy.id));
+    }
+    await transaction.insert(moderationActions).values({
+      actorUserId: moderator.id,
+      action: 'reorder_room_queue',
+      details: { orderedIds },
+    });
+    await bumpRevision(transaction);
+  });
+}
+
 /** Admin action: drop everything a person has waiting and take them out of the rotation. */
 export async function clearUserQueue(
   userId: string,
@@ -593,7 +667,7 @@ export async function clearUserQueue(
 
 export async function skipCurrentTrack(
   reason: string,
-  admin: AuthenticatedUser,
+  moderator: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<void> {
   const [state] = await db
@@ -603,7 +677,7 @@ export async function skipCurrentTrack(
   if (!state?.currentQueueItemId) throw new RoomError('NOTHING_PLAYING', 'There is no track to skip.');
 
   await db.insert(moderationActions).values({
-    actorUserId: admin.id,
+    actorUserId: moderator.id,
     action: 'skip',
     queueItemId: state.currentQueueItemId,
     details: { reason },
@@ -638,7 +712,7 @@ export async function removeQueuedTrack(
 export async function blockQueueItemMedia(
   queueItemId: string,
   options: { ruleIds: string[]; entryType: 'track' | 'artist'; note?: string | null },
-  admin: AuthenticatedUser,
+  moderator: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<void> {
   const [item] = await db
@@ -671,7 +745,7 @@ export async function blockQueueItemMedia(
         label: blockingArtist ? item.artist : item.title,
         note: options.note ?? null,
       },
-      admin,
+      moderator,
       db,
     );
   }
@@ -697,7 +771,7 @@ export async function blockQueueItemMedia(
   }
 
   await db.insert(moderationActions).values({
-    actorUserId: admin.id,
+    actorUserId: moderator.id,
     action: blockingArtist ? 'block_artist' : 'block_track',
     queueItemId,
     mediaId: item.mediaId,
@@ -769,43 +843,6 @@ async function queueWithVotes(
   });
 }
 
-async function selectorStats(db: Database): Promise<SelectorStats[]> {
-  const scoreExpression = sql<number>`coalesce(sum(${votes.value}), 0)`.mapWith(Number);
-  const rows = await db
-    .select({
-      userId: users.id,
-      username: users.username,
-      avatarUrl: users.avatarUrl,
-      role: users.role,
-      team: users.team,
-      plays: countDistinct(queueItems.id).mapWith(Number),
-      upvotes: sql<number>`count(*) filter (where ${votes.value} = 1)`.mapWith(Number),
-      downvotes: sql<number>`count(*) filter (where ${votes.value} = -1)`.mapWith(Number),
-      score: scoreExpression,
-    })
-    .from(queueItems)
-    .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
-    .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
-    .where(isNotNull(queueItems.startedAt))
-    .groupBy(users.id, users.username, users.avatarUrl, users.role, users.team)
-    .orderBy(desc(scoreExpression), desc(countDistinct(queueItems.id)))
-    .limit(10);
-
-  return rows.map((row) => ({
-    user: {
-      id: row.userId,
-      username: row.username,
-      avatarUrl: row.avatarUrl,
-      role: row.role,
-      team: row.team,
-    },
-    plays: row.plays,
-    upvotes: row.upvotes,
-    downvotes: row.downvotes,
-    score: row.score,
-  }));
-}
-
 export async function getRoomSnapshot(
   me: AuthenticatedUser | null,
   listenerCount: number,
@@ -830,35 +867,22 @@ export async function getRoomSnapshot(
       .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
       .where(inArray(queueItems.status, ['queued', 'playing']))
       .then((rows) => rows.map(toQueueRow)),
-    selectorStats(db),
+    listJammers(10, db),
     listActiveRules(db),
   ]);
 
   if (!state) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
   const currentRow = activeRows.find(({ id }) => id === state.currentQueueItemId) ?? null;
 
-  const playingRequesterId = currentRow?.requestedBy.id;
-  const seatOf = (row: QueueRow) =>
-    row.requestedBy.id === playingRequesterId
-      ? Number.MAX_SAFE_INTEGER
-      : row.rotationSeq ?? Number.MAX_SAFE_INTEGER - 1;
+  // The room queue is one track per person: what each of them plays on their
+  // next turn, in the order the room will reach them.
+  const roomQueueRows = orderedRoomQueueRows(activeRows, state.currentQueueItemId);
   const queuedRows = activeRows
     .filter(({ status }) => status === 'queued')
     .sort(
       (left, right) =>
-        seatOf(left) - seatOf(right) ||
-        left.position - right.position ||
-        left.requestedAt.getTime() - right.requestedAt.getTime(),
+        left.position - right.position || left.requestedAt.getTime() - right.requestedAt.getTime(),
     );
-
-  // The room queue is one track per person: what each of them plays on their
-  // next turn, in the order the room will reach them.
-  const seen = new Set<string>();
-  const roomQueueRows = queuedRows.filter(({ requestedBy }) => {
-    if (seen.has(requestedBy.id)) return false;
-    seen.add(requestedBy.id);
-    return true;
-  });
   const myQueueRows = me ? queuedRows.filter(({ requestedBy }) => requestedBy.id === me.id) : [];
 
   const hydrated = await queueWithVotes(
@@ -871,14 +895,14 @@ export async function getRoomSnapshot(
 
   /**
    * With the requester hidden, votes are cast on the track alone. The name
-   * comes back as the track runs out, and admins always see it.
+   * comes back as the track runs out, and mods and admins always see it.
    */
   const secondsLeft =
     current?.startedAt && current.media.durationSeconds
       ? (new Date(current.startedAt).getTime() + current.media.durationSeconds * 1_000 - Date.now()) /
         1_000
       : Number.POSITIVE_INFINITY;
-  const privileged = me?.role === 'admin';
+  const privileged = me?.role === 'admin' || me?.role === 'mod';
   const censor = !settings.revealRequester && !privileged;
   const hide = <T extends { id: string; requestedBy: RoomUser | null }>(item: T, reveal: boolean): T =>
     censor && !reveal && item.requestedBy?.id !== me?.id ? { ...item, requestedBy: null } : item;

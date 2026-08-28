@@ -173,11 +173,18 @@
 }
 
 .admin-row-actions button,
+.admin-row-actions select,
 .admin-entries button {
   background: var(--surface-raised);
   border: 1px solid var(--line-strong);
   color: var(--text);
+  font: inherit;
   font-weight: 500;
+}
+
+.admin-row-actions select {
+  border-radius: 7px;
+  padding: 0.45rem 0.6rem;
 }
 
 .admin-row-actions button:hover:not(:disabled),

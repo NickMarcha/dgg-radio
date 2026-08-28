@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AuthenticatedUser } from './auth';
 import type { MediaMetadata } from './media';
+import type { UserRole } from '../shared/contracts';
 import { testConnectionString } from './test-support';
 
 process.env.DATABASE_URL ??= 'postgresql://unused';
@@ -46,6 +47,7 @@ const {
   clearUserQueue,
   enqueuePlaylist,
   reorderMyQueue,
+  reorderRoomQueue,
   blockQueueItemMedia,
   enqueueMedia,
   ensureRoomExists,
@@ -94,7 +96,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
   async function createUser(
     username: string,
-    role: 'listener' | 'admin' = 'listener',
+    role: UserRole = 'listener',
   ): Promise<AuthenticatedUser> {
     const [row] = await db
       .insert(users)
@@ -198,14 +200,14 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
   it('skips the current track, records the action, and starts the next one', async () => {
     await ensureRoomExists(db);
     const nathan = await createUser('picklesnathan');
-    const admin = await createUser('mod', 'admin');
+    const moderator = await createUser('mod', 'mod');
     const playing = track('aaaaaaaaaaa');
     const next = track('bbbbbbbbbbb');
     resolveTracks(playing, next);
 
     const skipped = await enqueueMedia(playing.canonicalUrl, nathan, db);
     const promoted = await enqueueMedia(next.canonicalUrl, nathan, db);
-    await skipCurrentTrack('Rule 1: no memes', admin, db);
+    await skipCurrentTrack('Rule 1: no memes', moderator, db);
 
     const snapshot = await getRoomSnapshot(null, 0, db);
     expect(snapshot.current?.id).toBe(promoted.id);
@@ -225,7 +227,8 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await ensureRoomExists(db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
-    const admin = await createUser('mod', 'admin');
+    const admin = await createUser('admin', 'admin');
+    const moderator = await createUser('mod', 'mod');
     const playing = track('aaaaaaaaaaa');
     const banned = track('bbbbbbbbbbb');
     resolveTracks(playing, banned);
@@ -237,7 +240,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
       admin,
       db,
     );
-    await blockQueueItemMedia(queued.id, { ruleIds: [ruleId], entryType: 'track' }, admin, db);
+    await blockQueueItemMedia(queued.id, { ruleIds: [ruleId], entryType: 'track' }, moderator, db);
 
     const snapshot = await getRoomSnapshot(null, 0, db);
     expect(snapshot.queue).toEqual([]);
@@ -361,6 +364,51 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     });
   });
 
+  it('lets a moderator reorder the room rotation but keeps the current DJ last', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const peezy = await createUser('peezy');
+    const moderator = await createUser('radio_mod', 'mod');
+    const [playing, nathanNext, swagyNext, peezyNext] = [
+      track('aaaaaaaaaaa'),
+      track('bbbbbbbbbbb'),
+      track('ccccccccccc'),
+      track('ddddddddddd'),
+    ];
+    resolveTracks(playing, nathanNext, swagyNext, peezyNext);
+
+    const current = await enqueueMedia(playing.canonicalUrl, nathan, db);
+    const swagyItem = await enqueueMedia(swagyNext.canonicalUrl, swagy, db);
+    const peezyItem = await enqueueMedia(peezyNext.canonicalUrl, peezy, db);
+    const nathanItem = await enqueueMedia(nathanNext.canonicalUrl, nathan, db);
+
+    expect((await getRoomSnapshot(moderator, 4, db)).queue.map(({ id }) => id)).toEqual([
+      swagyItem.id,
+      peezyItem.id,
+      nathanItem.id,
+    ]);
+
+    await reorderRoomQueue([peezyItem.id, swagyItem.id, nathanItem.id], moderator, db);
+    expect((await getRoomSnapshot(moderator, 4, db)).queue.map(({ id }) => id)).toEqual([
+      peezyItem.id,
+      swagyItem.id,
+      nathanItem.id,
+    ]);
+
+    await expect(
+      reorderRoomQueue([nathanItem.id, peezyItem.id, swagyItem.id], moderator, db),
+    ).rejects.toMatchObject({ code: 'CURRENT_DJ_LOCKED' });
+
+    await advanceCurrentTrack('played', null, current.id, db);
+    expect((await getRoomSnapshot(null, 0, db)).current?.id).toBe(peezyItem.id);
+    const actions = await db
+      .select({ action: moderationActions.action })
+      .from(moderationActions)
+      .where(eq(moderationActions.actorUserId, moderator.id));
+    expect(actions.map(({ action }) => action)).toEqual(['reorder_room_queue']);
+  });
+
   it('lets an admin clear a whole personal queue', async () => {
     await ensureRoomExists(db);
     const nathan = await createUser('picklesnathan');
@@ -454,11 +502,11 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     expect(afterSkip.current?.id).toBe(promoted.id);
   });
 
-  it('hides requesters while the room is blind, except from admins', async () => {
+  it('hides requesters while the room is blind, except from mods and admins', async () => {
     await ensureRoomExists(db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
-    const admin = await createUser('mod', 'admin');
+    const moderator = await createUser('mod', 'mod');
     const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, second);
 
@@ -471,8 +519,8 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     // Your own track stays yours, since hiding it from you would be pointless.
     expect(listener.myQueue[0]?.requestedBy?.username).toBe('swagy_swagerson');
 
-    const moderator = await getRoomSnapshot(admin, 2, db);
-    expect(moderator.current?.requestedBy?.username).toBe('picklesnathan');
+    const moderatorView = await getRoomSnapshot(moderator, 2, db);
+    expect(moderatorView.current?.requestedBy?.username).toBe('picklesnathan');
   });
 
   it('ranks selectors by the score their played tracks earned', async () => {

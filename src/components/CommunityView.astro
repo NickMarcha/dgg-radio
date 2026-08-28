@@ -1,0 +1,21 @@
+---
+import CommunityPage from './CommunityPage';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+interface Props {
+  view: 'profile' | 'stats' | 'history';
+}
+
+const { view } = Astro.props;
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+const titles = {
+  profile: 'Listener profile · DGG Radio',
+  stats: 'Stats · DGG Radio',
+  history: 'History · DGG Radio',
+};
+---
+
+<BaseLayout title={titles[view]} description={`${titles[view]} community music statistics.`}>
+  <CommunityPage client:load apiUrl={apiUrl} view={view} />
+</BaseLayout>

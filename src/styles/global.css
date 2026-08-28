@@ -132,3 +132,41 @@ code {
   color: #fff;
 }
 
+.site-nav {
+  border-bottom: 1px solid var(--line);
+  background: var(--page);
+}
+
+.site-nav > div {
+  width: min(1320px, calc(100% - 48px));
+  height: 38px;
+  margin: 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+}
+
+.site-nav a {
+  display: inline-flex;
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  color: var(--text);
+}
+
+.site-nav a[aria-current='page'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+@media (max-width: 620px) {
+  .site-nav > div {
+    width: calc(100% - 28px);
+  }
+}

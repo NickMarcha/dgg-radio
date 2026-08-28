@@ -17,7 +17,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-export const userRole = pgEnum('user_role', ['listener', 'admin']);
+export const userRole = pgEnum('user_role', ['listener', 'mod', 'admin']);
 export const userTeam = pgEnum('user_team', ['pepe', 'yee']);
 export const mediaProvider = pgEnum('media_provider', ['youtube', 'soundcloud']);
 /**
@@ -181,7 +181,7 @@ export const votes = pgTable(
 );
 
 /**
- * A rule is a named reason an admin can act on. Some are enforced by matching a
+ * A rule is a named reason a mod or admin can act on. Some are enforced by matching a
  * growing list of tracks and artists, others exist only to be read by listeners.
  */
 export const rules = pgTable(

@@ -108,7 +108,7 @@ export async function setUserRole(
     .limit(1);
   if (!target) throw new AdminError('USER_NOT_FOUND', 'That user does not exist.', 404);
 
-  if (role === 'listener' && isRootAdmin(target.username)) {
+  if (role !== 'admin' && isRootAdmin(target.username)) {
     throw new AdminError(
       'ROOT_ADMIN',
       `${target.username} is configured as a root admin and cannot be removed here.`,

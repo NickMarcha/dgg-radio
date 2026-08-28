@@ -1,3 +1,4 @@
+import ytsr from '@distube/ytsr';
 import { Soundcloud } from 'soundcloud.ts';
 import { parse as parseDuration } from 'tinyduration';
 import { z } from 'zod';
@@ -460,6 +461,82 @@ export async function searchSoundCloud(query: string, limit: number): Promise<Se
       durationSeconds: Math.ceil(track.duration / 1_000),
       thumbnailUrl: track.artwork_url ?? null,
     }));
+}
+
+function clockDurationToSeconds(value: string): number | null {
+  const parts = value.split(':');
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) {
+    return null;
+  }
+
+  const values = parts.map(Number);
+  if (values.slice(1).some((part) => part > 59)) return null;
+
+  const seconds = values.reduce((total, part) => total * 60 + part, 0);
+  return seconds > 0 ? seconds : null;
+}
+
+/**
+ * Search uses YouTube's public web response rather than search.list, which
+ * costs 100 Data API quota units. Queueing a result still runs the normal
+ * videos.list validation before anything is stored.
+ */
+export async function searchYouTube(query: string, limit: number): Promise<SearchResult[]> {
+  process.env.YTSR_NO_UPDATE ??= '1';
+
+  let found: Awaited<ReturnType<typeof ytsr>>;
+  try {
+    found = await ytsr(query, {
+      type: 'video',
+      limit,
+      requestOptions: { signal: AbortSignal.timeout(8_000) },
+    });
+  } catch {
+    throw new MediaLookupError('SEARCH_FAILED', 'YouTube search could not be reached.', 502);
+  }
+
+  return found.items.flatMap((video) => {
+    const durationSeconds = clockDurationToSeconds(video.duration);
+    if (
+      video.type !== 'video' ||
+      !youtubeIdPattern.test(video.id) ||
+      video.isLive ||
+      video.isUpcoming ||
+      durationSeconds === null
+    ) {
+      return [];
+    }
+
+    return [{
+      provider: 'youtube' as const,
+      url: `https://www.youtube.com/watch?v=${video.id}`,
+      title: video.name,
+      artist: video.author?.name ?? 'Unknown channel',
+      durationSeconds,
+      thumbnailUrl: video.thumbnail || video.thumbnails.find((thumbnail) => thumbnail.url)?.url || null,
+    }];
+  });
+}
+
+export async function searchMedia(query: string, limit: number): Promise<SearchResult[]> {
+  const [youtube, soundcloud] = await Promise.allSettled([
+    searchYouTube(query, limit),
+    searchSoundCloud(query, limit),
+  ]);
+
+  if (youtube.status === 'rejected' && soundcloud.status === 'rejected') {
+    throw new MediaLookupError('SEARCH_FAILED', 'YouTube and SoundCloud could not be reached.', 502);
+  }
+
+  const youtubeResults = youtube.status === 'fulfilled' ? youtube.value : [];
+  const soundCloudResults = soundcloud.status === 'fulfilled' ? soundcloud.value : [];
+  const results: SearchResult[] = [];
+  const resultCount = Math.max(youtubeResults.length, soundCloudResults.length);
+  for (let index = 0; index < resultCount && results.length < limit; index += 1) {
+    if (youtubeResults[index]) results.push(youtubeResults[index]);
+    if (soundCloudResults[index] && results.length < limit) results.push(soundCloudResults[index]);
+  }
+  return results;
 }
 
 export async function lookupMedia(

@@ -11,7 +11,7 @@ Browser on Netlify
                   |
                   +-- Postgres
                   +-- Destiny OAuth and user info
-                  +-- YouTube Data API
+                  +-- YouTube Data API and public web search
                   +-- SoundCloud api-v2 through soundcloud.ts
 ```
 
@@ -43,11 +43,15 @@ A finished track sends its requester to the back if they still have something wa
 
 The room queue shows one track per person in turn order. A listener's own queue comes down separately in `myQueue`, and they can reorder it.
 
+Mods and admins can reorder the room queue. This rewrites `users.rotation_seq`, not anyone's private track positions. The current DJ's next turn stays last until the playing track ends, preserving one turn per person. Both queue controls support moving one step or straight to the top or bottom.
+
 ## Identity and permissions
 
 The local user key is Destiny's stable `userId`, not the username. Each login refreshes username, status, roles, and features.
 
-Admins live in the database. Names in `ADMIN_DGG_USERNAMES` are root admins: always admins, and the API refuses to demote them. Sign-in only ever promotes, never demotes, or anyone granted admin on the admin page would lose it at their next login.
+Roles live in the database. Admins can assign listener, mod, or admin on `/admin`. Mods may block tracks, skip the current track, and reorder the room queue, but every admin endpoint still requires the admin role. Names in `ADMIN_DGG_USERNAMES` are root admins, and the API refuses to demote them.
+
+Destiny `ADMIN` maps to admin and Destiny `MODERATOR` maps to mod. Sign-in only promotes. It never overwrites a higher role granted inside the radio.
 
 Team is derived from `flair35` and `flair36` and never affects permissions. In practice the OAuth `features` array has not been observed to carry either flair, even for an account that has a team set, so auto-detection is written but unconfirmed.
 
@@ -57,7 +61,7 @@ Destiny redirects to `/auth/callback` on the frontend, which posts the code to t
 
 ## Rules
 
-A rule is a named reason an admin can act on. A `blocklist` rule accumulates the tracks and artists that broke it, so blocking a song under one teaches the room that rule. An `advisory` rule keeps no list and exists to be read on the player.
+A rule is a named reason a mod or admin can block something. A `blocklist` rule accumulates the tracks and artists that broke it, so blocking a song under one teaches the room that rule. Admins alone create, edit, disable, and delete rules. An `advisory` rule keeps no list and exists to be read on the player.
 
 `rule_entries` is unique on rule, provider, entry type, and provider ID, so one track can be listed under several rules and the room names every reason it was rejected. An `artist` entry covers a whole catalogue by provider artist ID; a collaboration released under someone else's channel needs its own `track` entry.
 
@@ -71,7 +75,9 @@ YouTube validation reads metadata from `videos.list`. The region check inspects 
 
 SoundCloud's documented API now requires a paid subscription, so `soundcloud.ts` talks to the same `api-v2` endpoints the website uses and discovers the public web client ID itself. That ID rotates, and the library only looks one up when it holds none, so a `401` forces a fresh one and retries once.
 
-Search is SoundCloud only. YouTube's `search.list` costs 100 quota units against 10,000 a day, where a link lookup costs 1 and `playlistItems.list` costs 1 a page, which is why playlists can be imported in bulk but titles cannot be searched.
+YouTube search goes through `@distube/ytsr`, which reads YouTube's public web response without spending Data API quota. This is an unofficial response format, so the search adapter treats failures as temporary and keeps them separate from validation. SoundCloud and YouTube searches run together; one provider can still return results if the other fails.
+
+Selecting a YouTube result does not trust the search response. It enters the normal request path and calls `videos.list`, which costs one quota unit, before the track is stored. Playlist imports follow the same path for every item. `playlistItems.list` costs one unit per page.
 
 Answers are cached in `media_lookups`, keyed by YouTube video ID or SoundCloud permalink path so URL variants collapse to one entry. SoundCloud entries do not expire; YouTube entries expire after 24 hours and are then rechecked and overwritten in place. A failed recheck leaves the old row and throws, so the next attempt checks again rather than serving something known to be stale.
 
@@ -83,7 +89,15 @@ Votes belong to a queue item, not just a media ID. This preserves how the room r
 
 Jammer score is the sum of received votes across all started requests. The room snapshot returns the top ten users by score, then number of plays.
 
-When `reveal_requester` is off, requesters are hidden from listeners across the current track and the queue, revealed on the current track in its closing seconds, and always visible to admins and to the requester themselves.
+The public read model is exposed separately from the authenticated room snapshot:
+
+- `/api/stats` returns room totals, the jammer leaderboard, and PEPE/YEE/unassigned team totals.
+- `/api/history` returns completed and skipped tracks, newest first.
+- `/api/profiles/:username` returns one listener's request totals, vote averages, and play history. Username lookup is case-insensitive.
+
+The generated `/stats`, `/history`, and `/profile/*` pages consume those endpoints. Netlify rewrites profile paths to the single generated profile shell, so usernames can be linked directly without generating a page for every listener.
+
+When `reveal_requester` is off, requesters are hidden from listeners across the current track and the queue, revealed on the current track in its closing seconds, and always visible to mods, admins, and the requester themselves.
 
 ## Project stage
 

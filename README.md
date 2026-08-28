@@ -1,14 +1,14 @@
 # DGG Radio
 
-DGG Radio is one shared music room for the Destiny.gg community. Listeners sign in through Destiny, queue YouTube or SoundCloud tracks, and take turns: everyone in the DJ rotation plays one track before anyone plays a second. Admins run the room from `/admin`.
+DGG Radio is one shared music room for the Destiny.gg community. Listeners sign in through Destiny, queue YouTube or SoundCloud tracks, and take turns: everyone in the DJ rotation plays one track before anyone plays a second. Mods handle tracks in the room, while admins manage the room from `/admin`.
 
 The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSockets, queue state, playback timing, and Postgres writes. Netlify cannot run the persistent WebSocket server, so that process needs an always-on Node host.
 
 ## What works
 
 - Destiny's custom OAuth flow with one-use, five-minute login state, returning to a frontend callback
-- Database-backed admins, with root admins named in the environment who cannot be demoted
-- A DJ rotation over unlimited per-person queues, reorderable by their owner
+- Database-backed mods and admins, with root admins named in the environment who cannot be demoted
+- A DJ rotation over unlimited per-person queues, reorderable by mods and admins; listeners control their own queue
 - Synchronized YouTube and SoundCloud playback from the server clock
 - Region, embeddability, age restriction, live status, processing state, and duration checks, cached per track
 - Admin-managed rules that accumulate the tracks and artists that broke them
@@ -64,12 +64,12 @@ The callback is a frontend route, not an API route. Destiny redirects the browse
 
 Destiny's flow is not standard PKCE. The backend implements the secret-bound challenge described in the project's [OAuth research](docs/research/dgg-oauth-netlify.md). Keep the client secret on the API host.
 
-Admins are stored in the database and managed on `/admin`. Two things also grant the role at sign-in:
+Admins can assign listener, mod, and admin roles on `/admin`. Destiny can also promote an account at sign-in:
 
-- Destiny returns `ADMIN` or `MODERATOR` in the user's roles. This has not been seen to happen yet: the `roles` array came back empty even for a subscriber, so treat it as unverified.
+- Destiny `ADMIN` maps to radio admin, while Destiny `MODERATOR` maps to radio mod. This is still unverified because the observed `roles` arrays have been empty.
 - The username appears in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
 
-Sign-in only ever promotes, so an admin granted on the admin page keeps the role.
+Sign-in only ever promotes, so a role granted on the admin page remains in place.
 
 ### YouTube
 
@@ -138,7 +138,10 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 | Path | |
 | --- | --- |
 | `/` and `/player` | the room: player, room queue, your own queue, request form |
-| `/admin` | room settings, rules and their blocklists, admins, clearing queues |
+| `/admin` | room settings, rules and their blocklists, roles, clearing queues |
+| `/stats` | room totals, teams, and top jammers |
+| `/history` | completed and skipped tracks |
+| `/profile/:username` | one listener's stats and play history |
 | `/auth/callback` | where Destiny returns after sign-in |
 
 ## Deployment

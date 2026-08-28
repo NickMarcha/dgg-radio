@@ -1,12 +1,17 @@
-const { resolveTrack, forceNewClientId } = vi.hoisted(() => ({
+const { resolveTrack, forceNewClientId, searchTracks, youtubeSearch } = vi.hoisted(() => ({
   resolveTrack: vi.fn(),
   forceNewClientId: vi.fn(),
+  searchTracks: vi.fn(),
+  youtubeSearch: vi.fn(),
 }));
+
+vi.mock('@distube/ytsr', () => ({ default: youtubeSearch }));
 
 vi.mock('soundcloud.ts', () => {
   class Soundcloud {
     resolve = { get: resolveTrack };
     api = { getClientId: forceNewClientId };
+    tracks = { search: searchTracks };
   }
   return { Soundcloud, default: Soundcloud };
 });
@@ -17,6 +22,8 @@ import {
   lookupMedia,
   parseMediaUrl,
   parsePlaylistUrl,
+  searchMedia,
+  searchYouTube,
 } from './media';
 
 describe('parseMediaUrl', () => {
@@ -83,6 +90,102 @@ describe('isYouTubeAvailableInTargetCountry', () => {
 
   it('allows a video whose allow-list contains the UAE', () => {
     expect(isYouTubeAvailableInTargetCountry({ allowed: ['US', 'ae'] }, 'AE')).toBe(true);
+  });
+});
+
+describe('YouTube search', () => {
+  const video = (overrides: Record<string, unknown> = {}) => ({
+    type: 'video',
+    id: 'dQw4w9WgXcQ',
+    name: 'Never Gonna Give You Up',
+    url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+    thumbnails: [],
+    isUpcoming: false,
+    upcoming: null,
+    isLive: false,
+    badges: [],
+    views: 1,
+    duration: '3:32',
+    author: {
+      name: 'Rick Astley',
+      channelID: 'UCuAXFkgsw1L7xaCfnd5JJOw',
+      url: 'https://www.youtube.com/channel/UCuAXFkgsw1L7xaCfnd5JJOw',
+      bestAvatar: { url: null, width: 0, height: 0 },
+      avatars: [],
+      ownerBadges: [],
+      verified: true,
+    },
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    youtubeSearch.mockReset();
+    searchTracks.mockReset();
+  });
+
+  it('loads the installed search package as a callable function', async () => {
+    const actual = await vi.importActual<typeof import('@distube/ytsr')>('@distube/ytsr');
+    expect(typeof (actual as unknown as { default: unknown }).default).toBe('function');
+  });
+
+  it('maps videos and drops live, upcoming, and durationless results', async () => {
+    youtubeSearch.mockResolvedValue({
+      query: 'rick astley',
+      results: 4,
+      items: [
+        video(),
+        video({ id: 'liveVideo01', isLive: true }),
+        video({ id: 'upcoming001', isUpcoming: true }),
+        video({ id: 'noDuration1', duration: '' }),
+      ],
+    });
+
+    await expect(searchYouTube('rick astley', 5)).resolves.toEqual([
+      {
+        provider: 'youtube',
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        title: 'Never Gonna Give You Up',
+        artist: 'Rick Astley',
+        durationSeconds: 212,
+        thumbnailUrl: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+      },
+    ]);
+    expect(youtubeSearch).toHaveBeenCalledWith(
+      'rick astley',
+      expect.objectContaining({ type: 'video', limit: 5 }),
+    );
+  });
+
+  it('interleaves providers and keeps SoundCloud results when YouTube search fails', async () => {
+    const soundCloudTrack = {
+      kind: 'track',
+      id: 123,
+      title: 'A SoundCloud Track',
+      duration: 90_000,
+      permalink_url: 'https://soundcloud.com/artist/a-track',
+      artwork_url: null,
+      user: { id: 456, username: 'Artist' },
+    };
+    youtubeSearch.mockResolvedValue({ query: 'track', results: 1, items: [video()] });
+    searchTracks.mockResolvedValue({ collection: [soundCloudTrack] });
+
+    await expect(searchMedia('track', 15)).resolves.toMatchObject([
+      { provider: 'youtube' },
+      { provider: 'soundcloud' },
+    ]);
+
+    youtubeSearch.mockRejectedValueOnce(new Error('YouTube changed its response'));
+    await expect(searchMedia('track', 15)).resolves.toEqual([
+      {
+        provider: 'soundcloud',
+        url: soundCloudTrack.permalink_url,
+        title: soundCloudTrack.title,
+        artist: soundCloudTrack.user.username,
+        durationSeconds: 90,
+        thumbnailUrl: null,
+      },
+    ]);
   });
 });
 

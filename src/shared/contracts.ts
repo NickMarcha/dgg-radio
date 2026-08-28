@@ -47,15 +47,19 @@ export interface SearchResult {
 }
 
 export const reorderQueueSchema = z.object({
-  orderedIds: z.array(z.uuid()).min(1).max(500),
+  orderedIds: z
+    .array(z.uuid())
+    .min(1)
+    .max(500)
+    .refine((ids) => new Set(ids).size === ids.length, 'Track ids must be unique.'),
 });
 
 export const clearQueueSchema = z.object({
   reason: z.string().trim().min(3).max(240),
 });
 
-export const adminRoleSchema = z.object({
-  role: z.enum(['listener', 'admin']),
+export const userRoleSchema = z.object({
+  role: z.enum(['listener', 'mod', 'admin']),
 });
 
 export const removeQueueItemSchema = z.object({
@@ -72,7 +76,7 @@ export const roomSettingsSchema = z.object({
   revealRequester: z.boolean().optional(),
 });
 
-export type UserRole = 'listener' | 'admin';
+export type UserRole = 'listener' | 'mod' | 'admin';
 
 export interface RoomUser {
   id: string;
@@ -112,6 +116,55 @@ export interface SelectorStats {
   upvotes: number;
   downvotes: number;
   score: number;
+}
+
+export interface HistoryEntry {
+  id: string;
+  media: RoomMedia;
+  requestedBy: RoomUser;
+  status: 'playing' | 'played' | 'skipped';
+  requestedAt: string;
+  startedAt: string;
+  finishedAt: string | null;
+  upvotes: number;
+  downvotes: number;
+}
+
+export interface UserProfile {
+  user: RoomUser;
+  joinedAt: string;
+  lastSeenAt: string;
+  stats: {
+    requests: number;
+    plays: number;
+    played: number;
+    skipped: number;
+    upvotes: number;
+    downvotes: number;
+    score: number;
+    averageVotesPerPlay: number;
+    averageScorePerPlay: number;
+  };
+  history: HistoryEntry[];
+}
+
+export interface TeamStats {
+  team: 'pepe' | 'yee' | 'unassigned';
+  members: number;
+  plays: number;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+}
+
+export interface CommunityStats {
+  totals: {
+    members: number;
+    tracksPlayed: number;
+    votes: number;
+  };
+  jammers: SelectorStats[];
+  teams: TeamStats[];
 }
 
 export type RuleEnforcement = 'blocklist' | 'advisory';

@@ -3,6 +3,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import type { UserRole } from '../shared/contracts';
 import { testConnectionString } from './test-support';
 
 process.env.DATABASE_URL ??= 'postgresql://unused';
@@ -16,7 +17,7 @@ process.env.ADMIN_DGG_USERNAMES = 'picklesnathan, StrawWaffle';
 
 const { AdminError, isRootAdmin, listAdmins, listUsers, setUserRole } = await import('./admins');
 const schema = await import('./db/schema');
-const { queueItems, users } = schema;
+const { media, queueItems, users } = schema;
 
 const connectionString = testConnectionString();
 
@@ -33,10 +34,10 @@ describe.skipIf(!connectionString)('admin management', () => {
   });
 
   afterEach(async () => {
-    await db.execute(sql`truncate table ${queueItems}, ${users} cascade`);
+    await db.execute(sql`truncate table ${queueItems}, ${media}, ${users} cascade`);
   });
 
-  async function createUser(username: string, role: 'listener' | 'admin' = 'listener') {
+  async function createUser(username: string, role: UserRole = 'listener') {
     const [row] = await db
       .insert(users)
       .values({ dggUserId: `dgg-${username}`, username, role, dggStatus: 'Active' })
@@ -65,6 +66,10 @@ describe.skipIf(!connectionString)('admin management', () => {
   it('promotes and demotes an ordinary user', async () => {
     const id = await createUser('promoted_mod');
 
+    await setUserRole(id, 'mod', db);
+    expect((await listUsers(undefined, db)).find((user) => user.id === id)?.role).toBe('mod');
+    expect(await listAdmins(db)).toEqual([]);
+
     await setUserRole(id, 'admin', db);
     expect((await listAdmins(db)).map(({ username }) => username)).toEqual(['promoted_mod']);
 
@@ -76,6 +81,7 @@ describe.skipIf(!connectionString)('admin management', () => {
     const id = await createUser('picklesnathan', 'admin');
 
     await expect(setUserRole(id, 'listener', db)).rejects.toMatchObject({ code: 'ROOT_ADMIN' });
+    await expect(setUserRole(id, 'mod', db)).rejects.toMatchObject({ code: 'ROOT_ADMIN' });
     await expect(setUserRole(id, 'listener', db)).rejects.toBeInstanceOf(AdminError);
     expect((await listAdmins(db)).map(({ username }) => username)).toEqual(['picklesnathan']);
   });

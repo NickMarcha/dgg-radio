@@ -4,7 +4,6 @@ import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import {
-  adminRoleSchema,
   blockMediaSchema,
   clearQueueSchema,
   playlistSchema,
@@ -15,10 +14,12 @@ import {
   ruleUpdateSchema,
   roomSettingsSchema,
   submitRequestSchema,
+  userRoleSchema,
   voteSchema,
 } from '../shared/contracts';
 import {
   AuthenticationError,
+  canModerate,
   clearSession,
   completeAuthorization,
   createAuthorizationUrl,
@@ -37,14 +38,21 @@ import {
   updateRule,
 } from './rules';
 import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
+import {
+  CommunityError,
+  getCommunityStats,
+  getUserProfile,
+  listHistory,
+} from './community';
 import { getEnv } from './env';
-import { MediaLookupError, searchSoundCloud } from './media';
+import { MediaLookupError, searchMedia } from './media';
 import {
   blockQueueItemMedia,
   clearUserQueue,
   enqueueMedia,
   enqueuePlaylist,
   reorderMyQueue,
+  reorderRoomQueue,
   getRoomSnapshot,
   removeQueuedTrack,
   RoomError,
@@ -68,6 +76,10 @@ const callbackSchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.uuid() });
+const usernameParamSchema = z.object({ username: z.string().trim().min(1).max(64) });
+const historyQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 function errorBody(code: string, message: string) {
   return { error: { code, message } };
@@ -108,7 +120,17 @@ export function createApp(dependencies: AppDependencies) {
     const user = await getSessionUser(context);
     if (!user) return context.json(errorBody('AUTH_REQUIRED', 'Sign in with Destiny to do that.'), 401);
     if (user.role !== 'admin') {
-      return context.json(errorBody('ADMIN_REQUIRED', 'Room controls are limited to moderators.'), 403);
+      return context.json(errorBody('ADMIN_REQUIRED', 'Only admins can do that.'), 403);
+    }
+    context.set('user', user);
+    await next();
+  };
+
+  const requireModerator = async (context: any, next: () => Promise<void>) => {
+    const user = await getSessionUser(context);
+    if (!user) return context.json(errorBody('AUTH_REQUIRED', 'Sign in with Destiny to do that.'), 401);
+    if (!canModerate(user.role)) {
+      return context.json(errorBody('MODERATOR_REQUIRED', 'Only mods and admins can do that.'), 403);
     }
     context.set('user', user);
     await next();
@@ -119,7 +141,8 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof RoomError ||
       error instanceof MediaLookupError ||
       error instanceof RuleError ||
-      error instanceof AdminError
+      error instanceof AdminError ||
+      error instanceof CommunityError
     ) {
       if (error.status >= 500) {
         captureServerException(error, context.get('user')?.id, {
@@ -159,6 +182,13 @@ export function createApp(dependencies: AppDependencies) {
       const user = await getSessionUser(context);
       return context.json(await getRoomSnapshot(user, dependencies.listenerCount()));
     })
+    .get('/api/profiles/:username', zValidator('param', usernameParamSchema), async (context) =>
+      context.json(await getUserProfile(context.req.valid('param').username)),
+    )
+    .get('/api/history', zValidator('query', historyQuerySchema), async (context) =>
+      context.json({ history: await listHistory(context.req.valid('query').limit) }),
+    )
+    .get('/api/stats', async (context) => context.json(await getCommunityStats()))
     .post('/api/queue', requireUser, zValidator('json', submitRequestSchema), async (context) => {
       const { url } = context.req.valid('json');
       const queued = await enqueueMedia(url, context.get('user'));
@@ -186,7 +216,7 @@ export function createApp(dependencies: AppDependencies) {
       },
     )
     .get('/api/search', requireUser, zValidator('query', searchSchema), async (context) =>
-      context.json({ results: await searchSoundCloud(context.req.valid('query').q, 15) }),
+      context.json({ results: await searchMedia(context.req.valid('query').q, 15) }),
     )
     .post('/api/queue/playlist', requireUser, zValidator('json', playlistSchema), async (context) => {
       const imported = await enqueuePlaylist(context.req.valid('json').url, context.get('user'));
@@ -202,6 +232,17 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json({ ok: true });
     })
+    .patch(
+      '/api/queue/room-order',
+      requireModerator,
+      zValidator('json', reorderQueueSchema),
+      async (context) => {
+        await reorderRoomQueue(context.req.valid('json').orderedIds, context.get('user'));
+        captureServerEvent(context.get('user').id, 'room_queue_reordered');
+        dependencies.onRoomChanged();
+        return context.json({ ok: true });
+      },
+    )
     .post(
       '/api/users/:id/clear-queue',
       requireAdmin,
@@ -234,7 +275,7 @@ export function createApp(dependencies: AppDependencies) {
     )
     .post(
       '/api/queue/:id/block',
-      requireAdmin,
+      requireModerator,
       zValidator('param', idParamSchema),
       zValidator('json', blockMediaSchema),
       async (context) => {
@@ -245,7 +286,7 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
-    .post('/api/current/skip', requireAdmin, zValidator('json', removeQueueItemSchema), async (context) => {
+    .post('/api/current/skip', requireModerator, zValidator('json', removeQueueItemSchema), async (context) => {
       const { reason } = context.req.valid('json');
       await skipCurrentTrack(reason, context.get('user'));
       captureServerEvent(context.get('user').id, 'track_skipped');
@@ -302,13 +343,13 @@ export function createApp(dependencies: AppDependencies) {
       context.json({ users: await listUsers(context.req.query('search')?.trim() || undefined) }),
     )
     .patch(
-      '/api/admins/:id',
+      '/api/users/:id/role',
       requireAdmin,
       zValidator('param', idParamSchema),
-      zValidator('json', adminRoleSchema),
+      zValidator('json', userRoleSchema),
       async (context) => {
         await setUserRole(context.req.valid('param').id, context.req.valid('json').role);
-        captureServerEvent(context.get('user').id, 'admin_role_changed');
+        captureServerEvent(context.get('user').id, 'user_role_changed');
         return context.json({ ok: true });
       },
     );

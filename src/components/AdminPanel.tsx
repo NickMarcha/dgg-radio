@@ -16,6 +16,7 @@ import type {
   RoomSnapshot,
   RuleEntrySummary,
   RuleSummary,
+  UserRole,
 } from '../shared/contracts';
 import './AdminPanel.css';
 
@@ -124,7 +125,7 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   if (me.role !== 'admin') {
     return (
       <main className="admin admin-centred">
-        <p>Room controls are limited to moderators.</p>
+        <p>Only admins can access this page.</p>
         <a className="admin-link" href="/player">
           Back to the room
         </a>
@@ -200,9 +201,9 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
               <div className="admin-row">
                 <div>
                   <strong>{member.username}</strong>
-                  {member.role === 'admin' && (
+                  {member.role !== 'listener' && (
                     <span className="admin-meta">
-                      <Shield size={13} /> {member.isRoot ? 'root admin' : 'admin'}
+                      <Shield size={13} /> {member.isRoot ? 'root admin' : member.role}
                     </span>
                   )}
                   {member.queuedCount > 0 && (
@@ -229,24 +230,23 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
                       Clear queue
                     </button>
                   )}
-                  <button
-                    type="button"
+                  <select
+                    aria-label={`Role for ${member.username}`}
+                    value={member.role}
                     disabled={busy || member.isRoot}
                     title={member.isRoot ? 'Root admins are set in the environment' : undefined}
-                    onClick={() =>
+                    onChange={(event) => {
+                      const role = event.currentTarget.value as UserRole;
                       void act(
-                        () =>
-                          call(`/api/admins/${member.id}`, 'PATCH', {
-                            role: member.role === 'admin' ? 'listener' : 'admin',
-                          }),
-                        member.role === 'admin'
-                          ? `${member.username} is no longer an admin.`
-                          : `${member.username} is now an admin.`,
-                      )
-                    }
+                        () => call(`/api/users/${member.id}/role`, 'PATCH', { role }),
+                        `${member.username} is now ${role === 'listener' ? 'a listener' : `a ${role}`}.`,
+                      );
+                    }}
                   >
-                    {member.role === 'admin' ? 'Remove admin' : 'Make admin'}
-                  </button>
+                    <option value="listener">Listener</option>
+                    <option value="mod">Mod</option>
+                    <option value="admin">Admin</option>
+                  </select>
                 </div>
               </div>
             </li>

@@ -1,0 +1,380 @@
+.community-app {
+  min-height: 100vh;
+}
+
+.community-topbar {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.community-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.community-brand svg {
+  color: var(--accent);
+}
+
+.community-brand span {
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.community-main {
+  width: min(1120px, calc(100% - 48px));
+  margin: 32px auto 56px;
+}
+
+.community-title,
+.profile-heading {
+  margin-bottom: 28px;
+}
+
+.community-title h1,
+.profile-heading h1 {
+  margin: 0;
+  font-size: 38px;
+}
+
+.community-title p,
+.profile-heading p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.profile-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.community-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.community-avatar-large {
+  width: 56px;
+  height: 56px;
+  flex-basis: 56px;
+  font-size: 22px;
+}
+
+.community-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-stats {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.stat-strip > div {
+  padding: 15px 18px;
+  border-right: 1px solid var(--line);
+}
+
+.stat-strip > div:first-child {
+  padding-left: 0;
+}
+
+.stat-strip > div:last-child {
+  border-right: 0;
+}
+
+.stat-strip dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.stat-strip dd {
+  margin: 2px 0 0;
+  font-size: 27px;
+}
+
+.community-section {
+  margin-top: 38px;
+}
+
+.history-section {
+  margin-top: 0;
+}
+
+.community-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 10px;
+}
+
+.community-section-heading h2 {
+  margin: 0;
+  font-size: 25px;
+}
+
+.community-section-heading > span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+}
+
+.community-table-wrap {
+  overflow-x: auto;
+  border-top: 1px solid var(--line-strong);
+}
+
+.community-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.community-table th,
+.community-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.community-table th:first-child,
+.community-table td:first-child {
+  padding-left: 0;
+}
+
+.community-table th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.history-table th:first-child,
+.history-table td:first-child {
+  width: 50%;
+  min-width: 330px;
+}
+
+.history-track,
+.jammer-user {
+  display: flex;
+  align-items: center;
+}
+
+.history-track {
+  gap: 10px;
+  min-width: 0;
+}
+
+.history-track img,
+.history-art-empty {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 5px;
+}
+
+.history-track img {
+  object-fit: cover;
+}
+
+.history-art-empty {
+  display: grid;
+  place-items: center;
+  background: var(--surface-raised);
+  color: var(--faint);
+}
+
+.history-track > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-track a {
+  overflow: hidden;
+  color: var(--text);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-track a:hover,
+.profile-link:hover {
+  text-decoration: underline;
+}
+
+.history-track > div > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-text {
+  font-weight: 700;
+}
+
+.provider-youtube {
+  color: #ff4057;
+}
+
+.provider-soundcloud {
+  color: #ff6a21;
+}
+
+.profile-link {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.vote-up,
+.score-positive,
+.team-pepe,
+.team-name-pepe {
+  color: var(--success);
+}
+
+.vote-down,
+.score-negative {
+  color: var(--danger);
+}
+
+.team-yee,
+.team-name-yee {
+  color: var(--accent-soft);
+}
+
+.team-unassigned,
+.team-name-unassigned {
+  color: var(--faint);
+}
+
+.history-status {
+  color: var(--muted);
+}
+
+.status-playing {
+  color: var(--accent-soft);
+}
+
+.status-skipped {
+  color: var(--danger);
+}
+
+.jammer-user {
+  gap: 8px;
+}
+
+.jammer-user .team-unassigned {
+  display: none;
+}
+
+.team-name {
+  font-weight: 700;
+}
+
+.community-empty,
+.community-loading {
+  padding: 18px 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.community-error {
+  padding: 12px 0;
+  border-top: 1px solid var(--danger-line);
+  border-bottom: 1px solid var(--danger-line);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.community-footer {
+  width: min(1120px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 0 0 24px;
+  color: var(--faint);
+  font-size: 16px;
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .community-topbar {
+    padding: 0 14px;
+  }
+
+  .community-main,
+  .community-footer {
+    width: calc(100% - 28px);
+  }
+
+  .community-main {
+    margin-top: 24px;
+  }
+
+  .stat-strip,
+  .profile-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat-strip > div,
+  .stat-strip > div:first-child {
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .stat-strip > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .community-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .community-section-heading > span {
+    text-align: left;
+  }
+}

@@ -57,6 +57,13 @@
       "when": 1787898988649,
       "tag": "0007_multi_rule_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787905029837,
+      "tag": "0008_bored_giant_man",
+      "breakpoints": true
     }
   ]
 }

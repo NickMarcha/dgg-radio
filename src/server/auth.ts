@@ -3,7 +3,7 @@ import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import { z } from 'zod';
-import type { RoomUser } from '../shared/contracts';
+import type { RoomUser, UserRole } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
 import { oauthLoginTransactions, sessions, users } from './db/schema';
 import { getAdminUsernames, getEnv, type ServerEnv } from './env';
@@ -65,14 +65,18 @@ export function teamFromFeatures(features: string[]): 'pepe' | 'yee' | null {
   return hasPepe ? 'pepe' : 'yee';
 }
 
-function radioRole(
+export function radioRole(
   username: string,
   roles: string[],
   env: ServerEnv,
-): 'listener' | 'admin' {
-  const communityModerator = roles.includes('ADMIN') || roles.includes('MODERATOR');
+): UserRole {
   const configuredAdmin = getAdminUsernames(env).has(username.toLowerCase());
-  return communityModerator || configuredAdmin ? 'admin' : 'listener';
+  if (roles.includes('ADMIN') || configuredAdmin) return 'admin';
+  return roles.includes('MODERATOR') ? 'mod' : 'listener';
+}
+
+export function canModerate(role: UserRole): boolean {
+  return role === 'mod' || role === 'admin';
 }
 
 export async function createAuthorizationUrl(
@@ -184,9 +188,14 @@ export async function completeAuthorization(
         dggStatus: identity.status,
         dggRoles: identity.roles,
         dggFeatures: identity.features,
-        // Only ever promote on sign-in. Admins granted on the admin page are
-        // stored in the database, and recomputing this would demote them.
-        role: role === 'admin' ? 'admin' : sql`${users.role}`,
+        // Sign-in can promote from Destiny roles, but never demotes a role an
+        // admin granted inside the radio.
+        role:
+          role === 'admin'
+            ? 'admin'
+            : role === 'mod'
+              ? sql`case when ${users.role} = 'listener' then 'mod'::user_role else ${users.role} end`
+              : sql`${users.role}`,
         team,
         lastSeenAt: new Date(),
       },

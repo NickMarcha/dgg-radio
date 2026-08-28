@@ -1,4 +1,6 @@
 import {
+  ArrowDownToLine,
+  ArrowUpToLine,
   Ban,
   ChevronDown,
   ChevronUp,
@@ -32,6 +34,8 @@ import type {
   SearchResult,
 } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
+import { moveQueueItem, type MoveDestination } from './queue-order';
+import SiteNav from './SiteNav';
 import './RadioRoom.css';
 
 interface RadioRoomProps {
@@ -200,23 +204,46 @@ function UserAvatar({ user }: { user: RoomUser }) {
 interface QueueRowProps {
   item: QueueItem;
   index: number;
-  admin: boolean;
+  canBlock: boolean;
+  canRemove: boolean;
   busy: boolean;
-  onModerate: (action: 'remove' | 'block', item: QueueItem) => void;
-  onMove?: (item: QueueItem, direction: -1 | 1) => void;
+  onModerate?: (action: 'remove' | 'block', item: QueueItem) => void;
+  onMove?: (item: QueueItem, destination: MoveDestination) => void;
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  canMoveTop?: boolean;
+  canMoveBottom?: boolean;
+}
+
+function canMoveRoomItem(
+  room: RoomSnapshot,
+  item: QueueItem,
+  index: number,
+  destination: MoveDestination,
+): boolean {
+  const currentRequesterId = room.current?.requestedBy?.id;
+  const lockedLastId = room.queue.find(
+    ({ requestedBy }) => requestedBy?.id === currentRequesterId,
+  )?.id;
+  if (item.id === lockedLastId) return false;
+  const lastMovableIndex = room.queue.length - (lockedLastId ? 2 : 1);
+  return destination === 'up' || destination === 'top'
+    ? index > 0
+    : index < lastMovableIndex;
 }
 
 function QueueRow({
   item,
   index,
-  admin,
+  canBlock,
+  canRemove,
   busy,
   onModerate,
   onMove,
   canMoveUp,
   canMoveDown,
+  canMoveTop,
+  canMoveBottom,
 }: QueueRowProps) {
   return (
     <li className="queue-row">
@@ -236,57 +263,84 @@ function QueueRow({
         <span className="requester">
           {item.requestedBy ? (
             <>
-              {item.requestedBy.username} <TeamLabel user={item.requestedBy} />
+              <a className="profile-link" href={`/profile/${encodeURIComponent(item.requestedBy.username)}`}>
+                {item.requestedBy.username}
+              </a>{' '}
+              <TeamLabel user={item.requestedBy} />
             </>
           ) : (
             <em>requester hidden</em>
           )}
         </span>
       </div>
-      {onMove && (
-        <div className="row-actions">
-          <button
-            type="button"
-            disabled={busy || !canMoveUp}
-            onClick={() => onMove(item, -1)}
-            title="Move up"
-            aria-label={`Move ${item.media.title} up`}
-          >
-            <ChevronUp size={15} />
-          </button>
-          <button
-            type="button"
-            disabled={busy || !canMoveDown}
-            onClick={() => onMove(item, 1)}
-            title="Move down"
-            aria-label={`Move ${item.media.title} down`}
-          >
-            <ChevronDown size={15} />
-          </button>
-        </div>
-      )}
-      {admin && (
-        <div className="row-actions">
-          <button
-            type="button"
-            aria-label={`Remove ${item.media.title}`}
-            title="Remove from queue"
-            disabled={busy}
-            onClick={() => onModerate('remove', item)}
-          >
-            <Trash2 size={15} />
-          </button>
-          <button
-            type="button"
-            aria-label={`Block ${item.media.title}`}
-            title="Block this track"
-            disabled={busy}
-            onClick={() => onModerate('block', item)}
-          >
-            <Ban size={15} />
-          </button>
-        </div>
-      )}
+      <div className="row-controls">
+        {onMove && (
+          <div className="row-actions row-actions-move">
+            <button
+              type="button"
+              disabled={busy || !canMoveTop}
+              onClick={() => onMove(item, 'top')}
+              title="Move to top"
+              aria-label={`Move ${item.media.title} to the top`}
+            >
+              <ArrowUpToLine size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={busy || !canMoveUp}
+              onClick={() => onMove(item, 'up')}
+              title="Move up"
+              aria-label={`Move ${item.media.title} up`}
+            >
+              <ChevronUp size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={busy || !canMoveDown}
+              onClick={() => onMove(item, 'down')}
+              title="Move down"
+              aria-label={`Move ${item.media.title} down`}
+            >
+              <ChevronDown size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={busy || !canMoveBottom}
+              onClick={() => onMove(item, 'bottom')}
+              title="Move to bottom"
+              aria-label={`Move ${item.media.title} to the bottom`}
+            >
+              <ArrowDownToLine size={15} />
+            </button>
+          </div>
+        )}
+        {(canRemove || canBlock) && onModerate && (
+          <div className="row-actions">
+            {canRemove && (
+              <button
+                type="button"
+                aria-label={`Remove ${item.media.title}`}
+                title="Remove from queue"
+                disabled={busy}
+                onClick={() => onModerate('remove', item)}
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
+            {canBlock && (
+              <button
+                type="button"
+                aria-label={`Block ${item.media.title}`}
+                title="Block this track"
+                disabled={busy}
+                onClick={() => onModerate('block', item)}
+              >
+                <Ban size={15} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </li>
   );
 }
@@ -485,16 +539,23 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   };
 
   const moveMyTrack = useCallback(
-    async (item: QueueItem, direction: -1 | 1) => {
-      const current = room?.myQueue ?? [];
-      const from = current.findIndex(({ id }) => id === item.id);
-      const to = from + direction;
-      if (from < 0 || to < 0 || to >= current.length) return;
-      const ordered = current.map(({ id }) => id);
-      [ordered[from], ordered[to]] = [ordered[to]!, ordered[from]!];
-      await mutate('/api/queue/order', 'PATCH', { orderedIds: ordered });
+    async (item: QueueItem, destination: MoveDestination) => {
+      const orderedIds = moveQueueItem(room?.myQueue ?? [], item.id, destination);
+      if (orderedIds) await mutate('/api/queue/order', 'PATCH', { orderedIds });
     },
     [room?.myQueue, mutate],
+  );
+
+  const moveRoomTrack = useCallback(
+    async (item: QueueItem, destination: MoveDestination) => {
+      const currentRequesterId = room?.current?.requestedBy?.id;
+      const lockedLastId = room?.queue.find(
+        ({ requestedBy }) => requestedBy?.id === currentRequesterId,
+      )?.id;
+      const orderedIds = moveQueueItem(room?.queue ?? [], item.id, destination, lockedLastId);
+      if (orderedIds) await mutate('/api/queue/room-order', 'PATCH', { orderedIds });
+    },
+    [room?.current?.requestedBy?.id, room?.queue, mutate],
   );
 
   const moderateQueueItem = async (action: 'remove' | 'block', item: QueueItem) => {
@@ -533,6 +594,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   };
 
   const admin = room?.me?.role === 'admin';
+  const moderator = admin || room?.me?.role === 'mod';
 
   return (
     <div className="radio-app">
@@ -557,12 +619,20 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             <>
               <UserAvatar user={room.me} />
               <span className="account-name">
-                {room.me.username} <TeamLabel user={room.me} />
+                <a className="profile-link" href={`/profile/${encodeURIComponent(room.me.username)}`}>
+                  {room.me.username}
+                </a>{' '}
+                <TeamLabel user={room.me} />
               </span>
               {admin && (
                 <a className="admin-label" href="/admin" title="Room admin">
                   <Shield size={13} /> admin
                 </a>
+              )}
+              {room.me.role === 'mod' && (
+                <span className="admin-label" title="Room moderator">
+                  <Shield size={13} /> mod
+                </span>
               )}
               <button className="text-button" type="button" onClick={() => void logout()} disabled={busy}>
                 <LogOut size={15} /> Sign out
@@ -579,6 +649,8 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
           )}
         </div>
       </header>
+
+      <SiteNav active="room" />
 
       {notice && <div className="notice" role="alert">{notice}</div>}
 
@@ -606,7 +678,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
               </button>
               {!room?.me && <span>Sign in to vote</span>}
             </div>
-            {admin && room?.current && (
+            {moderator && room?.current && (
               <div className="admin-actions">
                 <button type="button" disabled={busy} onClick={blockCurrent}>
                   <Ban size={16} /> Block
@@ -637,7 +709,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                 className={mode === 'search' ? 'mode-active' : ''}
                 onClick={() => setMode('search')}
               >
-                Search SoundCloud
+                Search YouTube + SoundCloud
               </button>
             </div>
 
@@ -668,7 +740,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             ) : (
               <>
                 <form className="request-form" onSubmit={(event) => void runSearch(event)}>
-                  <label htmlFor="track-search">Search SoundCloud by title or artist</label>
+                  <label htmlFor="track-search">Search YouTube or SoundCloud by title or artist</label>
                   <div>
                     <input
                       id="track-search"
@@ -700,7 +772,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                         <div className="search-copy">
                           <strong>{result.title}</strong>
                           <span>
-                            {result.artist} - {formatDuration(result.durationSeconds)}
+                            <span className={`search-provider search-provider-${result.provider}`}>
+                              {result.provider === 'youtube' ? 'YouTube' : 'SoundCloud'}
+                            </span>{' '}
+                            ·{' '}
+                            {result.artist} · {formatDuration(result.durationSeconds)}
                           </span>
                         </div>
                         <button
@@ -715,8 +791,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                   </ul>
                 )}
                 <p>
-                  Only SoundCloud is searchable. A YouTube search costs a hundred times the API quota
-                  of a link lookup, so paste YouTube links instead.
+                  Search YouTube and SoundCloud. Every result is checked before it joins your queue.
                 </p>
               </>
             )}
@@ -770,7 +845,9 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                         <td>
                           <span className="rank">{index + 1}</span>
                           <UserAvatar user={entry.user} />
-                          {entry.user.username}
+                          <a className="profile-link" href={`/profile/${encodeURIComponent(entry.user.username)}`}>
+                            {entry.user.username}
+                          </a>
                           <TeamLabel user={entry.user} />
                         </td>
                         <td>{entry.plays}</td>
@@ -838,9 +915,15 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                   key={item.id}
                   item={item}
                   index={index}
-                  admin={admin}
+                  canBlock={moderator}
+                  canRemove={admin}
                   busy={busy}
                   onModerate={(action, selected) => void moderateQueueItem(action, selected)}
+                  onMove={moderator ? (selected, destination) => void moveRoomTrack(selected, destination) : undefined}
+                  canMoveUp={moderator && canMoveRoomItem(room, item, index, 'up')}
+                  canMoveDown={moderator && canMoveRoomItem(room, item, index, 'down')}
+                  canMoveTop={moderator && canMoveRoomItem(room, item, index, 'top')}
+                  canMoveBottom={moderator && canMoveRoomItem(room, item, index, 'bottom')}
                 />
               ))}
             </ol>
@@ -872,12 +955,14 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                       key={item.id}
                       item={item}
                       index={index}
-                      admin={false}
+                      canBlock={false}
+                      canRemove={false}
                       busy={busy}
-                      onModerate={(action, selected) => void moderateQueueItem(action, selected)}
-                      onMove={(selected, direction) => void moveMyTrack(selected, direction)}
+                      onMove={(selected, destination) => void moveMyTrack(selected, destination)}
                       canMoveUp={index > 0}
                       canMoveDown={index < room.myQueue.length - 1}
+                      canMoveTop={index > 0}
+                      canMoveBottom={index < room.myQueue.length - 1}
                     />
                   ))}
                 </ol>
@@ -891,6 +976,8 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
           </div>
         </aside>
       </main>
+
+      <footer className="room-footer">Vibed by StrawWaffle</footer>
     </div>
   );
 }
