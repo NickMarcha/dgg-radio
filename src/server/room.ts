@@ -162,8 +162,7 @@ async function validateForPlayback(
     candidate.media.canonicalUrl,
     {
       youtubeApiKey: env.YOUTUBE_API_KEY,
-      soundCloudClientId: env.SOUNDCLOUD_CLIENT_ID,
-      soundCloudClientSecret: env.SOUNDCLOUD_CLIENT_SECRET,
+      apifyApiToken: env.APIFY_API_TOKEN,
     },
     targetCountry,
   );
@@ -334,8 +333,7 @@ export async function enqueueMedia(
     url,
     {
       youtubeApiKey: env.YOUTUBE_API_KEY,
-      soundCloudClientId: env.SOUNDCLOUD_CLIENT_ID,
-      soundCloudClientSecret: env.SOUNDCLOUD_CLIENT_SECRET,
+      apifyApiToken: env.APIFY_API_TOKEN,
     },
     settings.targetCountry,
   );

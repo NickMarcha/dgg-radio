@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { isYouTubeAvailableInTargetCountry, parseMediaUrl } from './media';
+import { describe, expect, it, vi } from 'vitest';
+import { isYouTubeAvailableInTargetCountry, lookupMedia, parseMediaUrl } from './media';
 
 describe('parseMediaUrl', () => {
   it.each([
@@ -44,81 +44,69 @@ describe('isYouTubeAvailableInTargetCountry', () => {
 });
 
 describe('lookupMedia against SoundCloud', () => {
-  const credentials = {
-    youtubeApiKey: 'unused',
-    soundCloudClientId: 'client-id',
-    soundCloudClientSecret: 'client-secret',
-  };
+  const credentials = { youtubeApiKey: 'unused', apifyApiToken: 'apify-token' };
   const trackUrl = 'https://soundcloud.com/artist/a-track';
 
-  // The token cache lives in module scope, which is what makes it a cache in a
-  // long-running server. Each test needs its own module instance.
-  beforeEach(() => vi.resetModules());
-  const freshLookup = async () => (await import('./media')).lookupMedia;
+  const actorItem = {
+    type: 'track',
+    id: 2343609734,
+    title: 'A Track',
+    url: trackUrl,
+    artworkUrl: 'https://i1.sndcdn.com/artwork.png',
+    duration: 210_400,
+    streamable: true,
+    userName: 'Artist',
+  };
 
-  function stubSoundCloud() {
-    return vi.fn(async (input: string | URL, init?: RequestInit) => {
-      if (String(input).startsWith('https://secure.soundcloud.com/oauth/token')) {
-        return Response.json({ access_token: 'token-value', expires_in: 3600 });
-      }
-      const headers = (init?.headers ?? {}) as Record<string, string>;
-      if (headers.Authorization !== 'OAuth token-value') {
-        return new Response('unauthorized', { status: 403 });
-      }
-      return Response.json({
-        id: 12345,
-        kind: 'track',
-        title: 'A Track',
-        duration: 210_000,
-        permalink_url: trackUrl,
-        artwork_url: null,
-        streamable: true,
-        user: { username: 'Artist' },
-      });
-    });
-  }
+  const run = (fetcher: unknown) =>
+    lookupMedia(trackUrl, credentials, 'AE', fetcher as typeof fetch);
 
-  const tokenRequests = (fetcher: ReturnType<typeof stubSoundCloud>) =>
-    fetcher.mock.calls.filter(([input]) =>
-      String(input).startsWith('https://secure.soundcloud.com/oauth/token'),
+  it('resolves one track URL through the actor', async () => {
+    const fetcher = vi.fn(async (_endpoint: string, _init: RequestInit) =>
+      Response.json([actorItem]),
     );
+    const media = await run(fetcher);
 
-  it('exchanges credentials for a token and resolves the track with it', async () => {
-    const lookup = await freshLookup();
-    const fetcher = stubSoundCloud();
-    const media = await lookup(trackUrl, credentials, 'AE', fetcher as unknown as typeof fetch);
-
-    expect(media).toMatchObject({
+    expect(media).toEqual({
       provider: 'soundcloud',
-      providerMediaId: '12345',
+      providerMediaId: '2343609734',
+      canonicalUrl: trackUrl,
+      title: 'A Track',
       artist: 'Artist',
-      durationSeconds: 210,
+      durationSeconds: 211,
+      thumbnailUrl: 'https://i1.sndcdn.com/artwork.png',
     });
 
-    const [tokenCall] = tokenRequests(fetcher);
-    expect(tokenCall?.[1]).toMatchObject({
-      method: 'POST',
-      body: 'grant_type=client_credentials',
-    });
-    expect((tokenCall?.[1] as RequestInit).headers).toMatchObject({
-      Authorization: `Basic ${Buffer.from('client-id:client-secret').toString('base64')}`,
+    const [endpoint, init] = fetcher.mock.calls[0]!;
+    expect(endpoint).toContain('/run-sync-get-dataset-items');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer apify-token');
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      mode: 'trackUrl',
+      startUrls: [trackUrl],
+      maxResults: 1,
     });
   });
 
-  it('reuses a live token instead of asking for another one', async () => {
-    const lookup = await freshLookup();
-    const fetcher = stubSoundCloud();
-    await lookup(trackUrl, credentials, 'AE', fetcher as unknown as typeof fetch);
-    await lookup(trackUrl, credentials, 'AE', fetcher as unknown as typeof fetch);
-
-    expect(tokenRequests(fetcher)).toHaveLength(1);
+  it('reports an unavailable track when the run returns nothing', async () => {
+    const fetcher = vi.fn(async () => Response.json([]));
+    await expect(run(fetcher)).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_FOUND' });
   });
 
-  it('reports a credential failure rather than a track failure', async () => {
-    const lookup = await freshLookup();
-    const fetcher = vi.fn(async () => new Response('nope', { status: 401 }));
-    await expect(
-      lookup(trackUrl, credentials, 'AE', fetcher as unknown as typeof fetch),
-    ).rejects.toMatchObject({ code: 'SOUNDCLOUD_AUTH_FAILED' });
+  it('rejects a URL that resolves to something other than a track', async () => {
+    const fetcher = vi.fn(async () => Response.json([{ ...actorItem, type: 'playlist' }]));
+    await expect(run(fetcher)).rejects.toMatchObject({ code: 'SOUNDCLOUD_TRACK_REQUIRED' });
+  });
+
+  it('rejects a track SoundCloud will not stream', async () => {
+    const fetcher = vi.fn(async () => Response.json([{ ...actorItem, streamable: false }]));
+    await expect(run(fetcher)).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_STREAMABLE' });
+  });
+
+  it('surfaces an actor failure as an upstream error', async () => {
+    const fetcher = vi.fn(async () => new Response('nope', { status: 500 }));
+    await expect(run(fetcher)).rejects.toMatchObject({
+      code: 'SOUNDCLOUD_LOOKUP_FAILED',
+      status: 502,
+    });
   });
 });

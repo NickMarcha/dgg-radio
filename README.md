@@ -77,7 +77,9 @@ Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. 
 
 ### SoundCloud
 
-Create a SoundCloud API application and set `SOUNDCLOUD_CLIENT_ID`. The backend accepts resolved objects whose kind is `track` and which SoundCloud reports as streamable.
+SoundCloud's own API needs a paid subscription, so track metadata comes from the `automation-lab/soundcloud-scraper` actor on Apify. Set `APIFY_API_TOKEN`. Each submitted SoundCloud link is one synchronous actor run in `trackUrl` mode, taking roughly two seconds and costing well under a cent. The backend accepts items whose type is `track` and which the actor reports as streamable.
+
+A track is looked up twice: once when it is submitted and once again just before it plays. For YouTube that second check is the point, since region and embedding status can change while a track waits. For SoundCloud it doubles the per-track cost for much less benefit, so it is the first thing to drop if Apify spend becomes noticeable.
 
 ## Commands
 

@@ -15,8 +15,7 @@ const envSchema = z.object({
   DGG_REDIRECT_URI: z.url(),
   ADMIN_DGG_USERNAMES: z.string().default(''),
   YOUTUBE_API_KEY: z.string().min(1),
-  SOUNDCLOUD_CLIENT_ID: z.string().min(1),
-  SOUNDCLOUD_CLIENT_SECRET: z.string().min(1),
+  APIFY_API_TOKEN: z.string().min(1),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
