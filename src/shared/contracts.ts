@@ -77,6 +77,12 @@ export const roomSettingsSchema = z.object({
   revealRequester: z.boolean().optional(),
 });
 
+/** A country YouTube will run its availability checks against. */
+export interface PlaybackRegion {
+  code: string;
+  name: string;
+}
+
 export type UserRole = 'listener' | 'mod' | 'admin';
 
 export interface RoomUser {

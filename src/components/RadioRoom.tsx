@@ -969,7 +969,9 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
         </aside>
       </main>
 
-      <footer className="room-footer">Vibed by StrawWaffle</footer>
+      <footer className="room-footer">
+        Vibed by StrawWaffle <img className="footer-charm" src="/YeeCharm.gif" alt="" />
+      </footer>
     </div>
   );
 }

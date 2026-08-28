@@ -130,6 +130,17 @@ export const mediaLookups = pgTable('media_lookups', {
   checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * YouTube's i18nRegions answer, kept so the admin panel does not ask for it on
+ * every visit. The whole list is rewritten at once, so every row shares a
+ * fetched_at and any one of them dates the cache.
+ */
+export const playbackRegions = pgTable('playback_regions', {
+  code: text('code').primaryKey(),
+  name: text('name').notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const queueItems = pgTable(
   'queue_items',
   {

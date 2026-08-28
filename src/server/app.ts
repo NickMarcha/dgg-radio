@@ -38,6 +38,7 @@ import {
   RuleError,
   updateRule,
 } from './rules';
+import { listPlaybackRegions, RegionLookupError } from './regions';
 import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
 import {
   CommunityError,
@@ -143,7 +144,8 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof MediaLookupError ||
       error instanceof RuleError ||
       error instanceof AdminError ||
-      error instanceof CommunityError
+      error instanceof CommunityError ||
+      error instanceof RegionLookupError
     ) {
       if (error.status >= 500) {
         captureServerException(error, context.get('user')?.id, {
@@ -343,6 +345,9 @@ export function createApp(dependencies: AppDependencies) {
         dependencies.onRoomChanged();
         return context.json({ ok: true });
       },
+    )
+    .get('/api/regions', requireAdmin, async (context) =>
+      context.json({ regions: await listPlaybackRegions() }),
     )
     .get('/api/admins', requireAdmin, async (context) => context.json({ admins: await listAdmins() }))
     .get('/api/users', requireAdmin, async (context) =>

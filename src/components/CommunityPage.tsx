@@ -275,7 +275,9 @@ export default function CommunityPage({ apiUrl, view }: CommunityPageProps) {
           <HistoryView entries={data as HistoryEntry[]} />
         )}
       </main>
-      <footer className="community-footer">Vibed by StrawWaffle</footer>
+      <footer className="community-footer">
+        Vibed by StrawWaffle <img className="footer-charm" src="/YeeCharm.gif" alt="" />
+      </footer>
     </div>
   );
 }

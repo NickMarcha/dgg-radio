@@ -170,3 +170,10 @@ code {
     width: calc(100% - 28px);
   }
 }
+
+/* The charm beside the footer credit, on every page that carries one. */
+.footer-charm {
+  width: 24px;
+  height: 24px;
+  vertical-align: -6px;
+}

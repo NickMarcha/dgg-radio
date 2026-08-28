@@ -21,6 +21,7 @@ import type {
   RoomSnapshot,
   RuleEntrySummary,
   RuleSummary,
+  PlaybackRegion,
   UserRole,
 } from '../shared/contracts';
 import { moveItem, type MoveDestination } from './reorder';
@@ -32,7 +33,7 @@ interface AdminPanelProps {
 
 type Settings = RoomSnapshot['settings'];
 
-const REGION_HINT = 'Two-letter country code the YouTube checks run against, such as AE.';
+const REGION_HINT = 'The country the YouTube availability checks run against.';
 
 export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   const [me, setMe] = useState<RoomSnapshot['me']>(null);
@@ -41,6 +42,7 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   const [rules, setRules] = useState<RuleSummary[]>([]);
   const [members, setMembers] = useState<RoomMember[]>([]);
   const [entries, setEntries] = useState<Record<string, RuleEntrySummary[]>>({});
+  const [regions, setRegions] = useState<PlaybackRegion[]>([]);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -81,6 +83,15 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
       .catch((cause: Error) => setError(cause.message))
       .finally(() => setLoaded(true));
   }, [refresh]);
+
+  // A region list YouTube would not hand over leaves the field as free text
+  // rather than blocking the rest of the panel.
+  useEffect(() => {
+    if (me?.role !== 'admin') return;
+    void call('/api/regions')
+      .then((payload) => setRegions(payload.regions))
+      .catch(() => setRegions([]));
+  }, [call, me?.role]);
 
   const act = useCallback(
     async (work: () => Promise<unknown>, message: string) => {
@@ -170,7 +181,9 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
       {error && <p className="admin-error">{error}</p>}
       {notice && <p className="admin-notice">{notice}</p>}
 
-      {settings && <SettingsSection settings={settings} busy={busy} act={act} call={call} />}
+      {settings && (
+        <SettingsSection settings={settings} regions={regions} busy={busy} act={act} call={call} />
+      )}
 
       <section className="admin-card">
         <h2>
@@ -491,9 +504,41 @@ interface SectionProps {
   call: (path: string, method?: string, body?: unknown) => Promise<any>;
 }
 
-function SettingsSection({ settings, busy, act, call }: SectionProps & { settings: Settings }) {
+/** "United Arab Emirates (AE)" — the text the region box shows for a code. */
+function regionLabel(code: string, regions: PlaybackRegion[]): string {
+  const match = regions.find((region) => region.code === code);
+  return match ? `${match.name} (${match.code})` : code;
+}
+
+/**
+ * Accepts either half of the label: a bare code typed straight in, or a name
+ * picked from the list, which arrives with its code in trailing brackets.
+ */
+function regionCode(text: string, regions: PlaybackRegion[]): string | null {
+  const trimmed = text.trim();
+  const bracketed = /\(([A-Za-z]{2})\)$/.exec(trimmed)?.[1];
+  if (bracketed) return bracketed.toUpperCase();
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase();
+  const named = regions.find(
+    (region) => region.name.toLowerCase() === trimmed.toLowerCase(),
+  );
+  return named?.code ?? null;
+}
+
+function SettingsSection({
+  settings,
+  regions,
+  busy,
+  act,
+  call,
+}: SectionProps & { settings: Settings; regions: PlaybackRegion[] }) {
   const [draft, setDraft] = useState(settings);
+  const [regionText, setRegionText] = useState(() => regionLabel(settings.targetCountry, regions));
   useEffect(() => setDraft(settings), [settings]);
+  useEffect(
+    () => setRegionText(regionLabel(settings.targetCountry, regions)),
+    [settings.targetCountry, regions],
+  );
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -532,13 +577,25 @@ function SettingsSection({ settings, busy, act, call }: SectionProps & { setting
           Playback region
           <input
             type="text"
-            maxLength={2}
-            value={draft.targetCountry}
-            onChange={(event) =>
-              setDraft({ ...draft, targetCountry: event.currentTarget.value.toUpperCase() })
-            }
+            list="playback-regions"
+            value={regionText}
+            placeholder="Start typing a country"
+            onChange={(event) => {
+              const text = event.currentTarget.value;
+              setRegionText(text);
+              const code = regionCode(text, regions);
+              if (code) setDraft({ ...draft, targetCountry: code });
+            }}
+            onBlur={() => setRegionText(regionLabel(draft.targetCountry, regions))}
           />
-          <small>{REGION_HINT}</small>
+          <datalist id="playback-regions">
+            {regions.map((region) => (
+              <option key={region.code} value={`${region.name} (${region.code})`} />
+            ))}
+          </datalist>
+          <small>
+            {REGION_HINT} Currently {draft.targetCountry}.
+          </small>
         </label>
 
         <label>
