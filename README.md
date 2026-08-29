@@ -159,6 +159,8 @@ Use `/embed/player` at a 16:9 size such as 1920 by 1080 or 1280 by 720. Turn on 
 
 Netlify serves the static frontend. The API, its Postgres, and a Cloudflare tunnel run as one Docker stack on a self-hosted machine. Netlify cannot hold the WebSocket connections or run the playback clock, so the API is not deployed there.
 
+Both halves deploy themselves from `main`. Netlify builds the frontend on push, and a webhook tells Komodo to rebuild and redeploy the API stack. Neither needs a manual step, which is why the API applies its own migrations on startup.
+
 ### API stack
 
 Fill in `.env`, then bring up all three containers.
