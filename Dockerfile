@@ -13,5 +13,9 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist-server ./dist-server
+# The API applies pending migrations on startup, so the SQL must ship in the
+# runtime image. drizzle-orm's migrator is a runtime dependency; drizzle-kit
+# (a devDependency) is only needed to *generate* migrations, not to apply them.
+COPY drizzle ./drizzle
 EXPOSE 8787
 CMD ["node", "dist-server/index.js"]

@@ -1,7 +1,9 @@
 import { serve } from '@hono/node-server';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { createApp } from '../src/server/app';
 import { shutdownServerAnalytics } from '../src/server/analytics';
 import { getSessionUserByToken, readSessionTokenFromCookieHeader } from '../src/server/auth';
+import { getDatabase } from '../src/server/db/client';
 import { getEnv } from '../src/server/env';
 import { advanceIfExpired, currentRevision, ensureRoomExists } from '../src/server/room';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -24,6 +26,12 @@ const app = createApp({
   listenerCount: () => clients.size,
   onRoomChanged: broadcastRoomChanged,
 });
+
+// Apply pending migrations before serving. Deploys are automated from `main`,
+// so there is no operator around to run `db:migrate` by hand — without this a
+// commit that adds a migration would start the API against a stale schema.
+// Failing here is deliberate: a container that cannot migrate should not serve.
+await migrate(getDatabase(), { migrationsFolder: 'drizzle' });
 
 await ensureRoomExists();
 

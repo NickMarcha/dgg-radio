@@ -169,13 +169,20 @@ Fill in `.env`, then bring up all three containers.
 
 ```sh
 npm run stack:up     # db, api, and the cloudflared tunnel
-npm run db:migrate   # against the exposed port on the host
 npm run stack:down
 ```
 
-`compose.yaml` overrides `DATABASE_URL` to reach Postgres over the compose network, so the value in `.env` stays pointed at the port published on the host for `db:migrate` and the tests.
+`compose.yaml` overrides `DATABASE_URL` to reach Postgres over the compose network, so the value in `.env` stays pointed at the port published on the host for the tests.
 
-The API binds to `127.0.0.1:8787` and reaches the internet only through the tunnel. Set `CLOUDFLARE_TUNNEL_TOKEN` to a named tunnel's token; its public hostname route belongs in the Cloudflare dashboard, pointing at `http://api:8787`. Confirm the tunnel with `docker compose logs tunnel`, which reports one `Registered tunnel connection` line per edge connection.
+`POSTGRES_PASSWORD` has no default and is read by both the database and the API's `DATABASE_URL`. Postgres only applies it when the data directory is first created, so pointing a new password at an existing volume fails to authenticate — match the value the volume was created with, or start from an empty volume.
+
+Migrations are **not** a separate deployment step. The API applies pending migrations on startup, and refuses to serve if they fail — deploys are automated from `main`, so no operator is around to run them by hand. `npm run db:migrate` still exists for applying a migration to a local database without restarting the stack.
+
+### Public origin
+
+The API reaches the internet only through the tunnel and publishes no host port. Set `CLOUDFLARE_TUNNEL_TOKEN` to a named tunnel's token; its public hostname route belongs in the Cloudflare dashboard, pointing at `http://api:8787` over the compose network. Confirm the tunnel with `docker compose logs tunnel`, which reports one `Registered tunnel connection` line per edge connection.
+
+The tunnel is outbound-only, so it needs no inbound firewall rule and works from behind CGNAT. Fronting the API with Cloudflare also keeps its DDoS protection and WAF ahead of a process that would otherwise be directly exposed.
 
 ### Frontend
 
