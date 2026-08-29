@@ -43,17 +43,13 @@ Requirements: Node 22.12 or newer and Docker.
    postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio
    ```
 
-4. Apply the database migration.
-
-   ```sh
-   npm run db:migrate
-   ```
-
-5. Start the frontend and API together.
+4. Start the frontend and API together.
 
    ```sh
    npm run dev
    ```
+
+The API applies pending migrations as it starts, so there is no separate migrate step. `npm run db:migrate` is still there for applying a migration to a running database without restarting.
 
 The room opens at `http://localhost:4321`. The API and WebSocket server use `http://localhost:8787`.
 
