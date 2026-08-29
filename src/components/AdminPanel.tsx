@@ -398,7 +398,13 @@ function ObsSources() {
       <ul className="admin-embed-links">
         <EmbedSource origin={origin} path="/embed/player" name="Synchronized video player" size="1920 × 1080" />
         <EmbedSource origin={origin} path="/embed/playing" name="Now-playing overlay" size="1200 × 240" />
-        <EmbedSource origin={origin} path="/embed/queue" name="Upcoming queue" size="800 × 600" />
+        <EmbedSource
+          origin={origin}
+          path="/embed/queue"
+          name="Upcoming queue"
+          size="Any width · 600 high"
+          note="Rows fill the Browser Source width. Titles scroll when they do not fit."
+        />
       </ul>
 
       <h3>Player variants</h3>

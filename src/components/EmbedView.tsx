@@ -37,7 +37,7 @@ function useElapsedSeconds(current: QueueItem | null, serverTime: string | null)
   return elapsedSeconds;
 }
 
-function ScrollingTitle({ children }: { children: string }) {
+function ScrollingText({ children, className }: { children: string; className: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLElement>(null);
   const [scrolling, setScrolling] = useState(false);
@@ -59,7 +59,7 @@ function ScrollingTitle({ children }: { children: string }) {
   } as CSSProperties;
 
   return (
-    <div ref={containerRef} className="embed-playing-title">
+    <div ref={containerRef} className={`embed-scrolling-text ${className}`}>
       <div className={`embed-title-track${scrolling ? ' embed-title-track-scrolling' : ''}`} style={style}>
         <strong ref={textRef}>{children}</strong>
         {scrolling && <strong aria-hidden="true">{children}</strong>}
@@ -81,7 +81,7 @@ function QueueEmbed({ queue }: { queue: QueueItem[] }) {
               <span className="embed-queue-art embed-queue-art-empty" aria-hidden="true" />
             )}
             <div className="embed-queue-copy">
-              <strong>{item.media.title}</strong>
+              <ScrollingText className="embed-queue-title">{item.media.title}</ScrollingText>
               <span>{item.media.artist} · {formatTime(item.media.durationSeconds)}</span>
               <span>{item.requestedBy ? `Requested by ${item.requestedBy.username}` : 'Requester hidden'}</span>
             </div>
@@ -103,7 +103,7 @@ function PlayingEmbed({ current, serverTime }: { current: QueueItem | null; serv
         <img className="embed-playing-art" src={current.media.thumbnailUrl} alt="" />
       )}
       <div className="embed-playing-copy">
-        <ScrollingTitle>{current.media.title}</ScrollingTitle>
+        <ScrollingText className="embed-playing-title">{current.media.title}</ScrollingText>
         <span className="embed-playing-artist">{current.media.artist}</span>
         <span className="embed-playing-meta">
           {current.requestedBy ? `Requested by ${current.requestedBy.username}` : 'Requester hidden'}

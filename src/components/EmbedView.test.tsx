@@ -119,6 +119,7 @@ describe('OBS embeds', () => {
     );
 
     expect(html).toContain('Next track');
+    expect(html).toContain('embed-scrolling-text embed-queue-title');
     expect(html).toContain('Queue artist · 4:05');
     expect(html).toContain('Requested by Requester');
     expect(html).not.toContain('<button');
