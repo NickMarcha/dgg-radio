@@ -56,3 +56,44 @@ message names the configured region rather than always saying the UAE. Nothing
 in the repository refers to the old spelling. Any saved PostHog query, insight,
 or alert keyed on it went quiet at that deploy and needs updating by hand.
 
+## Fifty tracks per playlist is a guess, not a decision
+
+`MAX_PLAYLIST_TRACKS` is 50 in `playlists.ts`, mirrored by the `.max(50)` on
+`playlistOrderSchema` and by the same cap on provider-playlist imports in
+`room.ts`. It was picked because it matches the import limit and because it lets
+"add playlist to queue" mean the whole playlist: no paging, no background job,
+one request that either finishes or reports what it skipped.
+
+Nothing has tested it against real use. Nobody has hit it yet, and it is not
+known whether people want a handful of short themed playlists or one long
+library of everything they have ever liked.
+
+Raising it is not free. Queueing a whole playlist walks every track through
+`enqueueMedia` in one request, so the ceiling is also how long that request can
+run and how many provider lookups it can spend. Past a few hundred it stops
+being one request and becomes a job with progress to report, which is a
+different feature.
+
+Leave it at 50 until somebody complains, then decide with that complaint in
+hand rather than in advance.
+
+## PostHog is wired up but never reviewed
+
+`posthog-node` on the API and `posthog-js` in the browser, keyed by
+`POSTHOG_API_KEY` and `PUBLIC_POSTHOG_KEY` and silently inert without them.
+Nineteen server events across `app.ts`, two client events, exception autocapture
+on both halves, and `.env.example` carries CI credentials for source-map
+uploads.
+
+That is the whole of it. The event names grew one at a time alongside the
+features that emit them; no one has looked at whether they answer any question
+worth asking, whether the properties are the right ones, or whether the
+groupings and funnels PostHog offers would suit this room. None of the product
+features -- session replay, feature flags, experiments, surveys -- has been
+considered, turned on, or ruled out.
+
+Worth a session of its own: read what PostHog actually offers, look at what the
+existing events have collected so far, and decide what this project should use
+and what it should stop sending. Until then the wiring stays as it is, which
+costs nothing and keeps collecting.
+

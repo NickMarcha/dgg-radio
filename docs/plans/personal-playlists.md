@@ -574,13 +574,10 @@ before bulk behavior is added.
 11. The playlist order and membership are unchanged after the bulk action.
 12. OBS player and metadata embeds still contain no save or playlist controls.
 
-## Questions to settle before implementation
+## Questions this plan opened
 
-1. Should the heart open the playlist picker as recommended, or toggle a
-   reserved one-click `Favorites` playlist?
-2. Is 50 tracks per personal playlist acceptable as a permanent product limit?
-3. Should save controls also appear in profile history during the first release,
-   or only on the main history page?
-
-The first question affects the schema and interaction model. Settle it before
-Slice 1. The other two can be answered before the slice that uses them.
+1. Picker or a reserved one-click `Favorites` playlist? **Settled**: the picker
+   shipped, so a playlist is one concept and a track can be saved straight into
+   any of them.
+2. Is 50 tracks a permanent limit? **Open**, now tracked in `docs/backlog.md`.
+3. Save controls on profile history too? **Deferred**, also in the backlog.
