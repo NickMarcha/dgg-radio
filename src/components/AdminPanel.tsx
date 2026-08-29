@@ -36,6 +36,28 @@ type Settings = RoomSnapshot['settings'];
 
 const REGION_HINT = 'The country the YouTube availability checks run against.';
 
+type CooldownUnit = 'minutes' | 'hours' | 'days';
+
+const COOLDOWN_UNIT_SECONDS: Record<CooldownUnit, number> = {
+  minutes: 60,
+  hours: 3_600,
+  days: 86_400,
+};
+
+export function cooldownParts(seconds: number): { amount: number; unit: CooldownUnit } {
+  if (seconds % COOLDOWN_UNIT_SECONDS.days === 0) {
+    return { amount: seconds / COOLDOWN_UNIT_SECONDS.days, unit: 'days' };
+  }
+  if (seconds % COOLDOWN_UNIT_SECONDS.hours === 0) {
+    return { amount: seconds / COOLDOWN_UNIT_SECONDS.hours, unit: 'hours' };
+  }
+  return { amount: seconds / COOLDOWN_UNIT_SECONDS.minutes, unit: 'minutes' };
+}
+
+export function cooldownSeconds(amount: number, unit: CooldownUnit): number {
+  return Math.round(amount * COOLDOWN_UNIT_SECONDS[unit]);
+}
+
 export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   const [me, setMe] = useState<RoomSnapshot['me']>(null);
   const [loaded, setLoaded] = useState(false);
@@ -678,8 +700,12 @@ function SettingsSection({
   call,
 }: SectionProps & { settings: Settings; regions: PlaybackRegion[] }) {
   const [draft, setDraft] = useState(settings);
+  const [cooldown, setCooldown] = useState(() => cooldownParts(settings.repeatCooldownSeconds));
   const [regionText, setRegionText] = useState(() => regionLabel(settings.targetCountry, regions));
-  useEffect(() => setDraft(settings), [settings]);
+  useEffect(() => {
+    setDraft(settings);
+    setCooldown(cooldownParts(settings.repeatCooldownSeconds));
+  }, [settings]);
   useEffect(
     () => setRegionText(regionLabel(settings.targetCountry, regions)),
     [settings.targetCountry, regions],
@@ -716,6 +742,41 @@ function SettingsSection({
               setDraft({ ...draft, maxDurationSeconds: Number(event.currentTarget.value) * 60 })
             }
           />
+        </label>
+
+        <label>
+          Track repeat cooldown
+          <span className="admin-unit-field">
+            <input
+              type="number"
+              min={300 / COOLDOWN_UNIT_SECONDS[cooldown.unit]}
+              max={2_592_000 / COOLDOWN_UNIT_SECONDS[cooldown.unit]}
+              step="any"
+              value={cooldown.amount}
+              onChange={(event) => {
+                const amount = Number(event.currentTarget.value);
+                setCooldown({ ...cooldown, amount });
+                setDraft({
+                  ...draft,
+                  repeatCooldownSeconds: cooldownSeconds(amount, cooldown.unit),
+                });
+              }}
+            />
+            <select
+              aria-label="Track repeat cooldown unit"
+              value={cooldown.unit}
+              onChange={(event) => {
+                const unit = event.currentTarget.value as CooldownUnit;
+                const amount = draft.repeatCooldownSeconds / COOLDOWN_UNIT_SECONDS[unit];
+                setCooldown({ amount, unit });
+              }}
+            >
+              <option value="minutes">minutes</option>
+              <option value="hours">hours</option>
+              <option value="days">days</option>
+            </select>
+          </span>
+          <small>How long after a track starts before it can be requested again. 5 minutes to 30 days.</small>
         </label>
 
         <label>

@@ -18,6 +18,7 @@ vi.mock('soundcloud.ts', () => {
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  inspectMedia,
   isYouTubeAvailableInTargetCountry,
   lookupMedia,
   parseMediaUrl,
@@ -77,7 +78,7 @@ describe('parsePlaylistUrl', () => {
 
 describe('isYouTubeAvailableInTargetCountry', () => {
   it('allows a video without regional restrictions', () => {
-    expect(isYouTubeAvailableInTargetCountry(undefined, 'AE')).toBe(true);
+    expect(isYouTubeAvailableInTargetCountry(null, 'AE')).toBe(true);
   });
 
   it('rejects a video blocked in the UAE', () => {
@@ -270,5 +271,16 @@ describe('lookupMedia against SoundCloud', () => {
   ])('rejects a track that is %s', async (_label, override) => {
     resolveTrack.mockResolvedValue({ ...resolved, ...override });
     await expect(run()).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_STREAMABLE' });
+  });
+
+  // The personal library keeps a track the room cannot play, so the same answer
+  // has to arrive as a description rather than a failure.
+  it('still describes an unplayable track when only inspecting it', async () => {
+    resolveTrack.mockResolvedValue({ ...resolved, streamable: false });
+
+    const inspected = await inspectMedia(trackUrl, credentials);
+
+    expect(inspected.metadata.title).toBe('A Track');
+    expect(inspected.playbackIssue).toMatchObject({ code: 'SOUNDCLOUD_NOT_STREAMABLE' });
   });
 });

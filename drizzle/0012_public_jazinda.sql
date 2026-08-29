@@ -1,0 +1,2 @@
+ALTER TABLE "room_settings" ADD COLUMN "repeat_cooldown_seconds" integer DEFAULT 5400 NOT NULL;--> statement-breakpoint
+ALTER TABLE "room_settings" ADD CONSTRAINT "room_settings_repeat_cooldown_range" CHECK ("room_settings"."repeat_cooldown_seconds" between 300 and 2592000);

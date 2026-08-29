@@ -37,6 +37,44 @@ export const playlistSchema = z.object({
   url: z.url(),
 });
 
+/**
+ * True for a link that names a playlist or set, even when it also names one
+ * track inside it. A `watch?v=...&list=...` link therefore means the whole
+ * playlist. Both the request box and the playlist library route on this, so it
+ * lives here rather than being decided twice.
+ */
+export function isPlaylistUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.searchParams.has('list') || url.pathname.toLowerCase().includes('/sets/');
+  } catch {
+    return false;
+  }
+}
+
+export const personalPlaylistSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+});
+
+export const playlistOrderSchema = z.object({
+  orderedMediaIds: z
+    .array(z.uuid())
+    .min(1)
+    .max(50)
+    .refine((ids) => new Set(ids).size === ids.length, 'Media IDs must be unique.'),
+});
+
+export const playlistListQuerySchema = z.object({
+  mediaIds: z.preprocess(
+    (value) =>
+      typeof value === 'string' && value.length > 0
+        ? value.split(',')
+        : [],
+    // Above the history page's own limit, so a full page of rows still fits.
+    z.array(z.uuid()).max(200),
+  ),
+});
+
 export interface SearchResult {
   provider: MediaProvider;
   url: string;
@@ -70,6 +108,7 @@ export const removeQueueItemSchema = z.object({
 export const roomSettingsSchema = z.object({
   description: z.string().trim().max(4_000).optional(),
   maxDurationSeconds: z.number().int().min(60).max(1_800).optional(),
+  repeatCooldownSeconds: z.number().int().min(300).max(2_592_000).optional(),
   targetCountry: z.string().regex(/^[A-Z]{2}$/, 'Use a two-letter country code.').optional(),
   skipMode: z.enum(['absolute', 'ratio']).optional(),
   skipDownvotes: z.number().int().min(1).max(500).optional(),
@@ -112,6 +151,47 @@ export interface RoomMedia {
   artist: string;
   durationSeconds: number;
   thumbnailUrl: string | null;
+}
+
+export interface PlaylistSummary {
+  id: string;
+  name: string;
+  trackCount: number;
+  updatedAt: string;
+}
+
+export interface PlaylistTrack {
+  media: RoomMedia;
+  position: number;
+  addedAt: string;
+}
+
+export interface PlaylistDetail extends PlaylistSummary {
+  tracks: PlaylistTrack[];
+}
+
+export interface PlaylistLibrary {
+  playlists: PlaylistSummary[];
+  memberships: Record<string, string[]>;
+}
+
+export interface PlaylistSaveResult {
+  attempted: number;
+  saved: number;
+  /** Tracks already in the playlist. Saving them again changed nothing. */
+  duplicates: number;
+  skipped: { title: string; reason: string }[];
+}
+
+export interface PlaylistQueueResult {
+  attempted: number;
+  added: number;
+  skipped: Array<{
+    mediaId: string;
+    title: string;
+    code: string;
+    reason: string;
+  }>;
 }
 
 export interface QueueItem {
@@ -242,6 +322,16 @@ export interface RoomMember {
   lastSeenAt: string;
 }
 
+/**
+ * What a page header needs: who is signed in, and how many people are
+ * listening. Every page shows this, and only the room itself needs the whole
+ * snapshot behind it.
+ */
+export interface SessionSnapshot {
+  me: RoomUser | null;
+  listenerCount: number;
+}
+
 export interface RoomSnapshot {
   serverTime: string;
   revision: number;
@@ -249,6 +339,7 @@ export interface RoomSnapshot {
   settings: {
     description: string;
     maxDurationSeconds: number;
+    repeatCooldownSeconds: number;
     targetCountry: string;
     skipMode: 'absolute' | 'ratio';
     skipDownvotes: number;

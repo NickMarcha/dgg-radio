@@ -14,6 +14,8 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
 - A playback region chosen from YouTube's own list of the countries it recognises
 - Admin-managed rules, arranged in the order listeners read them, that accumulate the tracks and artists that broke them
 - YouTube and SoundCloud search, and playlist import for both providers
+- Private per-listener playlists, filled from the player, from history, or by searching or pasting a track or provider-playlist link on the playlists page, and queued one track or a whole playlist at a time
+- A configurable wait before the same track can be requested again, from five minutes to 30 days
 - Per-play upvotes and downvotes, no voting on your own request, and a configurable downvote skip
 - Team YEE and Team PEPE read from Destiny chat, with each listener's most used dancing emote as their avatar
 - Usernames coloured by Destiny flair, the same way they appear in chat
@@ -181,6 +183,7 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 | `/admin` | room settings, rules with their order and blocklists, roles, clearing queues |
 | `/stats` | room totals, teams, most played tracks, and top jammers |
 | `/history` | completed and skipped tracks |
+| `/playlists` | your own playlists: create, reorder, and queue saved tracks |
 | `/profile/:username` | one listener's stats and play history |
 | `/embed/player` | control-free synchronized video and audio for an OBS Browser Source |
 | `/embed/playing` | transparent current-track details for OBS |

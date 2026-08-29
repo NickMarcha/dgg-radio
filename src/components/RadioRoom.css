@@ -2,124 +2,6 @@
   min-height: 100vh;
 }
 
-.room-presence,
-.account,
-.room-presence > span,
-.text-button,
-.login-button,
-.admin-label {
-  display: flex;
-  align-items: center;
-}
-
-.room-presence {
-  gap: 14px;
-  color: var(--muted);
-  font-size: 16px;
-}
-
-.room-presence > span {
-  gap: 5px;
-}
-
-.connection-ok {
-  color: var(--success);
-}
-
-.connection-wait {
-  color: var(--accent-soft);
-}
-
-.account {
-  justify-content: flex-end;
-  gap: 8px;
-  min-width: 0;
-}
-
-.account-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.profile-link:hover {
-  text-decoration: underline;
-}
-
-/*
- * A fixed frame, so a row of avatars lines up whatever emote is in it. The
- * emote keeps its own size and is cropped by the frame rather than resized:
- * catJAM and RaveDoge step through a sprite strip by pixel offset, and anything
- * that changed their painted width would tear the animation apart. 28px is the
- * smallest emote's own size, so the fallback MMMM fills the frame exactly.
- *
- * The border colour comes from the wearer's flair, through `.flair-ring` in
- * flairs.css.
- */
-.avatar {
-  --avatar-box: 28;
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--surface-raised);
-}
-
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.admin-label {
-  border-radius: 5px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 18px;
-}
-
-.admin-label {
-  gap: 4px;
-  padding: 0 6px;
-  border: 1px solid var(--accent);
-  color: var(--accent-soft);
-}
-
-.text-button,
-.login-button {
-  gap: 7px;
-  min-height: 34px;
-  padding: 0 11px;
-}
-
-.text-button {
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
-}
-
-.login-button {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 650;
-}
-
-.login-button:hover:not(:disabled) {
-  border-color: var(--accent-hover);
-  background: var(--accent-hover);
-}
-
 .notice {
   width: min(1320px, calc(100% - 48px));
   margin: 16px auto 0;
@@ -740,10 +622,6 @@
 }
 
 @media (max-width: 900px) {
-  .room-presence {
-    display: none;
-  }
-
   .room-layout {
     display: flex;
     flex-direction: column;
@@ -770,17 +648,6 @@
 }
 
 @media (max-width: 620px) {
-  .account-name,
-  .account .avatar,
-  .admin-label,
-  .text-button {
-    display: none;
-  }
-
-  .login-button {
-    font-size: 15px;
-  }
-
   .room-layout,
   .notice {
     width: calc(100% - 24px);
@@ -1109,7 +976,6 @@ a.admin-label:hover {
 .player-times,
 .stats-table td,
 .stats-table th,
-.account-name,
 .request-form input,
 .rules-content p {
   font-family: var(--font-mono);

@@ -15,11 +15,11 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
 vi.mock('./media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./media')>()),
-  lookupMedia: vi.fn(),
+  inspectMedia: vi.fn(),
 }));
 
-const { lookupMedia } = await import('./media');
-const { lookupMediaCached } = await import('./media-cache');
+const { inspectMedia, MediaLookupError } = await import('./media');
+const { inspectMediaCached, lookupMediaCached } = await import('./media-cache');
 const schema = await import('./db/schema');
 const { mediaLookups } = schema;
 
@@ -42,6 +42,11 @@ function metadata(overrides: Partial<MediaMetadata> = {}): MediaMetadata {
   };
 }
 
+/** The provider answered and the room can play it. */
+function playable(overrides: Partial<MediaMetadata> = {}) {
+  return { metadata: metadata(overrides), playbackIssue: null, regionRestriction: null };
+}
+
 const soundcloudMetadata = metadata({
   provider: 'soundcloud',
   providerMediaId: '123',
@@ -62,7 +67,7 @@ describe.skipIf(!connectionString)('media lookup cache', () => {
 
   afterEach(async () => {
     await db.execute(sql`truncate table ${mediaLookups}`);
-    vi.mocked(lookupMedia).mockReset();
+    vi.mocked(inspectMedia).mockReset();
   });
 
   async function ageEntry(key: string, hoursAgo: number) {
@@ -73,33 +78,33 @@ describe.skipIf(!connectionString)('media lookup cache', () => {
   }
 
   it('asks the provider once and serves the stored answer after that', async () => {
-    vi.mocked(lookupMedia).mockResolvedValue(metadata());
+    vi.mocked(inspectMedia).mockResolvedValue(playable());
 
     const first = await lookupMediaCached(youtubeUrl, 'AE', db);
     const second = await lookupMediaCached(youtubeUrl, 'AE', db);
 
     expect(first).toEqual(second);
-    expect(lookupMedia).toHaveBeenCalledTimes(1);
+    expect(inspectMedia).toHaveBeenCalledTimes(1);
   });
 
   it('treats the same YouTube video as one entry across URL forms', async () => {
-    vi.mocked(lookupMedia).mockResolvedValue(metadata());
+    vi.mocked(inspectMedia).mockResolvedValue(playable());
 
     await lookupMediaCached(youtubeUrl, 'AE', db);
     await lookupMediaCached('https://youtu.be/dQw4w9WgXcQ?t=42', 'AE', db);
 
-    expect(lookupMedia).toHaveBeenCalledTimes(1);
+    expect(inspectMedia).toHaveBeenCalledTimes(1);
   });
 
   it('rechecks a YouTube entry after 24 hours and overwrites it in place', async () => {
-    vi.mocked(lookupMedia).mockResolvedValueOnce(metadata({ title: 'Old Title' }));
+    vi.mocked(inspectMedia).mockResolvedValueOnce(playable({ title: 'Old Title' }));
     await lookupMediaCached(youtubeUrl, 'AE', db);
     await ageEntry('youtube:dQw4w9WgXcQ', 25);
 
-    vi.mocked(lookupMedia).mockResolvedValueOnce(metadata({ title: 'New Title' }));
+    vi.mocked(inspectMedia).mockResolvedValueOnce(playable({ title: 'New Title' }));
     const rechecked = await lookupMediaCached(youtubeUrl, 'AE', db);
 
-    expect(lookupMedia).toHaveBeenCalledTimes(2);
+    expect(inspectMedia).toHaveBeenCalledTimes(2);
     expect(rechecked.title).toBe('New Title');
 
     const rows = await db.select().from(mediaLookups);
@@ -108,44 +113,138 @@ describe.skipIf(!connectionString)('media lookup cache', () => {
   });
 
   it('keeps a YouTube entry that is not yet a day old', async () => {
-    vi.mocked(lookupMedia).mockResolvedValue(metadata());
+    vi.mocked(inspectMedia).mockResolvedValue(playable());
     await lookupMediaCached(youtubeUrl, 'AE', db);
     await ageEntry('youtube:dQw4w9WgXcQ', 23);
 
     await lookupMediaCached(youtubeUrl, 'AE', db);
-    expect(lookupMedia).toHaveBeenCalledTimes(1);
+    expect(inspectMedia).toHaveBeenCalledTimes(1);
   });
 
-  it('never re-runs a paid SoundCloud lookup, however old', async () => {
-    vi.mocked(lookupMedia).mockResolvedValue(soundcloudMetadata);
+  it('keeps a SoundCloud answer for a day and rechecks it after that', async () => {
+    vi.mocked(inspectMedia).mockResolvedValue({
+      metadata: soundcloudMetadata,
+      playbackIssue: null,
+      regionRestriction: null,
+    });
     await lookupMediaCached(soundcloudUrl, 'AE', db);
-    await ageEntry('soundcloud:soundcloud.com/artist/a-track', 24 * 365);
+    await ageEntry('soundcloud:soundcloud.com/artist/a-track', 23);
 
     await lookupMediaCached(soundcloudUrl, 'AE', db);
-    expect(lookupMedia).toHaveBeenCalledTimes(1);
+    expect(inspectMedia).toHaveBeenCalledTimes(1);
+
+    await ageEntry('soundcloud:soundcloud.com/artist/a-track', 25);
+    await lookupMediaCached(soundcloudUrl, 'AE', db);
+    expect(inspectMedia).toHaveBeenCalledTimes(2);
   });
 
   it('leaves the stored answer alone when a recheck fails', async () => {
-    vi.mocked(lookupMedia).mockResolvedValueOnce(metadata({ title: 'Still Here' }));
+    vi.mocked(inspectMedia).mockResolvedValueOnce(playable({ title: 'Still Here' }));
     await lookupMediaCached(youtubeUrl, 'AE', db);
     await ageEntry('youtube:dQw4w9WgXcQ', 25);
 
-    vi.mocked(lookupMedia).mockRejectedValueOnce(new Error('now blocked in AE'));
-    await expect(lookupMediaCached(youtubeUrl, 'AE', db)).rejects.toThrow('now blocked in AE');
+    vi.mocked(inspectMedia).mockRejectedValueOnce(new Error('the lookup failed'));
+    await expect(lookupMediaCached(youtubeUrl, 'AE', db)).rejects.toThrow('the lookup failed');
 
     const rows = await db.select().from(mediaLookups);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.metadata.title).toBe('Still Here');
 
     // Still expired, so the next attempt checks again rather than serving it.
-    vi.mocked(lookupMedia).mockResolvedValueOnce(metadata({ title: 'Back' }));
+    vi.mocked(inspectMedia).mockResolvedValueOnce(playable({ title: 'Back' }));
     expect((await lookupMediaCached(youtubeUrl, 'AE', db)).title).toBe('Back');
+  });
+
+  it('stores a refusal and answers from it, so one bad track is looked up once', async () => {
+    vi.mocked(inspectMedia).mockResolvedValue({
+      metadata: metadata(),
+      playbackIssue: new MediaLookupError(
+        'YOUTUBE_NOT_EMBEDDABLE',
+        'That video cannot play in the radio player.',
+      ),
+      regionRestriction: null,
+    });
+
+    const inspected = await inspectMediaCached(youtubeUrl, 'AE', db);
+    expect(inspected.metadata.title).toBe('A Track');
+    expect(inspected.playbackIssue).toMatchObject({ code: 'YOUTUBE_NOT_EMBEDDABLE' });
+
+    // The stored refusal still refuses, rather than letting a cache hit through.
+    await expect(lookupMediaCached(youtubeUrl, 'AE', db)).rejects.toMatchObject({
+      code: 'YOUTUBE_NOT_EMBEDDABLE',
+    });
+    const second = await inspectMediaCached(youtubeUrl, 'AE', db);
+    expect(second.playbackIssue).toMatchObject({ code: 'YOUTUBE_NOT_EMBEDDABLE' });
+    expect(inspectMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks a refusal after an hour, whichever provider gave it', async () => {
+    vi.mocked(inspectMedia).mockResolvedValueOnce({
+      metadata: soundcloudMetadata,
+      playbackIssue: new MediaLookupError(
+        'SOUNDCLOUD_NOT_STREAMABLE',
+        'That SoundCloud track is not streamable.',
+      ),
+      regionRestriction: null,
+    });
+    await inspectMediaCached(soundcloudUrl, 'AE', db);
+    await ageEntry('soundcloud:soundcloud.com/artist/a-track', 2);
+
+    vi.mocked(inspectMedia).mockResolvedValueOnce({
+      metadata: soundcloudMetadata,
+      playbackIssue: null,
+      regionRestriction: null,
+    });
+    const rechecked = await inspectMediaCached(soundcloudUrl, 'AE', db);
+
+    expect(rechecked.playbackIssue).toBeNull();
+    expect(inspectMedia).toHaveBeenCalledTimes(2);
+  });
+
+  // YouTube names the countries once, so one answer settles every region.
+  it('answers a second playback region from the stored country lists', async () => {
+    vi.mocked(inspectMedia).mockResolvedValue({
+      metadata: metadata(),
+      playbackIssue: null,
+      regionRestriction: { blocked: ['US'] },
+    });
+
+    await expect(lookupMediaCached(youtubeUrl, 'AE', db)).resolves.toMatchObject({
+      title: 'A Track',
+    });
+    await expect(lookupMediaCached(youtubeUrl, 'US', db)).rejects.toMatchObject({
+      code: 'YOUTUBE_REGION_BLOCKED',
+    });
+    await expect(lookupMediaCached(youtubeUrl, 'DE', db)).resolves.toMatchObject({
+      title: 'A Track',
+    });
+
+    expect(inspectMedia).toHaveBeenCalledTimes(1);
+  });
+
+  // A region refusal is not the video's own problem, so it keeps the ordinary
+  // day-long life rather than the hour a real playback issue gets.
+  it('keeps a region-blocked video cached for a day', async () => {
+    vi.mocked(inspectMedia).mockResolvedValue({
+      metadata: metadata(),
+      playbackIssue: null,
+      regionRestriction: { blocked: ['AE'] },
+    });
+    await expect(lookupMediaCached(youtubeUrl, 'AE', db)).rejects.toMatchObject({
+      code: 'YOUTUBE_REGION_BLOCKED',
+    });
+    await ageEntry('youtube:dQw4w9WgXcQ', 2);
+
+    await expect(lookupMediaCached(youtubeUrl, 'AE', db)).rejects.toMatchObject({
+      code: 'YOUTUBE_REGION_BLOCKED',
+    });
+    expect(inspectMedia).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an unusable URL before touching the cache or the provider', async () => {
     await expect(lookupMediaCached('https://example.com/song', 'AE', db)).rejects.toMatchObject({
       code: 'UNSUPPORTED_PROVIDER',
     });
-    expect(lookupMedia).not.toHaveBeenCalled();
+    expect(inspectMedia).not.toHaveBeenCalled();
   });
 });

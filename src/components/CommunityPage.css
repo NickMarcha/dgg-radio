@@ -209,6 +209,17 @@
   flex-direction: column;
 }
 
+.history-track-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.history-track-title > a {
+  min-width: 0;
+}
+
 .history-track a {
   overflow: hidden;
   color: var(--text);
@@ -222,7 +233,7 @@
   text-decoration: underline;
 }
 
-.history-track > div > span {
+.history-track > div > span:not(.history-track-title) {
   overflow: hidden;
   color: var(--muted);
   font-size: 11px;

@@ -15,37 +15,58 @@ process.env.DGG_CLIENT_SECRET ??= 'test-secret';
 process.env.DGG_REDIRECT_URI ??= 'http://localhost:8787/api/auth/callback';
 process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
-const { cachedLookup } = vi.hoisted(() => ({ cachedLookup: vi.fn() }));
+const { cachedLookup, playbackIssues } = vi.hoisted(() => ({
+  cachedLookup: vi.fn(),
+  /** URLs the room cannot play. Their metadata still resolves, as it does live. */
+  playbackIssues: new Map<string, Error>(),
+}));
 
-vi.mock('./media-cache', () => ({
-  lookupMediaCached: cachedLookup,
-  // The real one resolves in parallel and keeps failures; this mirrors that
+vi.mock('./media-cache', () => {
+  const inspect = async (url: string, country: string, db: unknown) => ({
+    metadata: await cachedLookup(url, country, db),
+    playbackIssue: playbackIssues.get(url) ?? null,
+  });
+  // The real batch resolves in parallel and keeps failures; this mirrors that
   // over whatever the single-lookup stub is doing.
-  lookupManyCached: vi.fn(async (urls: string[], country: string, db: unknown) => {
-    const resolved = new Map<string, unknown>();
+  const many = async <T,>(urls: string[], resolve: (url: string) => Promise<T>) => {
+    const resolved = new Map<string, T | Error>();
     for (const url of urls) {
       try {
-        resolved.set(url, await cachedLookup(url, country, db));
+        resolved.set(url, await resolve(url));
       } catch (error) {
-        resolved.set(url, error);
+        resolved.set(url, error as Error);
       }
     }
     return resolved;
-  }),
-}));
+  };
+  const lookup = async (url: string, country: string, db: unknown) => {
+    const inspected = await inspect(url, country, db);
+    if (inspected.playbackIssue) throw inspected.playbackIssue;
+    return inspected.metadata;
+  };
+  return {
+    inspectMediaCached: vi.fn(inspect),
+    inspectManyCached: vi.fn((urls: string[], country: string, db: unknown) =>
+      many(urls, (url) => inspect(url, country, db)),
+    ),
+    lookupMediaCached: vi.fn(lookup),
+    lookupManyCached: vi.fn((urls: string[], country: string, db: unknown) =>
+      many(urls, (url) => lookup(url, country, db)),
+    ),
+  };
+});
 
 vi.mock('./media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./media')>()),
   listPlaylistTrackUrls: vi.fn(),
 }));
 
-const { lookupMediaCached } = await import('./media-cache');
-const { listPlaylistTrackUrls } = await import('./media');
+const { listPlaylistTrackUrls, MediaLookupError } = await import('./media');
 const {
   advanceCurrentTrack,
   advanceIfExpired,
   clearUserQueue,
-  enqueuePlaylist,
+  enqueueProviderPlaylist,
   reorderMyQueue,
   reorderRoomQueue,
   blockQueueItemMedia,
@@ -92,7 +113,8 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await db.execute(
       sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.ruleEntries}, ${schema.rules}, ${roomState}, ${schema.roomSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${schema.userChatCounts}, ${users} restart identity cascade`,
     );
-    vi.mocked(lookupMediaCached).mockReset();
+    cachedLookup.mockReset();
+    playbackIssues.clear();
   });
 
   async function createUser(
@@ -125,12 +147,20 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
   function resolveTracks(...tracks: MediaMetadata[]): void {
     const byUrl = new Map(tracks.map((entry) => [entry.canonicalUrl, entry]));
-    vi.mocked(lookupMediaCached).mockImplementation(async (url: string) => {
+    cachedLookup.mockImplementation(async (url: string) => {
       const found = byUrl.get(url);
       if (!found) throw new Error(`No stubbed metadata for ${url}`);
       return found;
     });
   }
+
+  it('exposes a 90-minute track repeat cooldown by default', async () => {
+    await ensureRoomExists(db);
+
+    const snapshot = await getRoomSnapshot(null, 0, db);
+
+    expect(snapshot.settings.repeatCooldownSeconds).toBe(5_400);
+  });
 
   it('starts the first request immediately and queues the rest', async () => {
     await ensureRoomExists(db);
@@ -262,6 +292,23 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await enqueueMedia(playing.canonicalUrl, nathan, db);
     await expect(enqueueMedia(playing.canonicalUrl, swagy, db)).rejects.toMatchObject({
       code: 'ALREADY_QUEUED',
+    });
+  });
+
+  it('rejects a track that started inside the repeat cooldown', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const moderator = await createUser('mod', 'mod');
+    const recent = track('aaaaaaaaaaa');
+    resolveTracks(recent);
+
+    await enqueueMedia(recent.canonicalUrl, nathan, db);
+    await skipCurrentTrack('Testing the repeat cooldown', moderator, db);
+
+    await expect(enqueueMedia(recent.canonicalUrl, swagy, db)).rejects.toMatchObject({
+      code: 'TRACK_RECENTLY_PLAYED',
+      message: 'That track played less than a minute ago. Try again in 90 minutes.',
     });
   });
 
@@ -523,7 +570,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     ]);
     resolveTracks(good, alsoGood, tooLong);
 
-    const imported = await enqueuePlaylist(
+    const imported = await enqueueProviderPlaylist(
       'https://www.youtube.com/playlist?list=PL123',
       nathan,
       db,
@@ -538,13 +585,31 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     expect(snapshot.myQueue.map((i) => i.media.providerMediaId)).toEqual(['bbbbbbbbbbb']);
   });
 
+  it('refuses a track the playback host cannot reach', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const blocked = track('aaaaaaaaaaa');
+    resolveTracks(blocked);
+    playbackIssues.set(
+      blocked.canonicalUrl,
+      new MediaLookupError(
+        'YOUTUBE_REGION_BLOCKED',
+        'That video is not available to the playback host in AE.',
+      ),
+    );
+
+    await expect(enqueueMedia(blocked.canonicalUrl, nathan, db)).rejects.toMatchObject({
+      code: 'YOUTUBE_REGION_BLOCKED',
+    });
+  });
+
   it('refuses a playlist with nothing playable in it', async () => {
     await ensureRoomExists(db);
     const nathan = await createUser('picklesnathan');
     vi.mocked(listPlaylistTrackUrls).mockResolvedValue([]);
 
     await expect(
-      enqueuePlaylist('https://www.youtube.com/playlist?list=PL123', nathan, db),
+      enqueueProviderPlaylist('https://www.youtube.com/playlist?list=PL123', nathan, db),
     ).rejects.toMatchObject({ code: 'PLAYLIST_EMPTY' });
   });
 

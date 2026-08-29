@@ -11,6 +11,8 @@ import type {
 } from '../shared/contracts';
 import SiteHeader from './SiteHeader';
 import SiteNav from './SiteNav';
+import SaveToPlaylistButton from './SaveToPlaylistButton';
+import { usePlaylistLibrary, type PlaylistLibraryController } from './usePlaylistLibrary';
 import './CommunityPage.css';
 
 interface CommunityPageProps {
@@ -88,7 +90,15 @@ function Score({ value }: { value: number }) {
   );
 }
 
-function HistoryTable({ entries, showRequester }: { entries: HistoryEntry[]; showRequester: boolean }) {
+function HistoryTable({
+  entries,
+  showRequester,
+  library,
+}: {
+  entries: HistoryEntry[];
+  showRequester: boolean;
+  library?: PlaylistLibraryController;
+}) {
   if (entries.length === 0) return <p className="community-empty">No tracks have played yet.</p>;
 
   return (
@@ -114,9 +124,14 @@ function HistoryTable({ entries, showRequester }: { entries: HistoryEntry[]; sho
                     <span className="history-art-empty"><ListMusic size={16} /></span>
                   )}
                   <div>
-                    <a href={entry.media.canonicalUrl} target="_blank" rel="noreferrer">
-                      {entry.media.title}
-                    </a>
+                    <span className="history-track-title">
+                      <a href={entry.media.canonicalUrl} target="_blank" rel="noreferrer">
+                        {entry.media.title}
+                      </a>
+                      {library?.signedIn && (
+                        <SaveToPlaylistButton media={entry.media} library={library} compact />
+                      )}
+                    </span>
                     <span>
                       <span className={`provider-text provider-${entry.media.provider}`}>
                         {entry.media.provider === 'youtube' ? 'YouTube' : 'SoundCloud'}
@@ -338,15 +353,21 @@ function StatsView({ stats }: { stats: CommunityStats }) {
   );
 }
 
-function HistoryView({ entries }: { entries: HistoryEntry[] }) {
+function HistoryView({ entries, apiUrl }: { entries: HistoryEntry[]; apiUrl: string }) {
+  const library = usePlaylistLibrary(apiUrl, entries.map(({ media }) => media.id));
   return (
     <>
       <header className="community-title">
         <h1>History</h1>
         <p>The latest completed and skipped tracks, newest first.</p>
       </header>
+      {library.error && (
+        <p className="community-error" role="alert">
+          {library.error} Saving to a playlist is unavailable.
+        </p>
+      )}
       <section className="community-section history-section">
-        <HistoryTable entries={entries} showRequester />
+        <HistoryTable entries={entries} showRequester library={library} />
       </section>
     </>
   );
@@ -388,7 +409,7 @@ export default function CommunityPage({ apiUrl, view }: CommunityPageProps) {
 
   return (
     <div className="community-app">
-      <SiteHeader />
+      <SiteHeader apiUrl={apiUrl} />
       <SiteNav active={view === 'stats' || view === 'history' ? view : undefined} />
       <main className="community-main">
         {error ? <div className="community-error" role="alert">{error}</div> : !data ? (
@@ -398,7 +419,7 @@ export default function CommunityPage({ apiUrl, view }: CommunityPageProps) {
         ) : view === 'stats' ? (
           <StatsView stats={data as CommunityStats} />
         ) : (
-          <HistoryView entries={data as HistoryEntry[]} />
+          <HistoryView entries={data as HistoryEntry[]} apiUrl={apiUrl} />
         )}
       </main>
       <footer className="community-footer">

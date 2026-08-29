@@ -28,6 +28,7 @@ function roomSnapshot(): RoomSnapshot {
     settings: {
       description: '',
       maxDurationSeconds: 1_800,
+      repeatCooldownSeconds: 5_400,
       targetCountry: 'US',
       skipMode: 'absolute',
       skipDownvotes: 3,

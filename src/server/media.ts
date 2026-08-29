@@ -26,6 +26,27 @@ export interface MediaMetadata {
   thumbnailUrl: string | null;
 }
 
+/**
+ * What a provider says about one track, split into what it is and whether this
+ * room can play it. `playbackIssue` is room policy the personal library
+ * ignores: saving a track keeps it regardless, and the same issue is raised
+ * again when someone asks for it in the queue.
+ */
+export interface MediaInspection {
+  metadata: MediaMetadata;
+  /**
+   * Why the room cannot play it, region aside. This part is the same wherever
+   * the room plays from, so it can be stored and reused as it stands.
+   */
+  playbackIssue: MediaLookupError | null;
+  /**
+   * The countries YouTube allowed or blocked, or null when it named none and
+   * for SoundCloud, which has no such notion. Stored so the region question can
+   * be answered again for a different playback region without a second lookup.
+   */
+  regionRestriction: RegionRestriction;
+}
+
 export interface SearchResult {
   provider: MediaProvider;
   url: string;
@@ -181,9 +202,11 @@ const youtubeResponseSchema = z.object({
   ),
 });
 
-type RegionRestriction = z.infer<
-  typeof youtubeResponseSchema
->['items'][number]['contentDetails']['regionRestriction'];
+type YouTubeVideo = z.infer<typeof youtubeResponseSchema>['items'][number];
+
+/** Null when YouTube named no countries, and for SoundCloud, which has none. */
+export type RegionRestriction =
+  NonNullable<YouTubeVideo['contentDetails']['regionRestriction']> | null;
 
 export function isYouTubeAvailableInTargetCountry(
   restriction: RegionRestriction,
@@ -222,9 +245,8 @@ function bestYouTubeThumbnail(
 async function lookupYouTube(
   parsed: ParsedMediaUrl,
   apiKey: string,
-  targetCountry: string,
   fetcher: typeof fetch,
-): Promise<MediaMetadata> {
+): Promise<MediaInspection> {
   const id = parsed.providerMediaId;
   if (!id) {
     throw new MediaLookupError('INVALID_YOUTUBE_URL', 'Link directly to a YouTube video.');
@@ -253,21 +275,6 @@ async function lookupYouTube(
   if (!video) {
     throw new MediaLookupError('YOUTUBE_NOT_FOUND', 'That YouTube video is unavailable.');
   }
-  if (!video.status.embeddable) {
-    throw new MediaLookupError('YOUTUBE_NOT_EMBEDDABLE', 'That video cannot play in the radio player.');
-  }
-  if (!isYouTubeAvailableInTargetCountry(video.contentDetails.regionRestriction, targetCountry)) {
-    throw new MediaLookupError(
-      'YOUTUBE_BLOCKED_IN_UAE',
-      'That video is not available to the playback host in the UAE.',
-    );
-  }
-  if (video.contentDetails.contentRating?.ytRating === 'ytAgeRestricted') {
-    throw new MediaLookupError(
-      'YOUTUBE_AGE_RESTRICTED',
-      'Age-restricted videos cannot play in the radio player.',
-    );
-  }
   if (video.snippet.liveBroadcastContent && video.snippet.liveBroadcastContent !== 'none') {
     throw new MediaLookupError('YOUTUBE_LIVE_VIDEO', 'Live streams and upcoming premieres cannot join the queue.');
   }
@@ -278,15 +285,54 @@ async function lookupYouTube(
   }
 
   return {
-    provider: 'youtube',
-    providerMediaId: id,
-    providerArtistId: video.snippet.channelId,
-    canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
-    title: video.snippet.title,
-    artist: video.snippet.channelTitle,
-    durationSeconds,
-    thumbnailUrl: bestYouTubeThumbnail(video.snippet.thumbnails),
+    metadata: {
+      provider: 'youtube',
+      providerMediaId: id,
+      providerArtistId: video.snippet.channelId,
+      canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
+      title: video.snippet.title,
+      artist: video.snippet.channelTitle,
+      durationSeconds,
+      thumbnailUrl: bestYouTubeThumbnail(video.snippet.thumbnails),
+    },
+    playbackIssue: youTubePlaybackIssue(video),
+    regionRestriction: video.contentDetails.regionRestriction ?? null,
   };
+}
+
+/**
+ * Whether the radio's own player can carry this video. These conditions belong
+ * to the room rather than to the track, so a personal library keeps the track
+ * anyway and hears about the problem when it is queued. The region is decided
+ * separately, by `regionPlaybackIssue`, because it alone depends on a setting.
+ */
+function youTubePlaybackIssue(video: YouTubeVideo): MediaLookupError | null {
+  if (!video.status.embeddable) {
+    return new MediaLookupError('YOUTUBE_NOT_EMBEDDABLE', 'That video cannot play in the radio player.');
+  }
+  if (video.contentDetails.contentRating?.ytRating === 'ytAgeRestricted') {
+    return new MediaLookupError(
+      'YOUTUBE_AGE_RESTRICTED',
+      'Age-restricted videos cannot play in the radio player.',
+    );
+  }
+  return null;
+}
+
+/**
+ * The region half of the same question, kept separate because it is the only
+ * part that depends on where the room plays from. YouTube names the countries
+ * once, so a stored answer settles it for every region without asking again.
+ */
+export function regionPlaybackIssue(
+  restriction: RegionRestriction,
+  targetCountry: string,
+): MediaLookupError | null {
+  if (isYouTubeAvailableInTargetCountry(restriction, targetCountry)) return null;
+  return new MediaLookupError(
+    'YOUTUBE_REGION_BLOCKED',
+    `That video is not available to the playback host in ${targetCountry.toUpperCase()}.`,
+  );
 }
 
 /**
@@ -331,7 +377,7 @@ async function resolveSoundCloudTrack(url: string): Promise<unknown> {
   }
 }
 
-async function lookupSoundCloud(parsed: ParsedMediaUrl): Promise<MediaMetadata> {
+async function lookupSoundCloud(parsed: ParsedMediaUrl): Promise<MediaInspection> {
   let resolved: unknown;
   try {
     resolved = await resolveSoundCloudTrack(parsed.url.toString());
@@ -353,19 +399,24 @@ async function lookupSoundCloud(parsed: ParsedMediaUrl): Promise<MediaMetadata> 
     throw new MediaLookupError('SOUNDCLOUD_TRACK_REQUIRED', 'Link directly to one SoundCloud track.');
   }
   const track = result.data;
-  if (track.streamable === false || track.policy === 'BLOCK') {
-    throw new MediaLookupError('SOUNDCLOUD_NOT_STREAMABLE', 'That SoundCloud track is not streamable.');
-  }
+  const playbackIssue =
+    track.streamable === false || track.policy === 'BLOCK'
+      ? new MediaLookupError('SOUNDCLOUD_NOT_STREAMABLE', 'That SoundCloud track is not streamable.')
+      : null;
 
   return {
-    provider: 'soundcloud',
-    providerMediaId: track.id,
-    providerArtistId: track.user.id,
-    canonicalUrl: track.permalink_url,
-    title: track.title,
-    artist: track.user.username,
-    durationSeconds: Math.ceil(track.duration / 1_000),
-    thumbnailUrl: track.artwork_url ?? null,
+    playbackIssue,
+    regionRestriction: null,
+    metadata: {
+      provider: 'soundcloud',
+      providerMediaId: track.id,
+      providerArtistId: track.user.id,
+      canonicalUrl: track.permalink_url,
+      title: track.title,
+      artist: track.user.username,
+      durationSeconds: Math.ceil(track.duration / 1_000),
+      thumbnailUrl: track.artwork_url ?? null,
+    },
   };
 }
 
@@ -539,14 +590,34 @@ export async function searchMedia(query: string, limit: number): Promise<SearchR
   return results;
 }
 
+/**
+ * Reads a link and separates the questions the providers answer together: what
+ * the track is, whether this room's player can carry it, and which countries
+ * it is restricted to. It asks nothing about the room, so one answer serves
+ * every playback region. A link that cannot be read at all still throws,
+ * because there is nothing to describe.
+ */
+export async function inspectMedia(
+  value: string,
+  credentials: MediaLookupCredentials,
+  fetcher: typeof fetch = fetch,
+): Promise<MediaInspection> {
+  const parsed = parseMediaUrl(value);
+  return parsed.provider === 'youtube'
+    ? lookupYouTube(parsed, credentials.youtubeApiKey, fetcher)
+    : lookupSoundCloud(parsed);
+}
+
+/** The admission view: a track the room cannot play is a failed lookup. */
 export async function lookupMedia(
   value: string,
   credentials: MediaLookupCredentials,
   targetCountry = 'AE',
   fetcher: typeof fetch = fetch,
 ): Promise<MediaMetadata> {
-  const parsed = parseMediaUrl(value);
-  return parsed.provider === 'youtube'
-    ? lookupYouTube(parsed, credentials.youtubeApiKey, targetCountry, fetcher)
-    : lookupSoundCloud(parsed);
+  const inspected = await inspectMedia(value, credentials, fetcher);
+  const issue =
+    inspected.playbackIssue ?? regionPlaybackIssue(inspected.regionRestriction, targetCountry);
+  if (issue) throw issue;
+  return inspected.metadata;
 }

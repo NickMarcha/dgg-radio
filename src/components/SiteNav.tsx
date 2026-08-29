@@ -1,11 +1,12 @@
 interface SiteNavProps {
-  active?: 'room' | 'stats' | 'history';
+  active?: 'room' | 'stats' | 'history' | 'playlists';
 }
 
 const links = [
   { key: 'room', href: '/', label: 'Room' },
   { key: 'stats', href: '/stats', label: 'Stats' },
   { key: 'history', href: '/history', label: 'History' },
+  { key: 'playlists', href: '/playlists', label: 'Playlists' },
 ] as const;
 
 export default function SiteNav({ active }: SiteNavProps) {

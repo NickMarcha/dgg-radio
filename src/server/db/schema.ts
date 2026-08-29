@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import type { MediaMetadata } from '../media';
+import type { MediaMetadata, RegionRestriction } from '../media';
 import {
   bigint,
   boolean,
@@ -120,19 +120,73 @@ export const media = pgTable(
   ],
 );
 
+export const playlists = pgTable(
+  'playlists',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('playlists_owner_name_lower_unique').on(
+      table.ownerUserId,
+      sql`lower(${table.name})`,
+    ),
+    index('playlists_owner_updated_index').on(table.ownerUserId, table.updatedAt),
+  ],
+);
+
+export const playlistItems = pgTable(
+  'playlist_items',
+  {
+    playlistId: uuid('playlist_id')
+      .notNull()
+      .references(() => playlists.id, { onDelete: 'cascade' }),
+    mediaId: uuid('media_id')
+      .notNull()
+      .references(() => media.id),
+    position: integer('position').notNull(),
+    addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.playlistId, table.mediaId] }),
+    index('playlist_items_position_index').on(table.playlistId, table.position),
+    check('playlist_items_position_non_negative', sql`${table.position} >= 0`),
+  ],
+);
+
 /**
- * Provider lookups are paid: Apify bills per run and YouTube bills quota. This
- * holds the last successful result per track so a submission and the check just
- * before playback do not both cost. Rows are overwritten in place, never
- * deleted, so a re-check that fails leaves the previous answer visible.
+ * Provider lookups cost something every time: YouTube bills quota, and
+ * SoundCloud answers come from an unofficial endpoint worth asking sparingly.
+ * This holds the last answer per track, whether or not the room could play it,
+ * so a submission and the check just before playback do not both cost, and so
+ * a track the room keeps refusing is asked about once rather than once per
+ * attempt. Rows are overwritten in place, never deleted, so a re-check that
+ * fails leaves the previous answer visible.
  *
- * Keys carry no country. The room is pinned to AE by a check constraint on
- * room_settings, so a cached YouTube availability answer is only ever for AE.
+ * `media-cache.ts` owns how long a row stands.
  */
 export const mediaLookups = pgTable('media_lookups', {
   key: text('key').primaryKey(),
   provider: mediaProvider('provider').notNull(),
   metadata: jsonb('metadata').$type<MediaMetadata>().notNull(),
+  /**
+   * Why the room could not play the track when it was asked, or null when it
+   * could. Stored so a repeat question is answered from here rather than from
+   * the provider, and so a cached answer cannot let a refused track through.
+   */
+  playbackIssueCode: text('playback_issue_code'),
+  playbackIssueMessage: text('playback_issue_message'),
+  /**
+   * The countries YouTube allowed or blocked, kept as it gave them. The region
+   * verdict is worked out from this on every read, so moving the room's
+   * playback region needs no new lookups.
+   */
+  regionRestriction: jsonb('region_restriction').$type<RegionRestriction>(),
   checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -279,6 +333,7 @@ export const roomSettings = pgTable(
     /** Free text shown on the player: what this room is and how to behave. */
     description: text('description').notNull().default(''),
     maxDurationSeconds: integer('max_duration_seconds').notNull().default(420),
+    repeatCooldownSeconds: integer('repeat_cooldown_seconds').notNull().default(5_400),
     targetCountry: text('target_country').notNull().default('AE'),
     skipMode: skipMode('skip_mode').notNull().default('absolute'),
     /** Downvotes needed to skip when skipMode is 'absolute'. */
@@ -295,6 +350,10 @@ export const roomSettings = pgTable(
     check(
       'room_settings_duration_range',
       sql`${table.maxDurationSeconds} between 60 and 1800`,
+    ),
+    check(
+      'room_settings_repeat_cooldown_range',
+      sql`${table.repeatCooldownSeconds} between 300 and 2592000`,
     ),
     // The region is admin-editable now, so only its shape is enforced.
     check('room_settings_country_code', sql`${table.targetCountry} ~ '^[A-Z]{2}$'`),

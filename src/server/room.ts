@@ -1,10 +1,12 @@
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
   isNotNull,
   isNull,
+  ne,
   sql,
 } from 'drizzle-orm';
 import type {
@@ -26,7 +28,12 @@ import {
 } from './db/schema';
 import { getEnv } from './env';
 import { listJammers } from './community';
-import { lookupManyCached, lookupMediaCached } from './media-cache';
+import {
+  inspectManyCached,
+  inspectMediaCached,
+  lookupManyCached,
+  lookupMediaCached,
+} from './media-cache';
 import { addRuleEntry, describeBlock, findBlockingRules, listActiveRules } from './rules';
 import {
   listPlaylistTrackUrls,
@@ -187,6 +194,7 @@ async function getSettings(db: Database) {
     .select({
       description: roomSettings.description,
       maxDurationSeconds: roomSettings.maxDurationSeconds,
+      repeatCooldownSeconds: roomSettings.repeatCooldownSeconds,
       targetCountry: roomSettings.targetCountry,
       skipMode: roomSettings.skipMode,
       skipDownvotes: roomSettings.skipDownvotes,
@@ -199,9 +207,52 @@ async function getSettings(db: Database) {
   return settings;
 }
 
+async function assertRepeatCooldownPassed(
+  provider: MediaMetadata['provider'],
+  providerMediaId: string,
+  cooldownSeconds: number,
+  db: Database,
+  options: { excludeQueueItemId?: string; now?: Date } = {},
+): Promise<void> {
+  const conditions = [
+    eq(media.provider, provider),
+    eq(media.providerMediaId, providerMediaId),
+    isNotNull(queueItems.startedAt),
+  ];
+  if (options.excludeQueueItemId) {
+    conditions.push(ne(queueItems.id, options.excludeQueueItemId));
+  }
+
+  const [previous] = await db
+    .select({ startedAt: queueItems.startedAt })
+    .from(queueItems)
+    .innerJoin(media, eq(queueItems.mediaId, media.id))
+    .where(and(...conditions))
+    .orderBy(desc(queueItems.startedAt))
+    .limit(1);
+  if (!previous?.startedAt) return;
+
+  const now = options.now ?? new Date();
+  const elapsedMilliseconds = now.getTime() - previous.startedAt.getTime();
+  const remainingMilliseconds = cooldownSeconds * 1_000 - elapsedMilliseconds;
+  if (remainingMilliseconds <= 0) return;
+
+  const elapsedMinutes = Math.floor(Math.max(0, elapsedMilliseconds) / 60_000);
+  const elapsed =
+    elapsedMinutes < 1
+      ? 'less than a minute ago'
+      : `${elapsedMinutes} minute${elapsedMinutes === 1 ? '' : 's'} ago`;
+  const remainingMinutes = Math.ceil(remainingMilliseconds / 60_000);
+  throw new RoomError(
+    'TRACK_RECENTLY_PLAYED',
+    `That track played ${elapsed}. Try again in ${remainingMinutes} minute${remainingMinutes === 1 ? '' : 's'}.`,
+  );
+}
+
 async function validateForPlayback(
   candidate: QueueRow,
   maxDurationSeconds: number,
+  repeatCooldownSeconds: number,
   targetCountry: string,
   db: Database,
 ): Promise<MediaMetadata> {
@@ -216,6 +267,13 @@ async function validateForPlayback(
   if (blocking.length > 0) {
     throw new RoomError('MEDIA_BLOCKED', `This track breaks ${describeBlock(blocking)}.`);
   }
+  await assertRepeatCooldownPassed(
+    checked.provider,
+    checked.providerMediaId,
+    repeatCooldownSeconds,
+    db,
+    { excludeQueueItemId: candidate.id },
+  );
   return checked;
 }
 
@@ -237,6 +295,7 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
       checked = await validateForPlayback(
         candidate,
         settings.maxDurationSeconds,
+        settings.repeatCooldownSeconds,
         settings.targetCountry,
         db,
       );
@@ -358,6 +417,100 @@ export async function advanceIfExpired(db: Database = getDatabase()): Promise<bo
     : false;
 }
 
+/** Writes the freshest provider answer into `media` and hands back its row ID. */
+async function storeMedia(metadata: MediaMetadata, db: Database): Promise<string> {
+  const [stored] = await db
+    .insert(media)
+    .values(metadata)
+    .onConflictDoUpdate({
+      target: [media.provider, media.providerMediaId],
+      set: {
+        canonicalUrl: metadata.canonicalUrl,
+        providerArtistId: metadata.providerArtistId,
+        title: metadata.title,
+        artist: metadata.artist,
+        durationSeconds: metadata.durationSeconds,
+        thumbnailUrl: metadata.thumbnailUrl,
+      },
+    })
+    .returning({ id: media.id });
+  if (!stored) throw new RoomError('QUEUE_FAILED', 'The track could not be saved.', 500);
+  return stored.id;
+}
+
+/**
+ * Turns a link into a stored `media` row for the personal playlist library.
+ *
+ * Saving is not admission, so this runs none of the room policy `enqueueMedia`
+ * enforces: no duration limit, no blocklist, no repeat cooldown, no active
+ * duplicate check. A track the room refuses today can still be kept and queued
+ * once the room allows it. The provider lookup is the one step that cannot be
+ * skipped, because an unknown link has no title, artist, or duration until a
+ * provider answers for it.
+ */
+export async function resolveMediaForLibrary(
+  url: string,
+  db: Database = getDatabase(),
+): Promise<string> {
+  const settings = await getSettings(db);
+  const { metadata } = await inspectMediaCached(url, settings.targetCountry, db);
+  return storeMedia(metadata, db);
+}
+
+export interface LibraryTrack {
+  url: string;
+  title: string;
+  /** Null when the provider refused the track; `reason` then says why. */
+  mediaId: string | null;
+  reason: string | null;
+}
+
+/**
+ * Resolves every track inside a provider playlist for the personal library.
+ * Like `resolveMediaForLibrary` it stores metadata and applies no room policy,
+ * so a playlist holding blocked or overlong tracks still saves in full. A track
+ * the provider itself refuses comes back with a reason instead of a media ID.
+ */
+export async function resolvePlaylistForLibrary(
+  url: string,
+  db: Database = getDatabase(),
+): Promise<LibraryTrack[]> {
+  const settings = await getSettings(db);
+  const env = getEnv();
+  const trackUrls = await listPlaylistTrackUrls(
+    parsePlaylistUrl(url),
+    { youtubeApiKey: env.YOUTUBE_API_KEY },
+    MAX_PLAYLIST_TRACKS,
+  );
+  if (trackUrls.length === 0) {
+    throw new RoomError('PLAYLIST_EMPTY', 'That playlist has no playable tracks.');
+  }
+
+  // One parallel warm-up, so the loop below only touches the database.
+  const resolved = await inspectManyCached(trackUrls, settings.targetCountry, db);
+
+  const tracks: LibraryTrack[] = [];
+  for (const trackUrl of trackUrls) {
+    const found = resolved.get(trackUrl);
+    if (!found || found instanceof Error) {
+      tracks.push({
+        url: trackUrl,
+        title: trackUrl,
+        mediaId: null,
+        reason: found?.message ?? 'Could not be read.',
+      });
+      continue;
+    }
+    tracks.push({
+      url: trackUrl,
+      title: found.metadata.title,
+      mediaId: await storeMedia(found.metadata, db),
+      reason: null,
+    });
+  }
+  return tracks;
+}
+
 export async function enqueueMedia(
   url: string,
   user: AuthenticatedUser,
@@ -394,22 +547,14 @@ export async function enqueueMedia(
     .limit(1);
   if (activeDuplicate) throw new RoomError('ALREADY_QUEUED', 'That track is already in the room queue.');
 
-  const [storedMedia] = await db
-    .insert(media)
-    .values(metadata)
-    .onConflictDoUpdate({
-      target: [media.provider, media.providerMediaId],
-      set: {
-        canonicalUrl: metadata.canonicalUrl,
-        providerArtistId: metadata.providerArtistId,
-        title: metadata.title,
-        artist: metadata.artist,
-        durationSeconds: metadata.durationSeconds,
-        thumbnailUrl: metadata.thumbnailUrl,
-      },
-    })
-    .returning({ id: media.id });
-  if (!storedMedia) throw new RoomError('QUEUE_FAILED', 'The track could not be saved.', 500);
+  await assertRepeatCooldownPassed(
+    metadata.provider,
+    metadata.providerMediaId,
+    settings.repeatCooldownSeconds,
+    db,
+  );
+
+  const storedMediaId = await storeMedia(metadata, db);
 
   const [{ nextPosition }] = await db
     .select({
@@ -420,7 +565,7 @@ export async function enqueueMedia(
 
   const [item] = await db
     .insert(queueItems)
-    .values({ mediaId: storedMedia.id, requestedByUserId: user.id, position: nextPosition })
+    .values({ mediaId: storedMediaId, requestedByUserId: user.id, position: nextPosition })
     .returning({ id: queueItems.id });
   if (!item) throw new RoomError('QUEUE_FAILED', 'The request could not be queued.', 500);
 
@@ -444,7 +589,7 @@ export interface PlaylistImport {
  * through the normal request path, so a blocked or overlong one is reported
  * rather than quietly let in.
  */
-export async function enqueuePlaylist(
+export async function enqueueProviderPlaylist(
   url: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -826,6 +971,7 @@ export async function blockQueueItemMedia(
 export type RoomSettingsPatch = Partial<{
   description: string;
   maxDurationSeconds: number;
+  repeatCooldownSeconds: number;
   targetCountry: string;
   skipMode: 'absolute' | 'ratio';
   skipDownvotes: number;
@@ -950,22 +1096,26 @@ export async function getRoomSnapshot(
     revision: state.revision,
     listenerCount,
     settings,
-    me: me
-      ? {
-          id: me.id,
-          username: me.username,
-          avatarUrl: me.avatarUrl,
-          flair: me.flair,
-          topEmote: me.topEmote,
-          role: me.role,
-          team: me.team,
-        }
-      : null,
+    me: toRoomUser(me),
     current: current ? hide(current, secondsLeft <= REVEAL_REQUESTER_WITHIN_SECONDS) : null,
     queue: roomQueueRows.map((row) => hide(byId.get(row.id)!, false)),
     myQueue: myQueueRows.map((row) => byId.get(row.id)!),
     selectorStats: stats,
     rules,
+  };
+}
+
+/** The public view of a signed-in listener: no Destiny tokens, roles, or features. */
+export function toRoomUser(user: AuthenticatedUser | null): RoomUser | null {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    avatarUrl: user.avatarUrl,
+    flair: user.flair,
+    topEmote: user.topEmote,
+    role: user.role,
+    team: user.team,
   };
 }
 

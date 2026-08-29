@@ -7,6 +7,9 @@ import {
   blockMediaSchema,
   clearQueueSchema,
   playlistSchema,
+  personalPlaylistSchema,
+  playlistListQuerySchema,
+  playlistOrderSchema,
   reorderSchema,
   searchSchema,
   removeQueueItemSchema,
@@ -53,17 +56,32 @@ import {
   blockQueueItemMedia,
   clearUserQueue,
   enqueueMedia,
-  enqueuePlaylist,
+  enqueueProviderPlaylist,
   reorderMyQueue,
   reorderRoomQueue,
   getRoomSnapshot,
   removeQueuedTrack,
   RoomError,
   skipCurrentTrack,
+  toRoomUser,
   updateRoomSettings,
   voteOnCurrentTrack,
   withdrawQueuedTrack,
 } from './room';
+import {
+  addPlaylistTrack,
+  addPlaylistTrackByUrl,
+  createPlaylist,
+  deletePlaylist,
+  getPlaylist,
+  listPlaylists,
+  PlaylistError,
+  queuePlaylist,
+  queuePlaylistTrack,
+  removePlaylistTrack,
+  renamePlaylist,
+  reorderPlaylist,
+} from './playlists';
 
 interface AppDependencies {
   listenerCount: () => number;
@@ -80,6 +98,7 @@ const callbackSchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.uuid() });
+const playlistTrackParamSchema = z.object({ id: z.uuid(), mediaId: z.uuid() });
 const usernameParamSchema = z.object({ username: z.string().trim().min(1).max(64) });
 const historyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -100,7 +119,7 @@ export function createApp(dependencies: AppDependencies) {
       origin: env.APP_ORIGIN,
       credentials: true,
       allowHeaders: ['Content-Type'],
-      allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     }),
   );
   app.use('/api/*', async (context, next) => {
@@ -148,7 +167,8 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof AdminError ||
       error instanceof CommunityError ||
       error instanceof RegionLookupError ||
-      error instanceof ChatLookupError
+      error instanceof ChatLookupError ||
+      error instanceof PlaylistError
     ) {
       if (error.status >= 500) {
         captureServerException(error, context.get('user')?.id, {
@@ -195,10 +215,152 @@ export function createApp(dependencies: AppDependencies) {
       const username = context.req.valid('param').username;
       return context.json(await getUserProfile(username, viewer?.id ?? null));
     })
+    .get('/api/me', async (context) =>
+      context.json({
+        me: toRoomUser(await getSessionUser(context)),
+        listenerCount: dependencies.listenerCount(),
+      }),
+    )
     .get('/api/history', zValidator('query', historyQuerySchema), async (context) =>
       context.json({ history: await listHistory(context.req.valid('query').limit) }),
     )
     .get('/api/stats', async (context) => context.json(await getCommunityStats()))
+    .get(
+      '/api/playlists',
+      requireUser,
+      zValidator('query', playlistListQuerySchema),
+      async (context) =>
+        context.json(
+          await listPlaylists(
+            context.get('user').id,
+            context.req.valid('query').mediaIds,
+          ),
+        ),
+    )
+    .get(
+      '/api/playlists/:id',
+      requireUser,
+      zValidator('param', idParamSchema),
+      async (context) =>
+        context.json(
+          await getPlaylist(context.req.valid('param').id, context.get('user').id),
+        ),
+    )
+    .post(
+      '/api/playlists',
+      requireUser,
+      zValidator('json', personalPlaylistSchema),
+      async (context) => {
+        const id = await createPlaylist(
+          context.req.valid('json').name,
+          context.get('user').id,
+        );
+        captureServerEvent(context.get('user').id, 'personal_playlist_created');
+        return context.json({ id }, 201);
+      },
+    )
+    .patch(
+      '/api/playlists/:id',
+      requireUser,
+      zValidator('param', idParamSchema),
+      zValidator('json', personalPlaylistSchema),
+      async (context) => {
+        await renamePlaylist(
+          context.req.valid('param').id,
+          context.req.valid('json').name,
+          context.get('user').id,
+        );
+        return context.json({ ok: true });
+      },
+    )
+    .delete(
+      '/api/playlists/:id',
+      requireUser,
+      zValidator('param', idParamSchema),
+      async (context) => {
+        await deletePlaylist(context.req.valid('param').id, context.get('user').id);
+        return context.json({ ok: true });
+      },
+    )
+    .post(
+      '/api/playlists/:id/tracks',
+      requireUser,
+      zValidator('param', idParamSchema),
+      zValidator('json', submitRequestSchema),
+      async (context) => {
+        const saved = await addPlaylistTrackByUrl(
+          context.req.valid('param').id,
+          context.req.valid('json').url,
+          context.get('user').id,
+        );
+        captureServerEvent(context.get('user').id, 'track_saved_to_playlist');
+        return context.json(saved, 201);
+      },
+    )
+    .put(
+      '/api/playlists/:id/tracks/:mediaId',
+      requireUser,
+      zValidator('param', playlistTrackParamSchema),
+      async (context) => {
+        const { id, mediaId } = context.req.valid('param');
+        await addPlaylistTrack(id, mediaId, context.get('user').id);
+        captureServerEvent(context.get('user').id, 'track_saved_to_playlist');
+        return context.json({ ok: true });
+      },
+    )
+    .delete(
+      '/api/playlists/:id/tracks/:mediaId',
+      requireUser,
+      zValidator('param', playlistTrackParamSchema),
+      async (context) => {
+        const { id, mediaId } = context.req.valid('param');
+        await removePlaylistTrack(id, mediaId, context.get('user').id);
+        return context.json({ ok: true });
+      },
+    )
+    .patch(
+      '/api/playlists/:id/tracks/order',
+      requireUser,
+      zValidator('param', idParamSchema),
+      zValidator('json', playlistOrderSchema),
+      async (context) => {
+        await reorderPlaylist(
+          context.req.valid('param').id,
+          context.req.valid('json').orderedMediaIds,
+          context.get('user').id,
+        );
+        return context.json({ ok: true });
+      },
+    )
+    .post(
+      '/api/playlists/:id/tracks/:mediaId/queue',
+      requireUser,
+      zValidator('param', playlistTrackParamSchema),
+      async (context) => {
+        const { id, mediaId } = context.req.valid('param');
+        const queued = await queuePlaylistTrack(id, mediaId, context.get('user'));
+        captureServerEvent(context.get('user').id, 'saved_track_requested', {
+          provider: queued.provider,
+          duration_seconds: queued.durationSeconds,
+        });
+        dependencies.onRoomChanged();
+        return context.json({ id: queued.id }, 201);
+      },
+    )
+    .post(
+      '/api/playlists/:id/queue',
+      requireUser,
+      zValidator('param', idParamSchema),
+      async (context) => {
+        const result = await queuePlaylist(context.req.valid('param').id, context.get('user'));
+        captureServerEvent(context.get('user').id, 'personal_playlist_queued', {
+          added: result.added,
+          skipped: result.skipped.length,
+        });
+        if (result.added > 0) dependencies.onRoomChanged();
+        return context.json(result);
+      },
+    )
     .post('/api/queue', requireUser, zValidator('json', submitRequestSchema), async (context) => {
       const { url } = context.req.valid('json');
       const queued = await enqueueMedia(url, context.get('user'));
@@ -229,7 +391,7 @@ export function createApp(dependencies: AppDependencies) {
       context.json({ results: await searchMedia(context.req.valid('query').q, 15) }),
     )
     .post('/api/queue/playlist', requireUser, zValidator('json', playlistSchema), async (context) => {
-      const imported = await enqueuePlaylist(context.req.valid('json').url, context.get('user'));
+      const imported = await enqueueProviderPlaylist(context.req.valid('json').url, context.get('user'));
       captureServerEvent(context.get('user').id, 'playlist_imported', {
         added: imported.added,
         skipped: imported.skipped.length,

@@ -228,6 +228,12 @@
   width: 100%;
 }
 
+.admin-unit-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+
 .admin input[type='search'] {
   margin-bottom: 1rem;
 }

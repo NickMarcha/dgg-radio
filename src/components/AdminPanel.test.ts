@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyText } from './AdminPanel';
+import { cooldownParts, cooldownSeconds, copyText } from './AdminPanel';
+
+describe('track repeat cooldown fields', () => {
+  it('shows stored seconds in the largest whole unit', () => {
+    expect(cooldownParts(5_400)).toEqual({ amount: 90, unit: 'minutes' });
+    expect(cooldownParts(7_200)).toEqual({ amount: 2, unit: 'hours' });
+    expect(cooldownParts(172_800)).toEqual({ amount: 2, unit: 'days' });
+  });
+
+  it('converts the admin amount back to seconds', () => {
+    expect(cooldownSeconds(5, 'minutes')).toBe(300);
+    expect(cooldownSeconds(24, 'hours')).toBe(86_400);
+    expect(cooldownSeconds(30, 'days')).toBe(2_592_000);
+  });
+});
 
 describe('copyText', () => {
   afterEach(() => {

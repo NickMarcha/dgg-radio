@@ -1,0 +1,11 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PlaylistsPage from '../components/PlaylistsPage';
+
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+---
+
+<BaseLayout title="Playlists · DGG Radio" description="Your private DGG Radio playlists.">
+  <PlaylistsPage client:load apiUrl={apiUrl} />
+</BaseLayout>

@@ -2,14 +2,33 @@ import { eq } from 'drizzle-orm';
 import { getDatabase, type Database } from './db/client';
 import { mediaLookups } from './db/schema';
 import { getEnv } from './env';
-import { lookupMedia, parseMediaUrl, type MediaMetadata, type ParsedMediaUrl } from './media';
+import {
+  inspectMedia,
+  MediaLookupError,
+  parseMediaUrl,
+  regionPlaybackIssue,
+  type MediaInspection,
+  type MediaMetadata,
+  type ParsedMediaUrl,
+  type RegionRestriction,
+} from './media';
 
 /**
- * YouTube answers expire because a video can become region blocked, age
- * restricted, or non-embeddable after it was accepted. SoundCloud answers do
- * not: the actor run costs money and reports nothing that changes on its own.
+ * How long a stored answer stands. Nothing here depends on the playback region:
+ * a row keeps the countries YouTube named rather than a verdict about one of
+ * them, so moving the room's region re-reads the same row instead of asking
+ * every provider again.
+ *
+ * 1. A row recording a playback issue stands for an hour, whichever provider
+ *    gave it. A video being non-embeddable or age restricted, or a track not
+ *    streaming, is the kind of answer most likely to change on its own, and an
+ *    hour is long enough that a burst of attempts in one sitting costs one
+ *    lookup rather than one per attempt.
+ * 2. Any other row stands for a day. A track can be pulled, made private, or
+ *    restricted after it was accepted, and neither provider says when.
  */
-const YOUTUBE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+const PLAYABLE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+const PLAYBACK_ISSUE_MAX_AGE_MS = 60 * 60 * 1_000;
 
 function cacheKey(parsed: ParsedMediaUrl): string {
   if (parsed.provider === 'youtube') return `youtube:${parsed.providerMediaId}`;
@@ -19,9 +38,25 @@ function cacheKey(parsed: ParsedMediaUrl): string {
   return `soundcloud:${parsed.url.hostname.toLowerCase()}${path}`;
 }
 
-function isFresh(provider: MediaMetadata['provider'], checkedAt: Date): boolean {
-  if (provider !== 'youtube') return true;
-  return checkedAt.getTime() > Date.now() - YOUTUBE_MAX_AGE_MS;
+interface CachedAnswer {
+  metadata: MediaMetadata;
+  playbackIssueCode: string | null;
+  playbackIssueMessage: string | null;
+  regionRestriction: RegionRestriction;
+  checkedAt: Date;
+}
+
+function isFresh(cached: CachedAnswer): boolean {
+  const age = Date.now() - cached.checkedAt.getTime();
+  return age < (cached.playbackIssueCode ? PLAYBACK_ISSUE_MAX_AGE_MS : PLAYABLE_MAX_AGE_MS);
+}
+
+function storedIssue(cached: CachedAnswer): MediaLookupError | null {
+  if (!cached.playbackIssueCode) return null;
+  return new MediaLookupError(
+    cached.playbackIssueCode,
+    cached.playbackIssueMessage ?? 'The room cannot play that track.',
+  );
 }
 
 /**
@@ -40,7 +75,23 @@ export async function lookupManyCached(
   targetCountry: string,
   db: Database = getDatabase(),
 ): Promise<Map<string, MediaMetadata | Error>> {
-  const results = new Map<string, MediaMetadata | Error>();
+  return resolveMany(urls, (url) => lookupMediaCached(url, targetCountry, db));
+}
+
+/** The same batching for the personal library, which keeps unplayable tracks. */
+export async function inspectManyCached(
+  urls: string[],
+  targetCountry: string,
+  db: Database = getDatabase(),
+): Promise<Map<string, MediaInspection | Error>> {
+  return resolveMany(urls, (url) => inspectMediaCached(url, targetCountry, db));
+}
+
+async function resolveMany<T>(
+  urls: string[],
+  resolve: (url: string) => Promise<T>,
+): Promise<Map<string, T | Error>> {
+  const results = new Map<string, T | Error>();
   const concurrency = 5;
 
   for (let start = 0; start < urls.length; start += concurrency) {
@@ -48,7 +99,7 @@ export async function lookupManyCached(
     await Promise.all(
       batch.map(async (url) => {
         try {
-          results.set(url, await lookupMediaCached(url, targetCountry, db));
+          results.set(url, await resolve(url));
         } catch (error) {
           results.set(url, error instanceof Error ? error : new Error('Lookup failed.'));
         }
@@ -63,34 +114,67 @@ export async function lookupMediaCached(
   targetCountry: string,
   db: Database = getDatabase(),
 ): Promise<MediaMetadata> {
+  const inspected = await inspectMediaCached(url, targetCountry, db);
+  if (inspected.playbackIssue) throw inspected.playbackIssue;
+  return inspected.metadata;
+}
+
+export async function inspectMediaCached(
+  url: string,
+  targetCountry: string,
+  db: Database = getDatabase(),
+): Promise<MediaInspection> {
   const parsed = parseMediaUrl(url);
   const key = cacheKey(parsed);
 
   const [cached] = await db
-    .select({ metadata: mediaLookups.metadata, checkedAt: mediaLookups.checkedAt })
+    .select({
+      metadata: mediaLookups.metadata,
+      playbackIssueCode: mediaLookups.playbackIssueCode,
+      playbackIssueMessage: mediaLookups.playbackIssueMessage,
+      regionRestriction: mediaLookups.regionRestriction,
+      checkedAt: mediaLookups.checkedAt,
+    })
     .from(mediaLookups)
     .where(eq(mediaLookups.key, key))
     .limit(1);
 
-  if (cached && isFresh(cached.metadata.provider, cached.checkedAt)) {
-    return cached.metadata;
+  if (cached && isFresh(cached)) {
+    return forRegion(
+      {
+        metadata: cached.metadata,
+        playbackIssue: storedIssue(cached),
+        regionRestriction: cached.regionRestriction,
+      },
+      targetCountry,
+    );
   }
 
   const env = getEnv();
-  const metadata = await lookupMedia(
-    url,
-    { youtubeApiKey: env.YOUTUBE_API_KEY },
-    targetCountry,
-  );
+  const inspected = await inspectMedia(url, { youtubeApiKey: env.YOUTUBE_API_KEY });
 
-  const checkedAt = new Date();
+  const { metadata, playbackIssue, regionRestriction } = inspected;
+  const row = {
+    provider: metadata.provider,
+    metadata,
+    playbackIssueCode: playbackIssue?.code ?? null,
+    playbackIssueMessage: playbackIssue?.message ?? null,
+    regionRestriction,
+    checkedAt: new Date(),
+  };
   await db
     .insert(mediaLookups)
-    .values({ key, provider: metadata.provider, metadata, checkedAt })
-    .onConflictDoUpdate({
-      target: mediaLookups.key,
-      set: { provider: metadata.provider, metadata, checkedAt },
-    });
+    .values({ key, ...row })
+    .onConflictDoUpdate({ target: mediaLookups.key, set: row });
 
-  return metadata;
+  return forRegion(inspected, targetCountry);
+}
+
+/** Settles the one question the stored answer deliberately left open. */
+function forRegion(inspected: MediaInspection, targetCountry: string): MediaInspection {
+  if (inspected.playbackIssue) return inspected;
+  return {
+    ...inspected,
+    playbackIssue: regionPlaybackIssue(inspected.regionRestriction, targetCountry),
+  };
 }

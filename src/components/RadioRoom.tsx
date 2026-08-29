@@ -6,11 +6,7 @@ import {
   ChevronUp,
   Clock3,
   ExternalLink,
-  Headphones,
   ListMusic,
-  LogIn,
-  LogOut,
-  Shield,
   SkipForward,
   ThumbsDown,
   ThumbsUp,
@@ -25,7 +21,7 @@ import {
   initClientAnalytics,
   resetClientUser,
 } from '../client/analytics';
-import { DEFAULT_EMOTE } from '../shared/contracts';
+import { DEFAULT_EMOTE, isPlaylistUrl } from '../shared/contracts';
 import { userClass } from './flair';
 import type {
   ApiErrorBody,
@@ -37,8 +33,10 @@ import type {
 } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
 import { moveItem, type MoveDestination } from './reorder';
-import SiteHeader from './SiteHeader';
+import SaveToPlaylistButton from './SaveToPlaylistButton';
+import SiteHeader, { SiteHeaderAccount, SiteHeaderPresence } from './SiteHeader';
 import SiteNav from './SiteNav';
+import { usePlaylistLibrary } from './usePlaylistLibrary';
 import './RadioRoom.css';
 
 interface RadioRoomProps {
@@ -173,15 +171,6 @@ interface PlaylistImport {
 }
 
 /** YouTube carries the playlist in `list`, SoundCloud puts `/sets/` in the path. */
-function looksLikePlaylist(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.searchParams.has('list') || url.pathname.toLowerCase().includes('/sets/');
-  } catch {
-    return false;
-  }
-}
-
 function formatDuration(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
@@ -374,6 +363,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   const reconnectTimer = useRef<number | undefined>(undefined);
   const identifiedUserId = useRef<string | null>(null);
   const capturedConnection = useRef(false);
+  const playlistLibrary = usePlaylistLibrary(
+    apiUrl,
+    room?.current ? [room.current.media.id] : [],
+    Boolean(room?.me),
+  );
 
   useEffect(() => {
     initClientAnalytics(posthogKey, posthogHost);
@@ -498,7 +492,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     if (!url) return;
 
     // One box for both: a playlist link takes the bulk path on its own.
-    if (looksLikePlaylist(url)) {
+    if (isPlaylistUrl(url)) {
       const imported = await mutate<PlaylistImport>('/api/queue/playlist', 'POST', { url });
       if (imported) {
         setRequestUrl('');
@@ -616,48 +610,8 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   return (
     <div className="radio-app">
       <SiteHeader>
-        <div className="room-presence">
-          <span className={connected ? 'connection-ok' : 'connection-wait'}>
-            {connected ? 'Connected' : 'Reconnecting'}
-          </span>
-          <span><Headphones size={15} /> {room?.listenerCount ?? 0}</span>
-        </div>
-        <div className="account">
-          {room?.me ? (
-            <>
-              <UserAvatar user={room.me} />
-              <span className="account-name">
-                <a
-                  className={userClass(room.me, 'profile-link')}
-                  href={`/profile/${encodeURIComponent(room.me.username)}`}
-                >
-                  {room.me.username}
-                </a>
-              </span>
-              {admin && (
-                <a className="admin-label" href="/admin" title="Room admin">
-                  <Shield size={13} /> admin
-                </a>
-              )}
-              {room.me.role === 'mod' && (
-                <span className="admin-label" title="Room moderator">
-                  <Shield size={13} /> mod
-                </span>
-              )}
-              <button className="text-button" type="button" onClick={() => void logout()} disabled={busy}>
-                <LogOut size={15} /> Sign out
-              </button>
-            </>
-          ) : (
-            <button
-              className="login-button"
-              type="button"
-              onClick={() => { window.location.href = `${apiUrl}/api/auth/login`; }}
-            >
-              <LogIn size={16} /> Sign in with Destiny
-            </button>
-          )}
-        </div>
+        <SiteHeaderPresence connected={connected} listenerCount={room?.listenerCount ?? 0} />
+        <SiteHeaderAccount apiUrl={apiUrl} me={room?.me ?? null} busy={busy} onLogout={() => void logout()} />
       </SiteHeader>
 
       <SiteNav active="room" />
@@ -699,6 +653,13 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
               </button>
               {!room?.me && <span>Sign in to vote</span>}
             </div>
+            {room?.me && room.current && (
+              <SaveToPlaylistButton
+                key={room.current.media.id}
+                media={room.current.media}
+                library={playlistLibrary}
+              />
+            )}
             {moderator && room?.current && (
               <div className="admin-actions">
                 <button type="button" disabled={busy} onClick={blockCurrent}>
@@ -748,7 +709,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                       onChange={(event) => setRequestUrl(event.target.value)}
                     />
                     <button type="submit" disabled={!room?.me || !requestUrl.trim() || busy}>
-                      {looksLikePlaylist(requestUrl.trim()) ? 'Import playlist' : 'Add to queue'}
+                      {isPlaylistUrl(requestUrl.trim()) ? 'Import playlist' : 'Add to queue'}
                     </button>
                   </div>
                 </form>

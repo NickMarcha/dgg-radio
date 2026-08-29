@@ -1,0 +1,133 @@
+.save-playlist-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.save-playlist-button.is-saved {
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+
+.save-playlist-button.is-compact {
+  flex: none;
+  padding: 0.3rem;
+}
+
+.playlist-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 65%);
+}
+
+.playlist-dialog {
+  width: min(28rem, 100%);
+  max-height: min(36rem, calc(100vh - 2rem));
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 1rem;
+  font-family: var(--font-mono);
+}
+
+.playlist-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.playlist-dialog h2,
+.playlist-dialog header p {
+  margin: 0;
+}
+
+.playlist-dialog h2 {
+  font-size: 1.1rem;
+}
+
+.playlist-dialog header p {
+  max-width: 21rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-dialog header button {
+  display: grid;
+  place-items: center;
+  padding: 0.3rem;
+}
+
+.playlist-dialog-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0;
+}
+
+.playlist-dialog-list > p {
+  margin: 0;
+  padding: 0.75rem 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.playlist-dialog-list label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 2.5rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.playlist-dialog-list small {
+  color: var(--faint);
+}
+
+.playlist-dialog form {
+  padding-top: 0.75rem;
+}
+
+.playlist-dialog form > label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.playlist-dialog form > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.playlist-dialog input[type='text'],
+.playlist-dialog form input {
+  flex: 1;
+  padding: 0.5rem 0.6rem;
+}
+
+.playlist-dialog form button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.playlist-dialog-error {
+  margin: 0.75rem 0 0;
+  color: var(--danger);
+  font-size: 0.8rem;
+}

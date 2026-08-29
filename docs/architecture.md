@@ -21,6 +21,8 @@ The API, its Postgres, and a Cloudflare tunnel run as one compose stack; see the
 
 ## Room state
 
+Every page shows the same header: who is signed in, and how many people are listening. `GET /api/me` answers exactly that from the session cookie. Only the room itself reads the whole snapshot, over its own WebSocket, so opening `/history` or `/playlists` does not pull down a queue, its votes, and the rule list to render a username.
+
 `room_state` and `room_settings` are singleton rows constrained to ID `1`. There is no room identifier anywhere else because this product has one room.
 
 Queue transitions take a Postgres transaction-scoped advisory lock. A partial unique index also prevents two queue items from holding `playing` status. The server clock checks once per second, marks an expired item as played, selects the next request, revalidates its media metadata, and starts it from one server timestamp.
@@ -79,6 +81,24 @@ A rule is a named reason a mod or admin can block something. A `blocklist` rule 
 
 Switching a rule off hides it from listeners and stops it being enforced while keeping its list, so it can be paused and restored.
 
+## Repeat cooldown
+
+`room_settings.repeat_cooldown_seconds` is how long the room waits before the same track can be requested again. It defaults to 90 minutes and a database check keeps it between five minutes and 30 days, which is what the admin form offers as minutes, hours, or days.
+
+The clock starts at `queue_items.started_at`, not at the end of a track. A skipped song therefore counts as played, so downvoting something is not a way to queue it again straight away. A repeat is matched by provider and provider media ID through the `media` row, so the same video submitted under a different URL form is still the same track.
+
+`enqueueMedia` checks the window after the active-duplicate check, which keeps `ALREADY_QUEUED` for a track that is still waiting or playing and `TRACK_RECENTLY_PLAYED` for one that already had its turn. `startNextTrack` runs the same check with its own candidate excluded, so raising the cooldown while a request waits drops it at playback time rather than letting it through. Both call one helper, which takes an optional current time so the boundary can be tested exactly rather than approached with sleeps.
+
+## Personal playlists
+
+`playlists` and `playlist_items` hold a private, ordered library per listener. Every query names both the playlist and the owner, and a playlist belonging to someone else answers the same `PLAYLIST_NOT_FOUND` as one that does not exist, so the API never confirms that another listener's playlist is there.
+
+`playlist_items` stores only a `media` reference and a position. Nothing about a track is copied, so a title or artwork refreshed by a later lookup appears in every playlist holding it. The composite primary key on playlist and media makes saving and removing idempotent and rules out the same track twice in one playlist. Membership changes lock the playlist row first, so two tabs cannot claim one position or push the 50-track limit past itself.
+
+Saving is deliberately not admission. It runs no duration check, blocklist check, repeat cooldown, or active duplicate check, so a blocked or recently played song stays saved and can be queued once the room allows it again. The heart control on the player and on history saves an existing `media.id` and asks no provider anything. Pasting a link or saving a search result from the playlists page goes through `resolveMediaForLibrary`, which looks the track up and stores it: an unknown link has no title, artist, or duration until a provider answers for it. A link naming a whole YouTube playlist or SoundCloud set takes `resolvePlaylistForLibrary` instead, which lists its tracks, warms them through one parallel inspection, and stores each one; the caller reports the tracks a provider could not describe and stops storing once the 50-track limit is reached rather than failing the whole import. Both paths read the inspection rather than the admission view, so a track that is region blocked, age restricted, or not embeddable still saves. Only a link a provider cannot describe at all fails, because there is nothing to save.
+
+Queueing goes back through `enqueueMedia`, the same function a pasted link uses; no playlist route writes to `queue_items` itself. A whole playlist walks its tracks in position order and may partly succeed, reporting each rejected track with its reason and leaving the saved playlist alone. Only a queue action bumps the room revision and broadcasts: renaming, saving, reordering, and deleting are private and never reach the room socket.
+
 ## Media lookups
 
 The queue stores provider IDs rather than trusting arbitrary embed markup.
@@ -91,9 +111,22 @@ YouTube search goes through `@distube/ytsr`, which reads YouTube's public web re
 
 Selecting a YouTube result does not trust the search response. It enters the normal request path and calls `videos.list`, which costs one quota unit, before the track is stored. Playlist imports follow the same path for every item. `playlistItems.list` costs one unit per page.
 
-Answers are cached in `media_lookups`, keyed by YouTube video ID or SoundCloud permalink path so URL variants collapse to one entry. SoundCloud entries do not expire; YouTube entries expire after 24 hours and are then rechecked and overwritten in place. A failed recheck leaves the old row and throws, so the next attempt checks again rather than serving something known to be stale.
+Answers are cached in `media_lookups`, keyed by YouTube video ID or SoundCloud permalink path so URL variants collapse to one entry. A row keeps the metadata, the playback issue if there was one, and the countries YouTube allowed or blocked.
 
-Both providers are checked once at insertion and once before playback, but the second check usually hits the cache, so it only reaches YouTube for tracks queued more than a day. Runtime player failures are the backstop for a track that breaks in between.
+Nothing stored is about one region. `videos.list` returns the whole `regionRestriction`, so a single lookup already answers for every country; the row keeps those lists and the verdict is worked out on each read against the room's current `targetCountry`. Moving the playback region therefore re-reads the same rows instead of asking YouTube about every track again.
+
+How long a row stands:
+
+1. A row recording a playback issue stands for an hour. A video being non-embeddable or age restricted, or a track not streaming, is the kind of answer most likely to change on its own, and an hour is long enough that repeatedly queueing a saved playlist full of unplayable tracks costs one lookup each rather than one per press.
+2. Any other row stands for a day, because a track can be pulled, made private, or restricted after it was accepted and neither provider says when. A video blocked in the room's region keeps this ordinary life: nothing about the video is wrong, and its country lists rarely move.
+
+A failed recheck leaves the old row and throws, so the next attempt checks again rather than serving something known to be stale.
+
+Both providers are checked once at insertion and once before playback, but the second check usually hits the cache, so it only reaches a provider for a track that waited more than a day. Runtime player failures are the backstop for a track that breaks in between.
+
+A provider answers two questions at once: what a track is, and whether this room can play it. `inspectMedia` keeps them apart, returning metadata alongside a `playbackIssue` for a video that is not embeddable, is age restricted, is blocked in the playback region, or is a SoundCloud track that will not stream. `lookupMedia` is the admission view over it and throws that issue, so every queue path behaves as before. The personal library reads the inspection directly and saves the track anyway.
+
+An issue is cached alongside the metadata, so a refused track costs one lookup rather than one per attempt, and a cache hit refuses it again rather than letting it through.
 
 The region list has its own cache in `playback_regions`, refreshed after 30 days and replaced wholesale so a country YouTube has withdrawn disappears rather than lingering. A refused request throws and leaves the stored rows alone, so a quota failure keeps serving the previous list instead of emptying the field. It lives in the database rather than in memory so restarting the API does not spend another request.
 
