@@ -159,9 +159,7 @@ Use `/embed/player` at a 16:9 size such as 1920 by 1080 or 1280 by 720. Turn on 
 
 Netlify serves the static frontend. The API, its Postgres, and a Cloudflare tunnel run as one Docker stack on a self-hosted machine. Netlify cannot hold the WebSocket connections or run the playback clock, so the API is not deployed there.
 
-Both halves deploy themselves from `main`. Netlify builds the frontend on push, and a webhook tells Komodo to rebuild and redeploy the API stack. Neither needs a manual step, which is why the API applies its own migrations on startup.
-
-The Komodo stack needs `webhook_force_deploy` turned on. Without it a push runs `DeployStackIfChanged`, which compares the contents of `compose.yaml` between what is deployed and what is in git. This stack builds the API from source, so a change to `server/` or `src/` leaves `compose.yaml` identical and no deploy happens — silently, because finding no change is not an error.
+Both halves deploy themselves from `main`. Netlify builds the frontend on push, and a webhook rebuilds and redeploys the API stack. Neither needs a manual step, which is why the API applies its own migrations on startup. [Production deployment](docs/deployment.md) describes the running setup and the settings it depends on.
 
 ### API stack
 
