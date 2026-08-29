@@ -51,41 +51,34 @@
   text-decoration: underline;
 }
 
+/*
+ * A fixed frame, so a row of avatars lines up whatever emote is in it. The
+ * emote keeps its own size and is cropped by the frame rather than resized:
+ * catJAM and RaveDoge step through a sprite strip by pixel offset, and anything
+ * that changed their painted width would tear the animation apart. 28px is the
+ * smallest emote's own size, so the fallback MMMM fills the frame exactly.
+ *
+ * The border colour comes from the wearer's flair, through `.flair-ring` in
+ * flairs.css.
+ */
 .avatar {
-  width: 27px;
-  height: 27px;
-  flex: 0 0 27px;
+  --avatar-box: 28;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   border: 1px solid var(--line-strong);
-  border-radius: 50%;
+  border-radius: 6px;
   background: var(--surface-raised);
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 700;
 }
 
 .avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-/*
- * An emote avatar keeps its own size rather than being squeezed into the
- * circle. catJAM and RaveDoge step through a sprite strip by pixel offset, so
- * anything that changed their painted width would tear the animation apart.
- */
-.avatar-emote {
-  width: auto;
-  height: auto;
-  flex: none;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  overflow: visible;
 }
 
 .admin-label {
@@ -478,12 +471,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.stats-table .avatar {
-  width: 24px;
-  height: 24px;
-  flex-basis: 24px;
 }
 
 .rank {

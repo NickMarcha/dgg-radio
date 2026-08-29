@@ -48,14 +48,10 @@ function Avatar({
   large?: boolean;
   title?: string;
 }) {
-  const classes = [
-    'community-avatar',
-    large ? 'community-avatar-large' : '',
-    user.avatarUrl ? '' : 'community-avatar-emote',
-  ].filter(Boolean).join(' ');
+  const base = large ? 'community-avatar community-avatar-large avatar-frame' : 'community-avatar avatar-frame';
 
   return (
-    <span className={classes} title={title}>
+    <span className={userClass(user, base)} title={title}>
       {user.avatarUrl ? (
         <img src={user.avatarUrl} alt="" />
       ) : (

@@ -89,25 +89,85 @@
 }
 
 .admin-embed-links li {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
+  display: grid;
+  gap: 0.4rem;
   padding-top: 0.8rem;
   border-top: 1px solid var(--line);
 }
 
-.admin-embed-links code {
-  color: var(--faint);
+.admin-embed-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .admin-embed-detail {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
   color: var(--faint);
   font-size: 0.75rem;
   white-space: nowrap;
+}
+
+.admin-embed-url {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-embed-url code {
+  flex: 1;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-embed-note {
+  margin: 0;
+  color: var(--faint);
+  font-size: 0.8rem;
+}
+
+/*
+ * A quieter button than the accent-filled `.admin button`, which is declared
+ * further down this file and would otherwise win the tie on source order.
+ */
+.admin .admin-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.admin .admin-copy:hover {
+  color: var(--text);
+}
+
+.admin-card h3 {
+  margin: 1.5rem 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.admin-steps {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.admin-steps strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .admin-error,

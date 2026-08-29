@@ -23,7 +23,9 @@
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "stack:up": "docker compose up -d --build",
-    "stack:down": "docker compose down"
+    "stack:down": "docker compose down",
+    "stack:test": "docker compose -f compose.yaml -f compose.test.yaml up -d --build",
+    "stack:test:down": "docker compose -f compose.yaml -f compose.test.yaml down"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.4",

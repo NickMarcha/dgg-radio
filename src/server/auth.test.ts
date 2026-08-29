@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ServerEnv } from './env';
+import { DGG_ORIGIN, type ServerEnv } from './env';
 import { canModerate, radioRole } from './auth';
 
 const env: ServerEnv = {
@@ -9,6 +9,8 @@ const env: ServerEnv = {
   DGG_CLIENT_ID: 'test-client',
   DGG_CLIENT_SECRET: 'test-secret',
   DGG_REDIRECT_URI: 'http://localhost:4321/auth/callback',
+  DGG_ORIGIN,
+  DGG_AUTHORIZE_ORIGIN: DGG_ORIGIN,
   ADMIN_DGG_USERNAMES: 'picklesnathan',
   YOUTUBE_API_KEY: 'test-key',
 };

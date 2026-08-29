@@ -12,6 +12,10 @@
  * The `move` keyframes upstream are renamed, being far too general a name to
  * put in a shared stylesheet.
  *
+ * Each colour is declared once as `--flair-color` and applied from there, so a
+ * flair's colour has a single home. The avatar frame beside a name reads the
+ * same variable through `.avatar-frame`, the class the frames share.
+ *
  * Each selector names its class twice. That is not a typo. A username is
  * already coloured by the component it sits in — `.profile-link` sets one, and
  * `.queue-copy a` sets another at a specificity a single class cannot beat — so
@@ -27,31 +31,61 @@
   --flair-rainbow-lightness: 65%;
 }
 
-.flair-moderator.flair-moderator { color: #db4c1c; }
-.flair-flair125.flair-flair125 { color: #ffd88c; }
-.flair-flair11.flair-flair11 { color: #929292; }
-.flair-bot.flair-bot { color: #0088cc; }
+.flair-moderator { --flair-color: #db4c1c; }
+.flair-flair125 { --flair-color: #ffd88c; }
+.flair-flair11 { --flair-color: #929292; }
+.flair-bot { --flair-color: #0088cc; }
+.flair-subscriber,
+.flair-flair9,
+.flair-flair13,
+.flair-flair32 { --flair-color: #59aeea; }
+.flair-flair1,
+.flair-flair22 { --flair-color: #2addc8; }
+.flair-flair3,
+.flair-flair24 { --flair-color: #4db524; }
+.flair-flair8,
+.flair-flair26 { --flair-color: #dd29d2; }
+.flair-flair12 { --flair-color: #e79015; }
+.flair-flair7 { --flair-color: #fc4c02; }
+.flair-flair18 { --flair-color: #f082bb; }
+.flair-admin { --flair-color: #ee1f1f; }
+.flair-flair17 { --flair-color: #fce205; }
+
+.flair-moderator.flair-moderator,
+.flair-flair125.flair-flair125,
+.flair-flair11.flair-flair11,
+.flair-bot.flair-bot,
 .flair-subscriber.flair-subscriber,
 .flair-flair9.flair-flair9,
 .flair-flair13.flair-flair13,
-.flair-flair32.flair-flair32 { color: #59aeea; }
+.flair-flair32.flair-flair32,
 .flair-flair1.flair-flair1,
-.flair-flair22.flair-flair22 { color: #2addc8; }
+.flair-flair22.flair-flair22,
 .flair-flair3.flair-flair3,
-.flair-flair24.flair-flair24 { color: #4db524; }
+.flair-flair24.flair-flair24,
 .flair-flair8.flair-flair8,
-.flair-flair26.flair-flair26 { color: #dd29d2; }
-.flair-flair12.flair-flair12 { color: #e79015; }
-.flair-flair7.flair-flair7 { color: #fc4c02; }
-.flair-flair18.flair-flair18 { color: #f082bb; }
-.flair-admin.flair-admin { color: #ee1f1f; }
-.flair-flair17.flair-flair17 { color: #fce205; }
+.flair-flair26.flair-flair26,
+.flair-flair12.flair-flair12,
+.flair-flair7.flair-flair7,
+.flair-flair18.flair-flair18,
+.flair-admin.flair-admin,
+.flair-flair17.flair-flair17 { color: var(--flair-color); }
+
+/*
+ * An avatar frame borrows the colour of the name beside it. The class is
+ * doubled for the same reason the colours are: the frame's own component sets
+ * `border` at one class, and these two stylesheets have no fixed load order.
+ * Without a flair, the frame keeps whatever border its component asked for.
+ */
+.avatar-frame.avatar-frame {
+  border-color: var(--flair-color, var(--line-strong));
+}
 
 /* Two flairs are a moving gradient rather than a colour. */
 .flair-flair42.flair-flair42,
 .flair-flair33.flair-flair33 {
   color: transparent;
-  background: repeating-linear-gradient(
+  background-image: repeating-linear-gradient(
     90deg,
     hsl(0, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
     hsl(45, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)),
@@ -69,15 +103,48 @@
   animation: flair-rainbow 3s linear infinite;
 }
 
+/*
+ * A frame has no text for that gradient to be clipped to, so it would paint
+ * nothing at all. The ring cycles the same hues through its border instead.
+ * `background-image` rather than the shorthand, so neither rule disturbs the
+ * background colour the component chose.
+ */
+.avatar-frame.flair-flair42,
+.avatar-frame.flair-flair33 {
+  background-image: none;
+  background-clip: border-box;
+  -webkit-background-clip: border-box;
+  animation: flair-rainbow-ring 3s linear infinite;
+}
+
 @keyframes flair-rainbow {
   to {
     background-position-x: -100%;
   }
 }
 
+@keyframes flair-rainbow-ring {
+  0% { border-color: hsl(0, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  12.5% { border-color: hsl(45, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  25% { border-color: hsl(90, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  37.5% { border-color: hsl(135, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  50% { border-color: hsl(180, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  62.5% { border-color: hsl(225, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  75% { border-color: hsl(270, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  87.5% { border-color: hsl(315, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+  100% { border-color: hsl(360, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness)); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .flair-flair42.flair-flair42,
-  .flair-flair33.flair-flair33 {
+  .flair-flair33.flair-flair33,
+  .avatar-frame.flair-flair42,
+  .avatar-frame.flair-flair33 {
     animation: none;
+  }
+
+  .avatar-frame.flair-flair42,
+  .avatar-frame.flair-flair33 {
+    border-color: hsl(225, var(--flair-rainbow-saturation), var(--flair-rainbow-lightness));
   }
 }

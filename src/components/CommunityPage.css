@@ -32,7 +32,9 @@
   gap: 16px;
 }
 
+/* A cropping frame, for the same reasons as the room's. */
 .community-avatar {
+  --avatar-box: 28;
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
@@ -41,39 +43,21 @@
   justify-content: center;
   overflow: hidden;
   border: 1px solid var(--line-strong);
-  border-radius: 50%;
+  border-radius: 6px;
   background: var(--surface-raised);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-
-.community-avatar-large {
-  width: 56px;
-  height: 56px;
-  flex-basis: 56px;
-  font-size: 22px;
-}
-
-/* Natural size, for the same reason as the room: sprite offsets are pixel-exact. */
-.community-avatar-emote {
-  width: auto;
-  height: auto;
-  flex: none;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  overflow: visible;
 }
 
 /*
- * The profile heading wants a bigger one. transform scales the painted result
- * and leaves background-position alone, which background-size would not.
+ * The profile heading wants a bigger frame, not a bigger emote: the widest
+ * emote is 50px, so it nearly fills this one and the smallest sits in it with
+ * room to spare.
  */
-.community-avatar-large.community-avatar-emote .emote {
-  transform: scale(1.8);
-  transform-origin: left center;
-  margin-right: 2rem;
+.community-avatar-large {
+  --avatar-box: 48;
+  width: 48px;
+  height: 48px;
+  flex-basis: 48px;
+  border-radius: 8px;
 }
 
 .community-avatar img {

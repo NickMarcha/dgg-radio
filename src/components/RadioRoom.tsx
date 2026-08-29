@@ -188,16 +188,13 @@ function formatDuration(seconds: number): string {
 }
 
 function UserAvatar({ user }: { user: RoomUser }) {
-  if (!user.avatarUrl) {
-    return (
-      <span className="avatar avatar-emote" aria-hidden="true">
-        <span className={`emote ${user.topEmote ?? DEFAULT_EMOTE}`} />
-      </span>
-    );
-  }
   return (
-    <span className="avatar" aria-hidden="true">
-      {<img src={user.avatarUrl} alt="" />}
+    <span className={userClass(user, 'avatar avatar-frame')} aria-hidden="true">
+      {user.avatarUrl ? (
+        <img src={user.avatarUrl} alt="" />
+      ) : (
+        <span className={`emote ${user.topEmote ?? DEFAULT_EMOTE}`} />
+      )}
     </span>
   );
 }

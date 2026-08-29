@@ -91,7 +91,7 @@ export async function createAuthorizationUrl(
     expiresAt: new Date(now.getTime() + LOGIN_TTL_MS),
   });
 
-  const authorizeUrl = new URL('https://www.destiny.gg/oauth/authorize');
+  const authorizeUrl = new URL('/oauth/authorize', env.DGG_AUTHORIZE_ORIGIN);
   authorizeUrl.searchParams.set('response_type', 'code');
   authorizeUrl.searchParams.set('client_id', env.DGG_CLIENT_ID);
   authorizeUrl.searchParams.set('redirect_uri', env.DGG_REDIRECT_URI);
@@ -106,7 +106,7 @@ async function exchangeAuthorizationCode(
   verifier: string,
   env: ServerEnv,
 ): Promise<string> {
-  const tokenUrl = new URL('https://www.destiny.gg/oauth/token');
+  const tokenUrl = new URL('/oauth/token', env.DGG_ORIGIN);
   tokenUrl.searchParams.set('grant_type', 'authorization_code');
   tokenUrl.searchParams.set('code', code);
   tokenUrl.searchParams.set('client_id', env.DGG_CLIENT_ID);
@@ -122,8 +122,8 @@ async function exchangeAuthorizationCode(
   return token.data.access_token;
 }
 
-async function fetchDggIdentity(accessToken: string) {
-  const userInfoUrl = new URL('https://www.destiny.gg/api/userinfo');
+async function fetchDggIdentity(accessToken: string, env: ServerEnv) {
+  const userInfoUrl = new URL('/api/userinfo', env.DGG_ORIGIN);
   userInfoUrl.searchParams.set('token', accessToken);
 
   const response = await fetch(userInfoUrl, { signal: AbortSignal.timeout(8_000) });
@@ -163,7 +163,7 @@ export async function completeAuthorization(
 ): Promise<{ sessionToken: string; expiresAt: Date; userId: string }> {
   const verifier = await consumeLoginTransaction(state, db);
   const accessToken = await exchangeAuthorizationCode(code, verifier, env);
-  const identity = await fetchDggIdentity(accessToken);
+  const identity = await fetchDggIdentity(accessToken, env);
   const role = radioRole(identity.username, env);
   const flair = resolveFlair(identity.features);
 

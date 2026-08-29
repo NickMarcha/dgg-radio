@@ -53,11 +53,47 @@ The API applies pending migrations as it starts, so there is no separate migrate
 
 The room opens at `http://localhost:4321`. The API and WebSocket server use `http://localhost:8787`.
 
+### Test environment
+
+`npm run dev` runs the API from source. To exercise the deployed shape instead — the same image, the same startup migrations, the same container — bring up the production stack locally, without the tunnel.
+
+```sh
+npm run stack:test        # Postgres, the API on 8787, the sign-in stand-in on 8789
+npm run dev:web           # the frontend on its own, pointed at that API
+npm run stack:test:down   # stops it, keeping the database volume
+```
+
+Run `dev:web` rather than `dev`: the API is already in a container and the two would fight over port 8787.
+
+`compose.test.yaml` layers over `compose.yaml`. It publishes the API port production keeps closed, replaces the deployed origins with local ones, and parks the tunnel in a profile so `up` leaves it down. Everything else is what production runs, migrations on startup included. `.env.development` is the other half: `astro dev` reads it after `.env`, so the browser calls the local API instead of the deployed one, while `astro build` runs in production mode and never sees it.
+
+Set `TEST_HOST` to reach the stack by network address instead of `localhost`. Both halves read the same variable, and the API has to be recreated for a change to take.
+
+```powershell
+$env:TEST_HOST = '192.168.1.9'; npm run stack:test
+```
+
+One thing to know before doing that: Docker publishes its ports through WSL's mirrored networking, which the Hyper-V firewall does not open to other machines, so an OBS box or a phone reaches the frontend but not the API until that port is allowed.
+
+### Signing in locally
+
+destiny.gg allows one application per account and has no test applications, so there is no second client to point a local room at, and the one that exists has the deployed site as its registered redirect. `npm run stack:test` starts a stand-in for Destiny's OAuth endpoints instead, `dev/dgg-oauth`, and the room signs in against that.
+
+It is a replacement, not a bypass. The room's own OAuth code runs unchanged, and the stand-in verifies the secret-bound code challenge the way the archived PHP does, so a login that works here has been through every step but Destiny's own account check. **Sign in with Destiny** lands on a form asking for a username, an optional Destiny user id, the features that decide flair colour and team, and the roles to store on the account.
+
+A username in `ADMIN_DGG_USERNAMES` signs in as an admin, the same as on the real site. The user id is what identifies the account: leaving it blank derives a stable one from the username and creates a fresh listener, and pasting an existing `dgg_user_id` signs in as a row that is already there.
+
+```sh
+docker compose -f compose.yaml -f compose.test.yaml exec db psql -U dgg_radio -d dgg_radio -c 'select username, dgg_user_id from users'
+```
+
+Three separate things keep it out of production. `dev/` is excluded from the API image by `.dockerignore`, the service is declared only in `compose.test.yaml`, and `DGG_ORIGIN` and `DGG_AUTHORIZE_ORIGIN` default to `https://www.destiny.gg` and are refused any other value once `APP_ORIGIN` is https — the API will not start, rather than quietly trusting a stand-in.
+
 ## Provider setup
 
 ### Destiny
 
-Create an application at `https://www.destiny.gg/profile/developer`. Register the exact callback in `DGG_REDIRECT_URI`. For local development it is `http://localhost:4321/auth/callback`.
+Create an application at `https://www.destiny.gg/profile/developer`. Register the exact callback in `DGG_REDIRECT_URI`. An account gets one application and one redirect, which is the deployed site's, so local development signs in against the [stand-in](#signing-in-locally) rather than a second registration.
 
 The callback is a frontend route, not an API route. Destiny redirects the browser to `/auth/callback` on the Netlify site, which strips the code from the address bar and posts it to `POST /api/auth/callback`. The API keeps the client secret, owns the login transaction, and sets the session cookie. Registering a frontend URL means the API can move hosts without re-registering anything with Destiny.
 
@@ -98,16 +134,18 @@ One consequence worth knowing: the check just before playback only reaches YouTu
 ## Commands
 
 ```text
-npm run dev          start Astro and the room server
-npm run check        run Astro and TypeScript diagnostics
-npm test             run unit and database tests
-npm run build        build the Netlify site and Node server
-npm run db:generate  create a migration after a schema change
-npm run db:migrate   apply pending migrations
-npm run db:up        start local Postgres
-npm run db:down      stop local Postgres without deleting its volume
-npm run stack:up     build and start Postgres, the API, and the tunnel
-npm run stack:down   stop the stack without deleting the database volume
+npm run dev              start Astro and the room server
+npm run check            run Astro and TypeScript diagnostics
+npm test                 run unit and database tests
+npm run build            build the Netlify site and Node server
+npm run db:generate      create a migration after a schema change
+npm run db:migrate       apply pending migrations
+npm run db:up            start local Postgres
+npm run db:down          stop local Postgres without deleting its volume
+npm run stack:up         build and start Postgres, the API, and the tunnel
+npm run stack:down       stop the stack without deleting the database volume
+npm run stack:test       run that stack locally without the tunnel, API port published
+npm run stack:test:down  stop the local stack, keeping the database volume
 ```
 
 ## Testing

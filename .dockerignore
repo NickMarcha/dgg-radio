@@ -1,4 +1,6 @@
 node_modules
+# The local Destiny stand-in. Nothing in here may reach a built image.
+dev
 dist
 dist-server
 .astro

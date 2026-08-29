@@ -41,6 +41,10 @@ Comparing the deployed commit against the latest commit is the quick check. To c
 
 A push that changes only documentation is **not** a valid test of the webhook. It proves the trigger fired but cannot prove a rebuild, and under the default `webhook_force_deploy` it proves nothing at all.
 
+## Trying a change before it deploys
+
+Nothing about this deployment has a staging half, and a push to `main` is a deploy. The same stack runs locally instead: `npm run stack:test` builds the same image from the working tree and starts it against the local Postgres, with the tunnel parked and the API published on the host. It is the only way to see a server change run the way production will run it before `main` has it. The README's [test environment](../README.md#test-environment) has the details.
+
 ## Manual fallback
 
 The stack can be deployed on demand from the deployment platform's UI or API. Doing so is safe at any time and is the fastest way to recover if a webhook delivery is missed — the git clone is re-pulled either way, so a manual deploy lands the same commit the webhook would have.

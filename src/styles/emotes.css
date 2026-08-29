@@ -13,17 +13,42 @@
  * into, so they loop.
  */
 
+/*
+ * Every emote declares its own size as two plain numbers rather than lengths,
+ * so an avatar frame can work out how far to scale it down. Nothing may change
+ * these declared pixel sizes: catJAM and RaveDoge step across a sprite strip by
+ * pixel offset, and a different painted width would desynchronise every frame.
+ * The `scale` property is safe, being a painted transform that leaves both the
+ * box and the offsets alone.
+ */
 .emote {
   display: inline-block;
   vertical-align: middle;
+  width: calc(var(--emote-w) * 1px);
+  height: calc(var(--emote-h) * 1px);
   background-repeat: no-repeat;
   background-position: 0 0;
   flex: none;
 }
 
+/*
+ * An avatar frame names its own size in `--avatar-box`, and the emote scales
+ * to fit inside it. `scale` is the only safe way: it is a painted transform, so
+ * the declared box and the sprite offsets are untouched. `transform-origin` is
+ * reset because pepeJAM and YAM pivot on a point outside themselves, which in a
+ * frame would swing them halfway out of view.
+ */
+.avatar-frame .emote {
+  scale: min(
+    calc(var(--avatar-box) / var(--emote-w)),
+    calc(var(--avatar-box) / var(--emote-h))
+  );
+  transform-origin: center;
+}
+
 .emote.pepeJAM {
-  width: 33px;
-  height: 30px;
+  --emote-w: 33;
+  --emote-h: 30;
   background-image: url('/emotes/pepeJAM.png');
   transform-origin: -20px 100%;
   animation: pepeJAM-anim 666.6ms infinite ease-in-out -400ms;
@@ -34,8 +59,8 @@
 }
 
 .emote.YAM {
-  width: 30px;
-  height: 30px;
+  --emote-w: 30;
+  --emote-h: 30;
   background-image: url('/emotes/YAM.png');
   transform-origin: -5% 80%;
   animation: YAM-anim1 666.6ms infinite linear -400ms;
@@ -125,48 +150,42 @@
  * The dancing and music emotes, used as avatars. Ported the same way: local
  * paths, and finite iteration counts swapped for infinite because an avatar
  * never settles the way a chat message does.
- *
- * Sizes are the originals on purpose. catJAM and RaveDoge animate by stepping
- * background-position across one long strip, so their offsets are tied to the
- * declared width; changing background-size would desynchronise every frame.
- * Scaling one of these is safe only through transform, which resizes the
- * painted box and leaves the offsets alone.
  */
 
 .emote.AlienPls {
-  width: 28px;
-  height: 28px;
+  --emote-w: 28;
+  --emote-h: 28;
   background-image: url('/emotes/AlienPls.webp');
 }
 
 .emote.CamOnIngerland {
-  width: 42px;
-  height: 32px;
+  --emote-w: 42;
+  --emote-h: 32;
   background-image: url('/emotes/CamOnIngerland.gif');
 }
 
 .emote.GatoPls {
-  width: 45px;
-  height: 38px;
+  --emote-w: 45;
+  --emote-h: 38;
   background-image: url('/emotes/GatoPls.png');
 }
 
 .emote.Listening {
-  width: 48px;
-  height: 33px;
+  --emote-w: 48;
+  --emote-h: 33;
   background-image: url('/emotes/Listening.png');
 }
 
 .emote.RainbowPls {
-  width: 32px;
-  height: 32px;
+  --emote-w: 32;
+  --emote-h: 32;
   background-image: url('/emotes/RainbowPls.png');
 }
 
 /* A 7144px strip of 188 frames, shown 38px at a time. */
 .emote.catJAM {
-  width: 38px;
-  height: 30px;
+  --emote-w: 38;
+  --emote-h: 30;
   background-image: url('/emotes/catJAM.png');
   animation: catJAM-anim 6.5s steps(188) infinite;
 }
@@ -181,8 +200,8 @@
 .emote.RaveDoge {
   --start: 0px;
   --end: -1350px;
-  width: 50px;
-  height: 34px;
+  --emote-w: 50;
+  --emote-h: 34;
   background-image: url('/emotes/RaveDoge.avif');
   animation: RaveDoge-anim 1.62s steps(27) infinite -0.67s;
 }
@@ -201,8 +220,8 @@
  * gets; the right belongs to a single chat username upstream and is not used.
  */
 .emote.MMMM {
-  width: 28px;
-  height: 28px;
+  --emote-w: 28;
+  --emote-h: 28;
   background-image: url('/emotes/MMMM.png');
   background-position: 0;
 }

@@ -4,6 +4,12 @@ import type { MediaProvider, QueueItem } from '../shared/contracts';
 
 interface YouTubePlayer {
   playVideo(): void;
+  /**
+   * Undocumented in the current IFrame API reference but still implemented, and
+   * the only way to switch captions off: no player parameter forces them off,
+   * `cc_load_policy` only forces them on.
+   */
+  unloadModule?(module: string): void;
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   getCurrentTime(): number;
@@ -29,6 +35,7 @@ declare global {
           events: {
             onReady: (event: YouTubePlayerEvent) => void;
             onError: (event: YouTubePlayerEvent) => void;
+            onApiChange?: (event: YouTubePlayerEvent) => void;
             onAutoplayBlocked?: () => void;
           };
         },
@@ -87,6 +94,8 @@ interface MediaPlayerProps {
   current: QueueItem | null;
   serverTime: string | null;
   embedded?: boolean;
+  /** Leave YouTube's own caption preference alone. Off hides them outright. */
+  captions?: boolean;
   onListeningStarted?: (provider: MediaProvider) => void;
   onPlayerError?: (message: string, provider: MediaProvider | undefined, errorCode?: number) => void;
 }
@@ -95,6 +104,9 @@ const PLAYER_STATE_KEY = 'dgg-radio.player';
 
 /** How long to give a restored player to actually start before giving up on it. */
 const AUTOPLAY_GRACE_MS = 3_000;
+
+/** Seconds to keep unloading YouTube's caption module after a track starts. */
+const CAPTION_RETRIES = 10;
 
 interface StoredPlayerState {
   listening: boolean;
@@ -132,6 +144,7 @@ export default function MediaPlayer({
   current,
   serverTime,
   embedded = false,
+  captions = true,
   onListeningStarted,
   onPlayerError,
 }: MediaPlayerProps) {
@@ -141,9 +154,13 @@ export default function MediaPlayer({
   const [volume, setVolume] = useState(embedded ? 100 : 80);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [playerError, setPlayerError] = useState<string | null>(null);
-  /** Set when listening resumed from storage rather than from a click. */
+  /**
+   * Set while listening is resuming from storage rather than from a click, and
+   * cleared once the browser has either started playing or refused to.
+   */
   const restoredWithoutGesture = useRef(false);
-  const skipFirstWrite = useRef(true);
+  /** Guards the mount, and any change that is not the listener's own choice. */
+  const skipWrite = useRef(true);
 
   const serverOffset = useMemo(
     () => (serverTime ? new Date(serverTime).getTime() - Date.now() : 0),
@@ -158,6 +175,20 @@ export default function MediaPlayer({
   const reportPlayerError = (message: string, errorCode?: number) => {
     setPlayerError(message);
     onPlayerError?.(message, current?.media.provider, errorCode);
+  };
+
+  /**
+   * A browser is entitled to refuse audio that no one asked for. That is not an
+   * error worth showing: drop back to the paused state as though the page had
+   * loaded that way. The stored preference is left alone, so a browser that
+   * later comes to trust the site will resume on its own.
+   */
+  const autoplayRefused = () => {
+    if (!restoredWithoutGesture.current) return false;
+    restoredWithoutGesture.current = false;
+    skipWrite.current = true;
+    setListening(false);
+    return true;
   };
 
   const toggleListening = () => {
@@ -186,8 +217,8 @@ export default function MediaPlayer({
 
   useEffect(() => {
     if (embedded) return;
-    if (skipFirstWrite.current) {
-      skipFirstWrite.current = false;
+    if (skipWrite.current) {
+      skipWrite.current = false;
       return;
     }
     writePlayerState({ listening, volume });
@@ -208,7 +239,38 @@ export default function MediaPlayer({
     if (!mount || !current || !listening) return;
     let cancelled = false;
     let syncTimer: number | undefined;
+    let captionTimer: number | undefined;
     setPlayerError(null);
+
+    /**
+     * YouTube has no parameter that forces captions off, so the caption module
+     * is unloaded instead. Unloading a module that is not loaded does nothing,
+     * so this is safe to call as often as it needs to be.
+     */
+    const hideCaptions = (player: YouTubePlayer) => {
+      if (captions) return;
+      try {
+        player.unloadModule?.('captions');
+        player.unloadModule?.('cc');
+      } catch {
+        // Nothing to unload. A later call will catch the module when it lands.
+      }
+    };
+
+    /**
+     * The module can appear at any point in the first seconds of playback, and
+     * onApiChange is not dependable about announcing it: OBS starts playing
+     * before the page would in an ordinary browser, and the one change event
+     * can arrive before the captions exist. So keep asking for a while.
+     */
+    const keepCaptionsHidden = (player: YouTubePlayer) => {
+      if (captions) return;
+      let attempts = 0;
+      captionTimer = window.setInterval(() => {
+        hideCaptions(player);
+        if ((attempts += 1) >= CAPTION_RETRIES) window.clearInterval(captionTimer);
+      }, 1_000);
+    };
 
     const sync = async () => {
       const controller = controllerRef.current;
@@ -235,20 +297,26 @@ export default function MediaPlayer({
               playsinline: 1,
               rel: 0,
               origin: window.location.origin,
+              ...(captions ? {} : { cc_load_policy: 0 }),
             },
             events: {
               onReady: ({ target: readyPlayer }) => {
                 readyPlayer.getIframe().allow = 'autoplay; encrypted-media';
                 readyPlayer.setVolume(volume);
                 readyPlayer.unMute();
+                hideCaptions(readyPlayer);
+                keepCaptionsHidden(readyPlayer);
                 readyPlayer.seekTo(desiredPosition(), true);
                 readyPlayer.playVideo();
               },
+              // Fired whenever a module appears, which is when the caption
+              // module can actually be unloaded.
+              onApiChange: ({ target: changedPlayer }) => hideCaptions(changedPlayer),
               onError: ({ data }) => {
                 reportPlayerError(`YouTube playback failed${data ? ` with error ${data}` : ''}.`, data);
               },
               onAutoplayBlocked: () => {
-                reportPlayerError('YouTube blocked automatic playback.');
+                if (!autoplayRefused()) reportPlayerError('YouTube blocked automatic playback.');
               },
             },
           });
@@ -294,17 +362,21 @@ export default function MediaPlayer({
         syncTimer = window.setInterval(() => void sync(), 10_000);
 
         // A refresh carries no user gesture, so the browser may refuse to start
-        // audio. If the position has not moved, fall back to the paused state
-        // rather than showing a playing indicator over silence.
+        // audio. YouTube says so through onAutoplayBlocked; SoundCloud says
+        // nothing, so the position has to be watched instead. Either way a
+        // refusal drops back to the paused state rather than leaving a playing
+        // indicator over silence.
         if (restoredWithoutGesture.current) {
-          restoredWithoutGesture.current = false;
           try {
             const before = (await controllerRef.current?.position()) ?? 0;
             await new Promise((resolve) => window.setTimeout(resolve, AUTOPLAY_GRACE_MS));
+            if (cancelled) return;
             const after = (await controllerRef.current?.position()) ?? 0;
-            if (!cancelled && after <= before) setListening(false);
+            if (after > before) restoredWithoutGesture.current = false;
+            else autoplayRefused();
           } catch {
             // Could not tell. Leave playback alone rather than interrupting it.
+            restoredWithoutGesture.current = false;
           }
         }
       } catch (error) {
@@ -317,11 +389,12 @@ export default function MediaPlayer({
     return () => {
       cancelled = true;
       if (syncTimer) window.clearInterval(syncTimer);
+      if (captionTimer) window.clearInterval(captionTimer);
       controllerRef.current?.destroy();
       controllerRef.current = null;
       mount.replaceChildren();
     };
-  }, [current?.id, embedded, listening]);
+  }, [captions, current?.id, embedded, listening]);
 
   const duration = current?.media.durationSeconds ?? 0;
   const progress = duration > 0 ? Math.min(100, (elapsedSeconds / duration) * 100) : 0;

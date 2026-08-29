@@ -1,0 +1,53 @@
+# The production stack as a local test environment. Same image, same startup
+# path, same migrations — but nothing outside this machine reaches it, so the
+# Cloudflare tunnel stays down and the API publishes its port on the host
+# instead.
+#
+#   npm run stack:test        bring it up
+#   npm run stack:test:down   stop it, keeping the database volume
+#
+# The frontend is not part of it: production builds that on Netlify, and
+# locally `npm run dev:web` serves it. `.env.development` points it here.
+services:
+  api:
+    # .env holds the deployed origins. These are the ones a locally served
+    # frontend actually calls from, and CORS compares them byte-for-byte.
+    # `environment` wins over `env_file`, so the rest of .env still applies.
+    # Set TEST_HOST in .env to reach the stack from another device on the
+    # network — the Chrome extension cannot open localhost, for one.
+    environment:
+      APP_ORIGIN: http://${TEST_HOST:-localhost}:4321
+      DGG_REDIRECT_URI: http://${TEST_HOST:-localhost}:4321/auth/callback
+      # Sign-in goes to the stand-in below instead of destiny.gg. Two
+      # addresses for one provider: the API calls it over the compose network,
+      # the browser is redirected to its published port. The credentials are
+      # the pair the stand-in checks against, so the real client secret is
+      # never used locally.
+      DGG_ORIGIN: http://dgg-oauth:8789
+      DGG_AUTHORIZE_ORIGIN: http://${TEST_HOST:-localhost}:8789
+      DGG_CLIENT_ID: dev-client
+      DGG_CLIENT_SECRET: dev-secret
+    ports:
+      - "8787:8787"
+
+  # A profile keeps the tunnel out of `up` without the production file having
+  # to know that a test environment exists.
+  tunnel:
+    profiles: [tunnel]
+
+  # destiny.gg allows one application per account and no test applications, so
+  # there is no second client to point a local room at. This serves the same
+  # OAuth endpoints against invented identities. It exists in this file only,
+  # runs no build, and is excluded from the API image by .dockerignore, so
+  # there is no path by which it reaches production.
+  dgg-oauth:
+    image: node:22-alpine
+    command: node /srv/server.mjs
+    environment:
+      PORT: 8789
+      DGG_CLIENT_ID: dev-client
+      DGG_CLIENT_SECRET: dev-secret
+    volumes:
+      - ./dev/dgg-oauth/server.mjs:/srv/server.mjs:ro
+    ports:
+      - "8789:8789"

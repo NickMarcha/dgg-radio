@@ -39,4 +39,14 @@ Repeats are louder than singles. Rules under `:nth-of-type(2n)` add a rainbow `d
 
 `src/styles/emotes.css` holds the rules for only the emotes this site renders, rewritten to point at the local `/emotes/` paths and to loop. That now covers the nine dancing and music emotes used as avatars, plus `MMMM`.
 
-Their declared sizes are the originals on purpose. `catJAM` and `RaveDoge` animate by stepping `background-position` across one long strip, so their frame offsets are tied to the declared width: changing `background-size` to fit an avatar into a circle would desynchronise every frame. Resizing one of these is only safe through `transform`, which scales the painted result and leaves the offsets alone. That is why an emote avatar keeps its natural size instead of being clipped into the circular slot the letter used. The snapshot is not imported: it carries thousands of rules for emotes that were never downloaded, all referencing hashed CDN filenames that do not exist here. Adding an emote to the interface means porting its rules across in the same way.
+Their declared sizes are the originals on purpose. `catJAM` and `RaveDoge` animate by stepping `background-position` across one long strip, so their frame offsets are tied to the declared width: changing `background-size`, or the width itself, would desynchronise every frame. Resizing one of these is only safe through a transform, which scales the painted result and leaves both the box and the offsets alone.
+
+That is why each emote declares its size as the two plain numbers `--emote-w` and `--emote-h`, with `.emote` turning them into pixels. An avatar frame names its own size in `--avatar-box`, and `.avatar-frame .emote` scales the emote to fit inside it with the `scale` property. `scale` rather than a `transform` shorthand, because `pepeJAM` and `YAM` animate `transform` themselves and would overwrite it; the two properties compose instead.
+
+The frame also resets `transform-origin`. `pepeJAM` pivots on a point 20 pixels outside its own left edge and `YAM` on one below itself, which is a wide sway in a chat line and a swing halfway out of view in a 28-pixel frame.
+
+Cropping still does the rest of the work: the frame is `overflow: hidden`, so the parts of a dance that leave the box — `pepeJAM` scaling to 1.08, the `background-position` bobs — are clipped rather than pushing rows around.
+
+The first attempt cropped without fitting. It fails on the wide emotes: `Listening` is 48 by 33, and the middle 28 by 28 of it is empty space.
+
+The snapshot is not imported: it carries thousands of rules for emotes that were never downloaded, all referencing hashed CDN filenames that do not exist here. Adding an emote to the interface means porting its rules across in the same way.

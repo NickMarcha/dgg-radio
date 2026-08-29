@@ -53,6 +53,20 @@ The symptom, if this is ever undone, is specific and misleading: the colour
 keeps working on the profile heading, which is an `h1` carrying no
 `.profile-link`, and quietly stops everywhere else.
 
+## The avatar frame
+
+Each colour is declared once as `--flair-color` on a single-class rule, and the
+`color` rules read it from there. The avatar beside a name is a frame carrying
+`.avatar-frame` and the same flair class, and `.avatar-frame.avatar-frame` takes
+its border colour from that variable. Without a flair the variable is unset and
+the frame keeps the border its own component asked for.
+
+The two gradient flairs need separate handling. A gradient clipped to text
+paints nothing on a frame, which has no text, so `.avatar-frame` drops the
+gradient and animates the border through the same hues instead. The gradient is
+set with `background-image` rather than the `background` shorthand so that
+neither rule disturbs the background colour the frame's component chose.
+
 ## Flairs that are not colours
 
 Most flairs colour nothing. `flair5`, for instance, is a badge image with no

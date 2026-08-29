@@ -115,6 +115,17 @@ function PlayingEmbed({ current, serverTime }: { current: QueueItem | null; serv
   );
 }
 
+/**
+ * A stream overlay wants the video, not YouTube's subtitles, so the player
+ * embed hides them unless the URL asks for them back. Read from the live URL
+ * rather than the route, because these pages are prerendered and a query string
+ * only exists in the browser.
+ */
+function captionsRequested(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('captions') === 'on';
+}
+
 export default function EmbedView({ apiUrl, mode }: EmbedViewProps) {
   const { room } = useRoomSnapshot(apiUrl);
   const current = room?.current ?? null;
@@ -122,7 +133,12 @@ export default function EmbedView({ apiUrl, mode }: EmbedViewProps) {
   if (mode === 'player') {
     return (
       <main className="embed-root embed-player-root">
-        <MediaPlayer current={current} serverTime={room?.serverTime ?? null} embedded />
+        <MediaPlayer
+          current={current}
+          serverTime={room?.serverTime ?? null}
+          embedded
+          captions={captionsRequested()}
+        />
       </main>
     );
   }

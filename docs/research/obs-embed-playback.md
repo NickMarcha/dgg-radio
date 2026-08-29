@@ -43,6 +43,20 @@ The YouTube player must be the visible video, not a hidden audio source. YouTube
 
 Preserve the iframe's HTTP Referer. Do not send `Referrer-Policy: no-referrer`; YouTube recommends `strict-origin-when-cross-origin`. A missing client identity can fail with player error 153. Keep `origin: window.location.origin` as well. [YouTube API client identity](https://developers.google.com/youtube/terms/required-minimum-functionality#api-client-identity-and-credentials)
 
+### Captions
+
+Checked 2026-08-29. There is no player parameter that turns captions off. `cc_load_policy=1` "causes closed captions to be shown by default, even if the user has turned captions off", and the documented default is "based on user preference"; `cc_lang_pref` only chooses the language. Nothing forces the other direction. [YouTube player parameters](https://developers.google.com/youtube/player_parameters)
+
+The current IFrame API reference documents `getOptions`, `getOption`, and `setOption` for the `captions` module, and the options it lists are `fontSize` and `reload`. Neither switches captions off. [YouTube IFrame API captions module](https://developers.google.com/youtube/iframe_api_reference#Retrieving_Module_Options)
+
+`unloadModule('captions')` is what actually hides them. It is a surviving method from the older API and is no longer in the reference, so treat it as undocumented: call it optionally, and expect nothing if a future player drops it. The module does not always exist when `onReady` fires, so bind `onApiChange` too — it "is fired to indicate that the player has loaded (or unloaded) a module with exposed API methods" — and unload again from there. The legacy module name `cc` is unloaded alongside `captions` because either may be the live one. [YouTube `onApiChange`](https://developers.google.com/youtube/iframe_api_reference#onApiChange)
+
+Tested 2026-08-29 in Chrome, three players side by side on one video with `cc_load_policy=1` forcing captions on. The control rendered captions. `unloadModule('captions')` removed them, and so did `setOption('captions', 'track', {})`. A third player that ignored `onApiChange` entirely and merely called `unloadModule` once a second for ten seconds also removed them, which is what the shipped player relies on.
+
+Two traps came out of that test. `getOptions()` keeps reporting `["captions"]` and `getOption('captions', 'track')` keeps returning the full track object after the captions have visibly gone, so neither is a usable signal for whether captions are showing — only looking at the frame is. And the module can load at any point in the first seconds of playback: `onApiChange` fires, but it can fire before the module exists and not again afterwards, which is the likely reason a single unload on that event is not enough in OBS, where playback starts earlier than in an ordinary browser. Hence the repeated unload.
+
+`/embed/player` hides captions. `/embed/player?captions=on` leaves YouTube's own preference alone.
+
 ## SoundCloud constraints
 
 SoundCloud is audio-only, so it cannot provide the moving video requested for YouTube tracks. Its supported visual fallback is the artwork-focused embedded player. [SoundCloud visual embedded player](https://help.soundcloud.com/hc/en-us/articles/115003566828-The-Visual-embedded-player)

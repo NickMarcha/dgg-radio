@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Copy,
   ExternalLink,
   ListMusic,
   Loader2,
@@ -293,33 +294,144 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         </ul>
       </section>
 
-      <section className="admin-card">
-        <h2>OBS browser sources</h2>
-        <p className="admin-help">
-          Add any URL as an OBS Browser Source. The player starts with sound and stays synced to the room.
-        </p>
-        <ul className="admin-embed-links">
-          <li>
-            <a className="admin-link" href="/embed/player" target="_blank" rel="noreferrer">
-              Synchronized video player <ExternalLink size={13} />
-            </a>
-            <span className="admin-embed-detail"><code>/embed/player</code><span>16:9</span></span>
-          </li>
-          <li>
-            <a className="admin-link" href="/embed/playing" target="_blank" rel="noreferrer">
-              Now-playing overlay <ExternalLink size={13} />
-            </a>
-            <span className="admin-embed-detail"><code>/embed/playing</code><span>1200 × 240</span></span>
-          </li>
-          <li>
-            <a className="admin-link" href="/embed/queue" target="_blank" rel="noreferrer">
-              Upcoming queue <ExternalLink size={13} />
-            </a>
-            <span className="admin-embed-detail"><code>/embed/queue</code><span>800 × 600</span></span>
-          </li>
-        </ul>
-      </section>
+      <ObsSources />
     </main>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+
+  useEffect(() => {
+    if (state === 'idle') return;
+    const timer = window.setTimeout(() => setState('idle'), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [state]);
+
+  return (
+    <button
+      className="admin-copy"
+      type="button"
+      aria-label={`Copy the ${label} URL`}
+      onClick={() => {
+        void copyText(value).then(
+          () => setState('copied'),
+          () => setState('failed'),
+        );
+      }}
+    >
+      {state === 'copied' ? <Check size={13} /> : <Copy size={13} />}
+      {state === 'copied' ? 'Copied' : state === 'failed' ? 'Blocked' : 'Copy'}
+    </button>
+  );
+}
+
+export async function copyText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    // The Clipboard API requires HTTPS. execCommand remains the browser fallback
+    // for the documented HTTP setup on another machine in the local network.
+    const legacyDocument = document as unknown as {
+      execCommand(commandId: 'copy'): boolean;
+    };
+    if (!legacyDocument.execCommand('copy')) {
+      throw new Error('The browser refused to copy the URL.');
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+interface EmbedSourceProps {
+  origin: string;
+  path: string;
+  name: string;
+  size: string;
+  note?: string;
+}
+
+function EmbedSource({ origin, path, name, size, note }: EmbedSourceProps) {
+  const url = `${origin}${path}`;
+
+  return (
+    <li>
+      <div className="admin-embed-head">
+        <a className="admin-link" href={path} target="_blank" rel="noreferrer">
+          {name} <ExternalLink size={13} />
+        </a>
+        <span className="admin-embed-detail">{size}</span>
+      </div>
+      <div className="admin-embed-url">
+        <code>{url}</code>
+        <CopyButton value={url} label={name} />
+      </div>
+      {note && <p className="admin-embed-note">{note}</p>}
+    </li>
+  );
+}
+
+function ObsSources() {
+  // The pages are prerendered, so the host is only known once this runs in a
+  // browser. Until then the paths stand in for the full URLs.
+  const [origin, setOrigin] = useState('');
+  useEffect(() => setOrigin(window.location.origin), []);
+
+  return (
+    <section className="admin-card">
+      <h2>OBS browser sources</h2>
+      <p className="admin-help">
+        Add any of these as a Browser Source. The player carries the room's audio and stays in sync with
+        it; the overlays are transparent and silent.
+      </p>
+      <ul className="admin-embed-links">
+        <EmbedSource origin={origin} path="/embed/player" name="Synchronized video player" size="1920 × 1080" />
+        <EmbedSource origin={origin} path="/embed/playing" name="Now-playing overlay" size="1200 × 240" />
+        <EmbedSource origin={origin} path="/embed/queue" name="Upcoming queue" size="800 × 600" />
+      </ul>
+
+      <h3>Player variants</h3>
+      <ul className="admin-embed-links">
+        <EmbedSource
+          origin={origin}
+          path="/embed/player?captions=on"
+          name="Player with captions"
+          size="1920 × 1080"
+          note="The plain player hides YouTube captions. This one leaves them to YouTube's own setting."
+        />
+      </ul>
+
+      <h3>Source settings</h3>
+      <ul className="admin-steps">
+        <li>
+          Turn on <strong>Control audio via OBS</strong>, so the mixer owns the volume instead of the
+          computer's speakers.
+        </li>
+        <li>
+          Turn on <strong>Shutdown source when not visible</strong>, so nothing plays off-scene. It
+          rejoins the room at the right timestamp when it comes back.
+        </li>
+        <li>
+          Leave <strong>Refresh browser source when scene becomes active</strong> off. The shutdown
+          already reloads it.
+        </li>
+        <li>
+          Do not crop or cover the player. To use it in several scenes, add the same source to each one
+          rather than making copies, or the audio doubles.
+        </li>
+      </ul>
+    </section>
   );
 }
 
