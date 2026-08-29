@@ -161,6 +161,8 @@ Netlify serves the static frontend. The API, its Postgres, and a Cloudflare tunn
 
 Both halves deploy themselves from `main`. Netlify builds the frontend on push, and a webhook tells Komodo to rebuild and redeploy the API stack. Neither needs a manual step, which is why the API applies its own migrations on startup.
 
+The Komodo stack needs `webhook_force_deploy` turned on. Without it a push runs `DeployStackIfChanged`, which compares the contents of `compose.yaml` between what is deployed and what is in git. This stack builds the API from source, so a change to `server/` or `src/` leaves `compose.yaml` identical and no deploy happens — silently, because finding no change is not an error.
+
 ### API stack
 
 Fill in `.env`, then bring up all three containers.
