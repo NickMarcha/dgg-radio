@@ -135,3 +135,32 @@ first whether this belongs in the admin panel or in PostHog, which is already
 wired into both halves and is the other item in this file waiting to be looked
 at properly.
 
+## The mobile layout has not been looked at since the site grew
+
+Every page is responsive in the sense that nothing overflows the viewport, and
+that is about as far as it was taken. Three things are wrong on a phone.
+
+**The room player dominates.** Below 900px `.room-layout` becomes one column and
+the player panel is ordered first, at full width, with no cap on its height. It
+arrives before the queue, the request form, and everything else worth reaching,
+so the parts people actually use start below the fold.
+
+**History and stats scroll sideways.** `.community-table td` is
+`white-space: nowrap`, and the track cell on both tables is pinned to
+`min-width: 330px` at 50% width. On a 360px screen that one column is wider than
+the phone, so `.community-table-wrap` scrolls horizontally for every row. The
+nowrap suits a desktop table; it is the wrong shape for a phone, where these
+probably want to stop being tables at all.
+
+**The account block disappears.** At 620px `SiteHeader.css` hides
+`.account-name`, `.account .avatar`, `.admin-label` and `.text-button`. That rule
+was written when the header lived only on the room page and had to give its
+width to the connection state and listener count. The header now carries the
+account on every page, so on a phone there is nowhere at all to see who you are
+signed in as or to sign out. Only the signed-out login button survives, which is
+the one case that did not need the room.
+
+The third is the smallest and the most annoying. Worth doing all three in one
+pass on a real phone rather than at a narrowed desktop window, since the room
+page in particular reads differently when the player is actually playing.
+
