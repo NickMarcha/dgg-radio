@@ -97,3 +97,41 @@ existing events have collected so far, and decide what this project should use
 and what it should stop sending. Until then the wiring stays as it is, which
 costs nothing and keeps collecting.
 
+## The listener count counts sockets, not listeners
+
+`listenerCount` is `clients.size` in `server/index.ts`, where `clients` is the
+set of open `/ws` connections. Two tabs are two listeners. So is a phone left on
+the room overnight, and so is every OBS Browser Source, because `/embed/player`,
+`/embed/playing` and `/embed/queue` all open the same socket through
+`useRoomSnapshot`. The number in the topbar is closer to "open sockets" than to
+"people here".
+
+This is not only cosmetic. In ratio skip mode `downvotesForceSkip` divides
+downvotes by this number, so every duplicate socket raises the bar for a skip
+that should have passed. Whoever is running OBS is quietly making the room
+harder to skip.
+
+The identity needed to fix it is already there and thrown away: the connection
+handler resolves the session user to decide the `authenticated` flag, then keeps
+only the socket. Counting distinct signed-in users, and falling back to
+something per-connection for anonymous ones, is a change to what `clients`
+holds. What to do about anonymous viewers is the open question -- an IP is the
+obvious grouping and is also wrong for anyone behind a shared address -- and it
+should be settled before the count starts feeding a skip threshold differently
+than it does today.
+
+## No view of what the API is actually serving
+
+Nothing in `/admin` shows what the server is doing: how many sockets are open,
+who holds them, whether they are room pages or OBS sources, how long they have
+lasted, how often the room clock is doing real work.
+
+Everything above is answered by hand today, by reading the number in the topbar
+and guessing. The listener-count item above is the first thing that needs it,
+and a repeat cooldown or a blocklist rule going wrong would be the next.
+
+Worth building once there is a second reason to want it, and worth deciding
+first whether this belongs in the admin panel or in PostHog, which is already
+wired into both halves and is the other item in this file waiting to be looked
+at properly.
+
