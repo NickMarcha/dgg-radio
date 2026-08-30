@@ -23,7 +23,21 @@ const envSchema = z
     DATABASE_URL: z.string().min(1),
     APP_ORIGIN: z.url(),
     PORT: z.coerce.number().int().positive().default(8787),
-    POSTHOG_API_KEY: optional(z.string().min(1)),
+    /**
+     * The PostHog project token, the same `phc_` value the browser is built
+     * with. Capture authenticates with the project token; a project secret or
+     * personal key is for the REST API and belongs to a different endpoint.
+     *
+     * The prefix is checked because PostHog's capture endpoint answers `200 OK`
+     * to any shape-valid key and drops the events downstream, so the wrong key
+     * here costs every server event with nothing anywhere to show for it.
+     */
+    POSTHOG_PROJECT_KEY: optional(
+      z
+        .string()
+        .min(1)
+        .startsWith('phc_', 'POSTHOG_PROJECT_KEY must be the phc_ project token, not a phs_ or phx_ key.'),
+    ),
     POSTHOG_HOST: optional(z.url()),
     DGG_CLIENT_ID: z.string().min(1),
     DGG_CLIENT_SECRET: z.string().min(1),

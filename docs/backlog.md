@@ -50,25 +50,56 @@ different feature.
 Leave it at 50 until somebody complains, then decide with that complaint in
 hand rather than in advance.
 
-## PostHog is wired up but never reviewed
+## PostHog source maps are never uploaded
 
-`posthog-node` on the API and `posthog-js` in the browser, keyed by
-`POSTHOG_API_KEY` and `PUBLIC_POSTHOG_KEY` and silently inert without them.
-Nineteen server events across `app.ts`, two client events, exception autocapture
-on both halves, and `.env.example` carries CI credentials for source-map
-uploads.
+`.env.example` declares `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and
+`POSTHOG_RELEASE_VERSION` for source-map uploads, but nothing runs one. The
+Netlify build is `npm run build:web` and stops there, so every browser stack
+trace in PostHog is minified: one real error reads `i.getCurrentTime is not a
+function`, where `i` is the YouTube player.
 
-That is the whole of it. The event names grew one at a time alongside the
-features that emit them; no one has looked at whether they answer any question
-worth asking, whether the properties are the right ones, or whether the
-groupings and funnels PostHog offers would suit this room. None of the product
-features -- session replay, feature flags, experiments, surveys -- has been
-considered, turned on, or ruled out.
+The upload belongs in the Netlify build, after `build:web`, guarded so that a
+build without the credentials still succeeds rather than failing the site.
+`POSTHOG_RELEASE_VERSION` should be the commit SHA, which Netlify exposes.
 
-Worth a session of its own: read what PostHog actually offers, look at what the
-existing events have collected so far, and decide what this project should use
-and what it should stop sending. Until then the wiring stays as it is, which
-costs nothing and keeps collecting.
+## The PostHog event set has never been judged against real data
+
+Server events only started arriving on 2026-08-30, when `POSTHOG_PROJECT_KEY`
+replaced a key the capture endpoint silently rejected. Before that the project
+had browser events only, so nobody could tell whether the eighteen server events
+answer anything worth asking. Now they can, but not yet: there is no history to
+judge them by.
+
+Worth revisiting once a few weeks of server events exist. The questions are
+whether the properties are the right ones, whether any event should stop being
+sent, and what is missing -- the room's own machinery is the likely gap, since
+a track failing its playback check, a provider lookup timing out, and a socket
+closing abnormally are the things a diagnosis actually starts from.
+
+Session replay is off (`disable_session_recording: true`) and autocapture is off
+deliberately, the explicit events being better than guessed ones. Replay is the
+one product feature worth reconsidering, because "it just stopped playing" is
+answered faster by watching one session than by any dashboard. Feature flags,
+experiments and surveys have no use here yet.
+
+## Nothing rate limits the API
+
+No limit of any kind. The only rate-limit code in the repository is `chat.ts`
+respecting destiny.gg's limit on requests the room makes outbound.
+
+Exposure is narrower than it looks, because every expensive route already
+requires a session. Anonymous traffic reaches only `/api/room`, `/api/history`,
+`/api/stats`, `/api/profiles/:username` and `/api/rules`, which are database
+reads.
+
+Two layers, and neither substitutes for the other. Cloudflare already sits in
+front of everything, since the API is published through a named tunnel, so its
+WAF is the right place for crude flooding of the anonymous reads; the free plan
+includes one rate-limiting rule. The limit that actually matters cannot live
+there: the YouTube quota is 10,000 units a day for the whole project, and one
+signed-in user working `/api/search` or importing playlists can spend it for
+everybody. Cloudflare cannot see a session, so that one belongs in Hono
+middleware keyed on the user, on the routes that spend quota.
 
 ## Database storage has no history and no owner view
 

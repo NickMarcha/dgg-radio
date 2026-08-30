@@ -8,8 +8,8 @@ let client: PostHog | null | undefined;
 function getClient(): PostHog | null {
   if (client !== undefined) return client;
   const env = getEnv();
-  client = env.POSTHOG_API_KEY
-    ? new PostHog(env.POSTHOG_API_KEY, {
+  client = env.POSTHOG_PROJECT_KEY
+    ? new PostHog(env.POSTHOG_PROJECT_KEY, {
         host: env.POSTHOG_HOST,
         flushAt: 20,
         flushInterval: 5_000,

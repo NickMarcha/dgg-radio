@@ -15,6 +15,29 @@ const standIn = {
   DGG_AUTHORIZE_ORIGIN: 'http://localhost:8788',
 };
 
+describe('the PostHog project key', () => {
+  it('is optional, so a room with no analytics still starts', () => {
+    expect(parseEnv(base).POSTHOG_PROJECT_KEY).toBeUndefined();
+    expect(parseEnv({ ...base, POSTHOG_PROJECT_KEY: '' }).POSTHOG_PROJECT_KEY).toBeUndefined();
+  });
+
+  it('accepts the project token the browser is built with', () => {
+    const env = parseEnv({ ...base, POSTHOG_PROJECT_KEY: 'phc_abc123' });
+    expect(env.POSTHOG_PROJECT_KEY).toBe('phc_abc123');
+  });
+
+  // Capture answers 200 OK to any shape-valid key and drops the events, so the
+  // wrong kind of key has to fail here or it never fails anywhere.
+  it('refuses a secret or personal key', () => {
+    expect(() => parseEnv({ ...base, POSTHOG_PROJECT_KEY: 'phs_abc123' })).toThrow(
+      /must be the phc_ project token/,
+    );
+    expect(() => parseEnv({ ...base, POSTHOG_PROJECT_KEY: 'phx_abc123' })).toThrow(
+      /must be the phc_ project token/,
+    );
+  });
+});
+
 describe('the OAuth provider origins', () => {
   it('are Destiny when nothing sets them', () => {
     const env = parseEnv(base);
