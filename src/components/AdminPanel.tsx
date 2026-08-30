@@ -11,6 +11,7 @@ import {
   ListMusic,
   Loader2,
   MonitorPlay,
+  ScrollText,
   Shield,
   Pencil,
   RefreshCw,
@@ -27,6 +28,8 @@ import type {
   RuleEntrySummary,
   RuleSummary,
   PlaybackRegion,
+  ModerationEntry,
+  ModerationLog,
   OperationsSnapshot,
   UserRole,
 } from '../shared/contracts';
@@ -44,6 +47,7 @@ const REGION_HINT = 'The country the YouTube availability checks run against.';
 const TABS = [
   { id: 'room', label: 'Room', icon: SlidersHorizontal },
   { id: 'people', label: 'People', icon: Users },
+  { id: 'log', label: 'Log', icon: ScrollText },
   { id: 'server', label: 'Server', icon: Activity },
   { id: 'obs', label: 'OBS', icon: MonitorPlay },
 ] as const;
@@ -121,6 +125,8 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   const [regions, setRegions] = useState<PlaybackRegion[]>([]);
   const [operations, setOperations] = useState<OperationsSnapshot | null>(null);
   const [operationsBusy, setOperationsBusy] = useState(false);
+  const [moderation, setModeration] = useState<ModerationLog | null>(null);
+  const [moderationBusy, setModerationBusy] = useState(false);
   const [tab, setTab] = useState<AdminTab>('room');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
@@ -197,6 +203,21 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   useEffect(() => {
     if (me?.role === 'admin' && tab === 'server' && !operations) void refreshOperations();
   }, [me?.role, tab, operations, refreshOperations]);
+
+  const refreshModeration = useCallback(async () => {
+    setModerationBusy(true);
+    try {
+      setModeration(await call('/api/moderation'));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The moderation log could not be loaded.');
+    } finally {
+      setModerationBusy(false);
+    }
+  }, [call]);
+
+  useEffect(() => {
+    if (me?.role === 'admin' && tab === 'log' && !moderation) void refreshModeration();
+  }, [me?.role, tab, moderation, refreshModeration]);
 
   const act = useCallback(
     async (work: () => Promise<unknown>, message: string) => {
@@ -301,6 +322,14 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           busy={busy}
           act={act}
           call={call}
+        />
+      )}
+
+      {tab === 'log' && (
+        <ModerationSection
+          log={moderation}
+          busy={moderationBusy}
+          onRefresh={() => void refreshModeration()}
         />
       )}
 
@@ -453,6 +482,103 @@ function PeopleSection({
         ))}
         {members.length === 0 && <li className="admin-empty">Nobody matches that.</li>}
       </ul>
+    </section>
+  );
+}
+
+/**
+ * Everything the room writes to the log. An action it does not know is still
+ * shown, spelled as it was stored, because a log that hides what it cannot
+ * caption is worse than one that reads awkwardly.
+ */
+const MODERATION_VERBS: Record<string, string> = {
+  skip: 'skipped',
+  remove: 'removed',
+  block_track: 'blocked the track',
+  block_artist: 'blocked the artist',
+  clear_queue: 'cleared the queue of',
+  reorder_room_queue: 'reordered the room queue',
+  update_settings: 'changed room settings',
+};
+
+/** The parts of a record worth reading when it carries no reason of its own. */
+export function moderationSummary(entry: ModerationEntry): string | null {
+  if (entry.action === 'update_settings') {
+    const changed = Object.keys(entry.details);
+    return changed.length ? `Changed ${changed.join(', ')}.` : null;
+  }
+  if (entry.action === 'clear_queue') {
+    const removed = entry.details.removed;
+    return typeof removed === 'number'
+      ? `${removed} ${removed === 1 ? 'track' : 'tracks'} dropped.`
+      : null;
+  }
+  if (entry.action === 'reorder_room_queue') {
+    const order = entry.details.orderedIds;
+    return Array.isArray(order) ? `${order.length} tracks put in a new order.` : null;
+  }
+  return null;
+}
+
+function ModerationSection({
+  log,
+  busy,
+  onRefresh,
+}: {
+  log: ModerationLog | null;
+  busy: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="admin-card">
+      <div className="admin-section-heading">
+        <h2>
+          <ScrollText size={18} /> Moderation log
+        </h2>
+        <button className="admin-refresh" type="button" disabled={busy} onClick={onRefresh}>
+          <RefreshCw className={busy ? 'spin' : undefined} size={14} /> Refresh
+        </button>
+      </div>
+      <p className="admin-help">
+        Every skip, removal, block, cleared queue and settings change the room has recorded, newest
+        first. It is written as each action happens and nothing here can be edited.
+      </p>
+
+      {!log ? (
+        <p className="admin-empty">Loading the moderation log…</p>
+      ) : log.entries.length === 0 ? (
+        <p className="admin-empty">Nothing has been moderated yet.</p>
+      ) : (
+        <ul className="admin-log-list">
+          {log.entries.map((entry) => {
+            const summary = moderationSummary(entry);
+            return (
+              <li key={entry.id}>
+                <div className="admin-log-head">
+                  <p>
+                    <strong>{entry.actor}</strong> {MODERATION_VERBS[entry.action] ?? entry.action}
+                    {entry.target && <> <strong>{entry.target}</strong></>}
+                    {entry.track && (
+                      <>
+                        {' '}
+                        <span className="admin-log-track">
+                          {entry.track.title}
+                          {entry.track.artist && ` · ${entry.track.artist}`}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                  <time dateTime={entry.createdAt} title={new Date(entry.createdAt).toLocaleString()}>
+                    {elapsedTime(entry.createdAt, log.capturedAt)} ago
+                  </time>
+                </div>
+                {entry.reason && <p className="admin-log-reason">“{entry.reason}”</p>}
+                {summary && <p className="admin-log-reason">{summary}</p>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

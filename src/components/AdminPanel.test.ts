@@ -6,6 +6,7 @@ import {
   elapsedTime,
   formatBytes,
   formatShare,
+  moderationSummary,
   tabFromHash,
 } from './AdminPanel';
 
@@ -39,6 +40,41 @@ describe('storage figures', () => {
     expect(formatShare(0.0004)).toBe('<0.1%');
     expect(formatShare(0.4167)).toBe('41.7%');
     expect(formatShare(1)).toBe('100.0%');
+  });
+});
+
+describe('summarising a moderation record', () => {
+  const entry = (action: string, details: Record<string, unknown>) => ({
+    id: 'a',
+    actor: 'StrawWaffle',
+    action,
+    track: null,
+    target: null,
+    reason: null,
+    details,
+    createdAt: '2026-08-30T04:00:00.000Z',
+  });
+
+  it('names the settings that changed', () => {
+    expect(moderationSummary(entry('update_settings', { skipDownvotes: 3, targetCountry: 'AE' }))).toBe(
+      'Changed skipDownvotes, targetCountry.',
+    );
+  });
+
+  it('counts what a cleared queue dropped', () => {
+    expect(moderationSummary(entry('clear_queue', { removed: 1 }))).toBe('1 track dropped.');
+    expect(moderationSummary(entry('clear_queue', { removed: 4 }))).toBe('4 tracks dropped.');
+  });
+
+  it('counts a reordered queue', () => {
+    expect(moderationSummary(entry('reorder_room_queue', { orderedIds: ['a', 'b'] }))).toBe(
+      '2 tracks put in a new order.',
+    );
+  });
+
+  // A skip carries its reason, which is shown on its own line instead.
+  it('adds nothing for an action that explains itself', () => {
+    expect(moderationSummary(entry('skip', { reason: 'off theme' }))).toBeNull();
   });
 });
 

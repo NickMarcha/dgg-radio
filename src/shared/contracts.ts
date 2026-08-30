@@ -359,6 +359,30 @@ export interface StorageSnapshot {
   groups: StorageGroup[];
 }
 
+/**
+ * One thing a mod or admin did, as the room recorded it at the time. Every
+ * action names an actor; the rest depends on what was done, so a track, a
+ * target and a reason are each there only when that action carried one.
+ */
+export interface ModerationEntry {
+  id: string;
+  actor: string;
+  action: string;
+  track: { title: string; artist: string } | null;
+  /** The person the action was aimed at, for actions about somebody's queue. */
+  target: string | null;
+  reason: string | null;
+  /** Whatever else the action recorded, for the ones a reason does not cover. */
+  details: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface ModerationLog {
+  capturedAt: string;
+  /** Newest first. */
+  entries: ModerationEntry[];
+}
+
 /** What the API process knows about itself without asking the database. */
 export interface ProcessSnapshot extends ConnectionSnapshot {
   capturedAt: string;

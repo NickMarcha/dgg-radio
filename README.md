@@ -150,9 +150,10 @@ npm run stack:test       run that stack locally without the tunnel, API port pub
 npm run stack:test:down  stop the local stack, keeping the database volume
 ```
 
-`scripts/clear-beta-history.sql` deletes every queue item and vote, so testing
-done before the room opens is not the first thing real listeners see. It keeps
-personal playlists, the track catalogue, accounts and rules. It refuses to run
+`scripts/clear-beta-history.sql` deletes every queue item, every vote, and the
+moderation log describing them, so testing done before the room opens is not the
+first thing real listeners see. It keeps personal playlists, the track
+catalogue, accounts and rules. It refuses to run
 without `-v confirm=yes`, and it is only for the beta stage described in
 `AGENTS.md`: once the badge leaves the room header the stored history belongs to
 the community, and this stops being a thing to run.

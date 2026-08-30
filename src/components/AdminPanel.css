@@ -124,6 +124,53 @@
   background: var(--line);
 }
 
+.admin-log-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.admin-log-list li {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.admin-log-list li:first-child {
+  border-top: none;
+}
+
+.admin-log-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-log-head p {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-log-head time {
+  flex: none;
+  color: var(--faint);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-log-track {
+  color: var(--muted);
+}
+
+.admin-log-reason {
+  margin: 0.3rem 0 0;
+  color: var(--faint);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
 .admin-storage-list {
   list-style: none;
   margin: 0.75rem 0 0.75rem;
@@ -672,6 +719,11 @@
   .admin .admin-tab {
     padding-right: 0.6rem;
     padding-left: 0.6rem;
+  }
+
+  .admin-log-head {
+    flex-direction: column;
+    gap: 0.15rem;
   }
 
   .admin-row-actions {

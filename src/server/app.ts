@@ -84,6 +84,7 @@ import {
   renamePlaylist,
   reorderPlaylist,
 } from './playlists';
+import { getModerationLog } from './moderation';
 import { limitPerAddress, limitPerUser } from './rate-limit';
 import { getStorageSnapshot } from './storage';
 
@@ -570,6 +571,7 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json(result);
     })
+    .get('/api/moderation', requireAdmin, async (context) => context.json(await getModerationLog()))
     .get('/api/operations', requireAdmin, async (context) =>
       context.json({
         ...dependencies.operationsSnapshot(),
