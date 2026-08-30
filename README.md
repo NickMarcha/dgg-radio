@@ -150,6 +150,17 @@ npm run stack:test       run that stack locally without the tunnel, API port pub
 npm run stack:test:down  stop the local stack, keeping the database volume
 ```
 
+`scripts/clear-beta-history.sql` deletes every queue item and vote, so testing
+done before the room opens is not the first thing real listeners see. It keeps
+personal playlists, the track catalogue, accounts and rules. It refuses to run
+without `-v confirm=yes`, and it is only for the beta stage described in
+`AGENTS.md`: once the badge leaves the room header the stored history belongs to
+the community, and this stops being a thing to run.
+
+```shell
+docker compose exec -T db psql -U dgg_radio -d dgg_radio -v confirm=yes   -f - < scripts/clear-beta-history.sql
+```
+
 ## Testing
 
 `npm test` runs the unit tests on their own. The integration tests need a real Postgres, so they skip unless `TEST_DATABASE_URL` points at one.
