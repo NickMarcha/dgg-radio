@@ -70,24 +70,28 @@ one product feature worth reconsidering, because "it just stopped playing" is
 answered faster by watching one session than by any dashboard. Feature flags,
 experiments and surveys have no use here yet.
 
-## Nothing rate limits the API
+## The Cloudflare rate-limiting rule has not been created
 
-No limit of any kind. The only rate-limit code in the repository is `chat.ts`
-respecting destiny.gg's limit on requests the room makes outbound.
+The API now limits itself per caller, in `src/server/rate-limit.ts`. That covers
+what an account can spend but not what a flood of anonymous requests costs, and
+the room only has one rule to spend on the second problem.
 
-Exposure is narrower than it looks, because every expensive route already
-requires a session. Anonymous traffic reaches only `/api/room`, `/api/history`,
-`/api/stats`, `/api/profiles/:username` and `/api/rules`, which are database
-reads.
+The API is published through a named tunnel, so it sits behind Cloudflare's WAF
+already and a rule needs no new infrastructure. The Free plan allows exactly one
+rate-limiting rule, counts by IP only, and offers a ten-second period and no
+longer one, so the rule has to be blunt on purpose:
 
-Two layers, and neither substitutes for the other. Cloudflare already sits in
-front of everything, since the API is published through a named tunnel, so its
-WAF is the right place for crude flooding of the anonymous reads; the free plan
-includes one rate-limiting rule. The limit that actually matters cannot live
-there: the YouTube quota is 10,000 units a day for the whole project, and one
-signed-in user working `/api/search` or importing playlists can spend it for
-everybody. Cloudflare cannot see a session, so that one belongs in Hono
-middleware keyed on the user, on the routes that spend quota.
+- Match `http.request.uri.path starts_with "/api/"` on the tunnel hostname.
+- Count by IP, 100 requests per 10 seconds, then block for a minute.
+
+That is far above real use and still stops a script. The only chatty endpoint is
+`/api/room`, which each open room polls every 15 seconds and refetches whenever
+the room changes; a household or a VPN exit sharing one address stays well under
+100 in ten seconds, and it is deliberately not limited per address inside the API
+for the same reason.
+
+Worth revisiting if the room ever outgrows the Free plan: a longer period and
+counting by cookie would let the rule follow a person instead of an address.
 
 ## Database storage has no history and no owner view
 

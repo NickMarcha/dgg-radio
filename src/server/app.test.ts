@@ -34,6 +34,11 @@ vi.mock('./admins', async (importOriginal) => ({
   setUserRole: vi.fn(),
 }));
 
+vi.mock('./media', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./media')>()),
+  searchMedia: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('./storage', () => ({
   getStorageSnapshot: vi.fn(),
 }));
@@ -49,6 +54,7 @@ const { getSessionUser } = await import('./auth');
 const { setUserRole } = await import('./admins');
 const { reorderRules } = await import('./rules');
 const { getStorageSnapshot } = await import('./storage');
+const { resetRateLimits } = await import('./rate-limit');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
 const {
   blockQueueItemMedia,
@@ -270,6 +276,56 @@ describe('the operations endpoint', () => {
     expect(response.status).toBe(403);
     expect(operationsSnapshot).not.toHaveBeenCalled();
     expect(getStorageSnapshot).not.toHaveBeenCalled();
+  });
+});
+
+describe('rate limiting', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetRateLimits();
+  });
+
+  it('refuses a signed-in user who searches too fast, and says when to come back', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect((await app.request('/api/search?q=hello')).status).toBe(200);
+    }
+
+    const refused = await app.request('/api/search?q=hello');
+
+    expect(refused.status).toBe(429);
+    expect(Number(refused.headers.get('Retry-After'))).toBeGreaterThan(0);
+    expect(await refused.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } });
+  });
+
+  // One person spending their allowance must not spend anybody else's.
+  it('counts each person separately', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      await app.request('/api/search?q=hello');
+    }
+
+    vi.mocked(getSessionUser).mockResolvedValue({
+      ...user('listener'),
+      id: '00000000-0000-4000-8000-0000000000ff',
+    });
+
+    expect((await app.request('/api/search?q=hello')).status).toBe(200);
+  });
+
+  // Searching hard should not cost somebody their ability to queue a track.
+  it('keeps a separate allowance per kind of request', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      await app.request('/api/search?q=hello');
+    }
+
+    const queued = await request('/api/queue', 'POST', {
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+
+    expect(queued.status).not.toBe(429);
   });
 });
 

@@ -84,6 +84,7 @@ import {
   renamePlaylist,
   reorderPlaylist,
 } from './playlists';
+import { limitPerAddress, limitPerUser } from './rate-limit';
 import { getStorageSnapshot } from './storage';
 
 interface AppDependencies {
@@ -215,21 +216,31 @@ export function createApp(dependencies: AppDependencies) {
     })
     // Public, but a signed-in viewer is looked up anyway so the page can tell
     // whether it is showing someone their own profile.
-    .get('/api/profiles/:username', zValidator('param', usernameParamSchema), async (context) => {
-      const viewer = await getSessionUser(context);
-      const username = context.req.valid('param').username;
-      return context.json(await getUserProfile(username, viewer?.id ?? null));
-    })
+    .get(
+      '/api/profiles/:username',
+      limitPerAddress('profiles', 60),
+      zValidator('param', usernameParamSchema),
+      async (context) => {
+        const viewer = await getSessionUser(context);
+        const username = context.req.valid('param').username;
+        return context.json(await getUserProfile(username, viewer?.id ?? null));
+      },
+    )
     .get('/api/me', async (context) =>
       context.json({
         me: toRoomUser(await getSessionUser(context)),
         listenerCount: dependencies.listenerCount(),
       }),
     )
-    .get('/api/history', zValidator('query', historyQuerySchema), async (context) =>
-      context.json({ history: await listHistory(context.req.valid('query').limit) }),
+    .get(
+      '/api/history',
+      limitPerAddress('history', 60),
+      zValidator('query', historyQuerySchema),
+      async (context) => context.json({ history: await listHistory(context.req.valid('query').limit) }),
     )
-    .get('/api/stats', async (context) => context.json(await getCommunityStats()))
+    .get('/api/stats', limitPerAddress('stats', 60), async (context) =>
+      context.json(await getCommunityStats()),
+    )
     .get(
       '/api/playlists',
       requireUser,
@@ -290,6 +301,7 @@ export function createApp(dependencies: AppDependencies) {
     .post(
       '/api/playlists/:id/tracks',
       requireUser,
+      limitPerUser('lookup', 20),
       zValidator('param', idParamSchema),
       zValidator('json', submitRequestSchema),
       async (context) => {
@@ -366,7 +378,12 @@ export function createApp(dependencies: AppDependencies) {
         return context.json(result);
       },
     )
-    .post('/api/queue', requireUser, zValidator('json', submitRequestSchema), async (context) => {
+    .post(
+      '/api/queue',
+      requireUser,
+      limitPerUser('lookup', 20),
+      zValidator('json', submitRequestSchema),
+      async (context) => {
       const { url } = context.req.valid('json');
       const queued = await enqueueMedia(url, context.get('user'));
       captureServerEvent(context.get('user').id, 'track_requested', {
@@ -392,10 +409,14 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
-    .get('/api/search', requireUser, zValidator('query', searchSchema), async (context) =>
-      context.json({ results: await searchMedia(context.req.valid('query').q, 15) }),
+    .get(
+      '/api/search',
+      requireUser,
+      limitPerUser('search', 10),
+      zValidator('query', searchSchema),
+      async (context) => context.json({ results: await searchMedia(context.req.valid('query').q, 15) }),
     )
-    .post('/api/queue/playlist', requireUser, zValidator('json', playlistSchema), async (context) => {
+    .post('/api/queue/playlist', requireUser, limitPerUser('playlist-import', 5), zValidator('json', playlistSchema), async (context) => {
       const imported = await enqueueProviderPlaylist(context.req.valid('json').url, context.get('user'));
       captureServerEvent(context.get('user').id, 'playlist_imported', {
         added: imported.added,
@@ -542,7 +563,7 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
-    .post('/api/me/chat-check', requireUser, async (context) => {
+    .post('/api/me/chat-check', requireUser, limitPerUser('chat-check', 5), async (context) => {
       const user = context.get('user');
       const result = await requestChatCheck({ id: user.id, username: user.username });
       captureServerEvent(user.id, 'chat_check_requested');
