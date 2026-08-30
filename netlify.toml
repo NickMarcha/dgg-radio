@@ -1,5 +1,10 @@
 [build]
-  command = "npm run build:web"
+  # Netlify clones with its GitHub token inside the remote URL, and posthog-cli
+  # reads that URL to describe the release it creates, credential and all. Strip
+  # any `user:password@` before the build so a token does not land in PostHog's
+  # release metadata on every deploy. A checkout with no remote has nothing to
+  # strip, so a failure here must never be what stops a deploy.
+  command = "git remote set-url origin \"$(git remote get-url origin | sed 's#//[^@]*@#//#')\" || true; npm run build:web"
   publish = "dist"
 
 [build.environment]

@@ -23,6 +23,10 @@ Both pipelines trigger independently and finish within about a minute of each ot
 
 **Frontend.** The Netlify site is linked to the repository, so a push starts a build. Netlify runs `npm run build:web` and publishes `dist`, per `netlify.toml`.
 
+The build command strips any credential out of the git remote before running. Netlify clones with a short-lived GitHub token embedded in the remote URL, and `posthog-cli` records that URL verbatim in the release it creates for each source-map upload, which would put a live token into PostHog's metadata on every deploy.
+
+Source maps are uploaded to PostHog and then deleted from `dist`, so the site does not serve them. That needs `POSTHOG_PERSONAL_API_KEY` and `POSTHOG_PROJECT_ID` in Netlify's environment; without them the build still succeeds and simply publishes the maps, because a missing analytics credential must never be what stops a deploy.
+
 `PUBLIC_API_URL` is read at **build time**, so it must be set in Netlify's environment variables, not just in a local `.env`. A local `.env` only affects local builds; if the variable is missing on Netlify the deployed site is built pointing at nothing. The same applies to `PUBLIC_POSTHOG_KEY` and `PUBLIC_POSTHOG_HOST` — absent there, the deployed site silently reports no browser analytics even though local builds do.
 
 **API.** A GitHub webhook on the repository calls the deployment platform, which clones the commit, rebuilds the image, and recreates the stack. Docker only replaces containers whose image or configuration actually changed, so a docs-only commit deploys without restarting anything.
