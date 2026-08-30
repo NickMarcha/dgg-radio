@@ -66,8 +66,8 @@ Two decisions in `astro.config.mjs`, both commented there:
 `posthog-cli` describes each release with `git remote get-url origin` verbatim,
 and Netlify clones with a token in that URL, so the first deploy wrote a live
 `ghs_` token into PostHog's release metadata. The build command strips any
-`user:password@` first. **Worth reporting upstream** -- any CI that clones with
-a token hits this.
+`user:password@` first. Reporting it upstream was considered and deliberately
+not done; `docs/backlog.md` says why.
 
 Session replay is on, gated by an `$exception` trigger in the project's replay
 settings: the recorder holds each session in memory and uploads only the ones
@@ -176,9 +176,15 @@ there. The local compose stack is not it.
   carries it: `/api/*`, 100 requests per 10 seconds by IP. The Free plan allows
   one rule, counts by IP only, and offers no period longer than ten seconds.
 - **Two test releases in PostHog**, `dgg-radio-web@local-host-test-ingestion`
-  and `@local-verify`, from proving the upload worked. Not deploys; deletable.
-- **Saved PostHog queries** may still name `YOUTUBE_BLOCKED_IN_UAE`, renamed in
-  `785775d`.
+  and `@local-verify`, from proving the upload worked. Forty symbol sets each,
+  uploaded successfully, so they read as healthy rather than failed -- their
+  chunk ids simply belong to local builds and can never match a deployed
+  bundle. Cosmetic, and deletable through the error tracking settings page.
+
+Saved queries naming the old `YOUTUBE_BLOCKED_IN_UAE` error code were on this
+list and are not: the project holds eight insights, all PostHog's own onboarding
+templates, no alerts, and nothing referencing any of this room's events. The
+rename in `785775d` broke nothing, so the item was dropped rather than carried.
 
 ## Next
 

@@ -22,13 +22,6 @@ the strings are spelled `ADMIN` and `MODERATOR`. Turning it back on is a small
 change to `radioRole` in `src/server/auth.ts`; `git log` has the version that
 did it.
 
-## PostHog queries may still name the old region error
-
-`YOUTUBE_BLOCKED_IN_UAE` became `YOUTUBE_REGION_BLOCKED` in `785775d`, and its
-message names the configured region rather than always saying the UAE. Nothing
-in the repository refers to the old spelling. Any saved PostHog query, insight,
-or alert keyed on it went quiet at that deploy and needs updating by hand.
-
 ## Fifty tracks per playlist is a guess, not a decision
 
 `MAX_PLAYLIST_TRACKS` is 50 in `playlists.ts`, mirrored by the `.max(50)` on
@@ -114,6 +107,25 @@ noise.
 The room's own player is a cross-origin iframe, so the video is a blank
 rectangle in every recording. That is understood and accepted -- the controls,
 the queue and the console around it are the parts worth watching.
+
+## posthog-cli writes CI credentials into release metadata, unreported
+
+`posthog-cli` describes each release with `git remote get-url origin` exactly as
+git returns it. Netlify, and most CI, clones over HTTPS with a token inside that
+URL, so `metadata.git.remote_url` on every release holds a live credential that
+anyone with project access can read. Here it was a GitHub App installation
+token, good for an hour, rewritten on every deploy.
+
+This room is not affected any more: the Netlify build command strips any
+`user:password@` from the remote before the build runs, and the release recorded
+for `19277448` is clean. The rest is somebody else's bug.
+
+Reporting it upstream is **not planned**. It is a real issue for anyone whose CI
+clones with a token, and stripping the userinfo at the point of capture would
+fix it for every provider at once, but chasing another project's fix is not this
+room's work. Anyone who wants to raise it can: PostHog take reports through the
+`agent-feedback` channel in their CLI, and there is a drafted version of this in
+the session that found it.
 
 ## Database storage has no history and no owner view
 
