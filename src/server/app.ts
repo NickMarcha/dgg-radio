@@ -19,6 +19,7 @@ import {
   submitRequestSchema,
   userRoleSchema,
   voteSchema,
+  type ProcessSnapshot,
 } from '../shared/contracts';
 import {
   AuthenticationError,
@@ -56,6 +57,7 @@ import {
   blockQueueItemMedia,
   clearUserQueue,
   enqueueMedia,
+  dismissQueueNotice,
   enqueueProviderPlaylist,
   reorderMyQueue,
   reorderRoomQueue,
@@ -82,9 +84,12 @@ import {
   renamePlaylist,
   reorderPlaylist,
 } from './playlists';
+import { getStorageSnapshot } from './storage';
 
 interface AppDependencies {
   listenerCount: () => number;
+  eligibleVoterCount: () => number;
+  operationsSnapshot: () => ProcessSnapshot;
   onRoomChanged: () => void;
 }
 
@@ -379,7 +384,7 @@ export function createApp(dependencies: AppDependencies) {
       async (context) => {
         const { id } = context.req.valid('param');
         const { value } = context.req.valid('json');
-        await voteOnCurrentTrack(id, value, context.get('user'), dependencies.listenerCount());
+        await voteOnCurrentTrack(id, value, context.get('user'), dependencies.eligibleVoterCount());
         captureServerEvent(context.get('user').id, 'track_vote_changed', {
           vote: value === 1 ? 'up' : value === -1 ? 'down' : 'cleared',
         });
@@ -407,6 +412,17 @@ export function createApp(dependencies: AppDependencies) {
         await withdrawQueuedTrack(context.req.valid('param').id, context.get('user'));
         captureServerEvent(context.get('user').id, 'queue_track_withdrawn');
         dependencies.onRoomChanged();
+        return context.json({ ok: true });
+      },
+    )
+    // A notice belongs to one person, so reading it changes nothing anyone
+    // else is looking at and no room broadcast is worth waking for it.
+    .delete(
+      '/api/queue/:id/notice',
+      requireUser,
+      zValidator('param', idParamSchema),
+      async (context) => {
+        await dismissQueueNotice(context.req.valid('param').id, context.get('user'));
         return context.json({ ok: true });
       },
     )
@@ -533,6 +549,12 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json(result);
     })
+    .get('/api/operations', requireAdmin, async (context) =>
+      context.json({
+        ...dependencies.operationsSnapshot(),
+        storage: await getStorageSnapshot(),
+      }),
+    )
     .get('/api/regions', requireAdmin, async (context) =>
       context.json({ regions: await listPlaybackRegions() }),
     )

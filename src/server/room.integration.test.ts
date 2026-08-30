@@ -66,6 +66,7 @@ const {
   advanceCurrentTrack,
   advanceIfExpired,
   clearUserQueue,
+  dismissQueueNotice,
   enqueueProviderPlaylist,
   reorderMyQueue,
   reorderRoomQueue,
@@ -310,6 +311,77 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
       code: 'TRACK_RECENTLY_PLAYED',
       message: 'That track played less than a minute ago. Try again in 90 minutes.',
     });
+  });
+
+  it('tells the requester why a pending track was dropped at playback time', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const moderator = await createUser('mod', 'mod');
+    const repeated = track('aaaaaaaaaaa');
+    const filler = track('bbbbbbbbbbb');
+    resolveTracks(repeated, filler);
+
+    // Under a short cooldown the second request is accepted, which is the only
+    // way to have one waiting when an admin raises the setting over it.
+    await db.update(roomSettings).set({ repeatCooldownSeconds: 300 }).where(eq(roomSettings.id, 1));
+    const first = await enqueueMedia(repeated.canonicalUrl, nathan, db);
+    await skipCurrentTrack('Making room for the filler', moderator, db);
+    await db
+      .update(queueItems)
+      .set({ startedAt: new Date(Date.now() - 600_000) })
+      .where(eq(queueItems.id, first.id));
+
+    await enqueueMedia(filler.canonicalUrl, nathan, db);
+    const pending = await enqueueMedia(repeated.canonicalUrl, swagy, db);
+    await db
+      .update(roomSettings)
+      .set({ repeatCooldownSeconds: 5_400 })
+      .where(eq(roomSettings.id, 1));
+
+    await skipCurrentTrack('Reaching the pending request', moderator, db);
+
+    const dropped = await getRoomSnapshot(swagy, 1, db);
+    expect(dropped.myQueue).toEqual([]);
+    expect(dropped.myNotices).toMatchObject([
+      {
+        queueItemId: pending.id,
+        title: repeated.title,
+        artist: repeated.artist,
+        message: expect.stringContaining('Try again in'),
+      },
+    ]);
+
+    // The internal log keeps its own wording, and nobody else is told.
+    const [row] = await db
+      .select({ reason: queueItems.moderationReason, status: queueItems.status })
+      .from(queueItems)
+      .where(eq(queueItems.id, pending.id));
+    expect(row).toMatchObject({ status: 'removed' });
+    expect(row?.reason).toContain('Automatic playback check:');
+    expect((await getRoomSnapshot(nathan, 1, db)).myNotices).toEqual([]);
+
+    await dismissQueueNotice(pending.id, swagy, db);
+    expect((await getRoomSnapshot(swagy, 1, db)).myNotices).toEqual([]);
+  });
+
+  it('refuses to dismiss a notice that belongs to somebody else', async () => {
+    await ensureRoomExists(db);
+    const nathan = await createUser('picklesnathan');
+    const swagy = await createUser('swagy_swagerson');
+    const queued = track('aaaaaaaaaaa');
+    resolveTracks(queued);
+
+    const mine = await enqueueMedia(queued.canonicalUrl, nathan, db);
+    await db
+      .update(queueItems)
+      .set({ status: 'removed', listenerNotice: 'That track played moments ago.' })
+      .where(eq(queueItems.id, mine.id));
+
+    await expect(dismissQueueNotice(mine.id, swagy, db)).rejects.toMatchObject({
+      code: 'NOTICE_NOT_FOUND',
+    });
+    expect((await getRoomSnapshot(nathan, 1, db)).myNotices).toHaveLength(1);
   });
 
   it('advances only after the playing track has run its duration', async () => {
@@ -642,6 +714,25 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await voteOnCurrentTrack(started.id, -1, voters[1]!, 10, db);
     const afterSkip = await getRoomSnapshot(null, 0, db);
     expect(afterSkip.current?.id).toBe(promoted.id);
+  });
+
+  it('uses eligible signed-in room listeners for ratio skips', async () => {
+    await ensureRoomExists(db);
+    const requester = await createUser('requester');
+    const voter = await createUser('voter');
+    const [playing, next] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+    resolveTracks(playing, next);
+
+    const started = await enqueueMedia(playing.canonicalUrl, requester, db);
+    const promoted = await enqueueMedia(next.canonicalUrl, requester, db);
+    await db
+      .update(roomSettings)
+      .set({ skipMode: 'ratio', skipRatioPercent: 50 })
+      .where(eq(roomSettings.id, 1));
+
+    await voteOnCurrentTrack(started.id, -1, voter, 2, db);
+
+    expect((await getRoomSnapshot(null, 0, db)).current?.id).toBe(promoted.id);
   });
 
   it('hides requesters while the room is blind, except from mods and admins', async () => {

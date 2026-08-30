@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RoomSnapshot } from '../shared/contracts';
+import type { EmbedConnectionKind } from '../shared/roomConnection';
+import { createRoomSocketUrl } from './roomSocket';
 
 interface RoomSnapshotState {
   room: RoomSnapshot | null;
@@ -7,7 +9,7 @@ interface RoomSnapshotState {
 }
 
 /** Keep a public room snapshot current through WebSocket notices and a polling fallback. */
-export function useRoomSnapshot(apiUrl: string): RoomSnapshotState {
+export function useRoomSnapshot(apiUrl: string, connectionKind: EmbedConnectionKind): RoomSnapshotState {
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const reconnectTimer = useRef<number | undefined>(undefined);
@@ -32,9 +34,7 @@ export function useRoomSnapshot(apiUrl: string): RoomSnapshotState {
   useEffect(() => {
     let stopped = false;
     let socket: WebSocket | undefined;
-    const wsUrl = new URL(apiUrl);
-    wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    wsUrl.pathname = '/ws';
+    const wsUrl = createRoomSocketUrl(apiUrl, { kind: connectionKind });
 
     const connect = () => {
       socket = new WebSocket(wsUrl);
@@ -51,7 +51,7 @@ export function useRoomSnapshot(apiUrl: string): RoomSnapshotState {
       if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
       socket?.close();
     };
-  }, [apiUrl, refresh]);
+  }, [apiUrl, connectionKind, refresh]);
 
   return { room, error };
 }

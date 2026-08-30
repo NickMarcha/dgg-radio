@@ -48,6 +48,40 @@
   vertical-align: -1px;
 }
 
+.admin-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.admin-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.admin .admin-tab {
+  flex: none;
+  margin-bottom: -1px;
+  padding: 0.6rem 0.85rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.admin .admin-tab:hover:not(:disabled) {
+  background: none;
+  color: var(--text);
+}
+
+.admin .admin-tab-open {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
 .admin-card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -61,6 +95,192 @@
   gap: 0.5rem;
   margin: 0 0 0.5rem;
   font-size: 1.1rem;
+}
+
+.admin-section-heading,
+.admin-section-subheading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-section-heading h2,
+.admin-section-subheading h3 {
+  margin: 0;
+}
+
+.admin .admin-refresh {
+  flex: none;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.admin .admin-refresh:hover:not(:disabled) {
+  background: var(--line);
+}
+
+.admin-storage-list {
+  list-style: none;
+  margin: 0.75rem 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.admin-storage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.admin-storage-head span {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-storage-bar {
+  height: 6px;
+  margin: 0.35rem 0 0.5rem;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.admin-storage-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.admin-storage-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.5rem;
+  margin: 0;
+}
+
+.admin-storage-figures div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.admin-storage-figures dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.admin-storage-figures dd {
+  margin: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-storage-list .admin-meta {
+  display: block;
+  margin: 0.35rem 0 0;
+}
+
+.admin-operation-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-operation-counts div {
+  padding: 0.75rem 1rem;
+}
+
+.admin-operation-counts div + div {
+  border-left: 1px solid var(--line);
+}
+
+.admin-operation-counts dt {
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.admin-operation-counts dd {
+  margin: 0.15rem 0 0;
+  color: var(--text);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.admin-operation-clock {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.admin-section-subheading {
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-section-subheading h3 {
+  font-size: 0.9rem;
+}
+
+.admin-section-subheading span {
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.admin-connection-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-connection-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-connection-list li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.admin-connection-list li > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.admin-connection-list strong {
+  overflow: hidden;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-connection-list span,
+.admin-connection-list time {
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
+.admin-connection-list time {
+  flex: none;
 }
 
 .admin-help,
@@ -327,8 +547,17 @@
   flex-wrap: wrap;
 }
 
+/* A long rule or user name wraps onto another line instead of squeezing the
+   row's controls. */
+.admin-row > div:first-child {
+  flex: 1 1 16rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .admin-row-actions {
   display: flex;
+  flex: none;
   gap: 0.5rem;
 }
 
@@ -428,4 +657,56 @@
 
 .admin-form-edit .admin-row-actions {
   grid-column: 1 / -1;
+}
+
+@media (max-width: 620px) {
+  .admin {
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+  }
+
+  .admin-card {
+    padding: 1rem;
+  }
+
+  .admin .admin-tab {
+    padding-right: 0.6rem;
+    padding-left: 0.6rem;
+  }
+
+  .admin-row-actions {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .admin-embed-links,
+  .admin-embed-links li,
+  .admin-embed-head,
+  .admin-embed-url {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .admin-embed-head {
+    flex-wrap: wrap;
+  }
+
+  .admin-operation-counts div {
+    padding-right: 0.5rem;
+    padding-left: 0.5rem;
+  }
+
+  .admin-connection-list li,
+  .admin-connection-list li > div {
+    align-items: flex-start;
+  }
+
+  .admin-connection-list li {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .admin-connection-list li > div {
+    flex-wrap: wrap;
+  }
 }

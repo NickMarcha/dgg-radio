@@ -11,6 +11,7 @@ import {
 } from 'drizzle-orm';
 import type {
   QueueItem,
+  QueueNotice,
   RoomMedia,
   RoomSnapshot,
   RoomUser,
@@ -308,6 +309,9 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
           status: 'removed',
           finishedAt: new Date(),
           moderationReason: `Automatic playback check: ${message}`,
+          // The check writes its own message, so it is safe to hand straight
+          // back to the person whose request it just dropped.
+          listenerNotice: message,
         })
         .where(and(eq(queueItems.id, candidate.id), eq(queueItems.status, 'queued')));
       await bumpRevision(db);
@@ -634,7 +638,7 @@ export async function voteOnCurrentTrack(
   queueItemId: string,
   value: -1 | 0 | 1,
   user: AuthenticatedUser,
-  listenerCount: number,
+  eligibleVoterCount: number,
   db: Database = getDatabase(),
 ): Promise<void> {
   const [item] = await db
@@ -662,7 +666,7 @@ export async function voteOnCurrentTrack(
   }
   await bumpRevision(db);
 
-  if (value === -1 && (await downvotesForceSkip(queueItemId, listenerCount, db))) {
+  if (value === -1 && (await downvotesForceSkip(queueItemId, eligibleVoterCount, db))) {
     await advanceCurrentTrack('skipped', 'Skipped by room vote.', queueItemId, db);
   }
 }
@@ -673,7 +677,7 @@ export async function voteOnCurrentTrack(
  */
 async function downvotesForceSkip(
   queueItemId: string,
-  listenerCount: number,
+  eligibleVoterCount: number,
   db: Database,
 ): Promise<boolean> {
   const settings = await getSettings(db);
@@ -683,8 +687,8 @@ async function downvotesForceSkip(
     .where(and(eq(votes.queueItemId, queueItemId), eq(votes.value, -1)));
 
   if (settings.skipMode === 'absolute') return downvotes >= settings.skipDownvotes;
-  if (listenerCount < 1) return false;
-  return (downvotes * 100) / listenerCount >= settings.skipRatioPercent;
+  if (eligibleVoterCount < 1) return false;
+  return (downvotes * 100) / eligibleVoterCount >= settings.skipRatioPercent;
 }
 
 /**
@@ -863,6 +867,54 @@ export async function removeQueuedTrack(
  * moderator removal this records no moderation action: there is nothing to
  * answer for. The track they are currently playing is not theirs to pull.
  */
+/**
+ * Clearing the notice is how it is marked read: the room only ever needs to
+ * know whether it still owes this person an explanation.
+ */
+export async function dismissQueueNotice(
+  queueItemId: string,
+  owner: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<void> {
+  const [cleared] = await db
+    .update(queueItems)
+    .set({ listenerNotice: null })
+    .where(
+      and(
+        eq(queueItems.id, queueItemId),
+        eq(queueItems.requestedByUserId, owner.id),
+        isNotNull(queueItems.listenerNotice),
+      ),
+    )
+    .returning({ id: queueItems.id });
+  if (!cleared) {
+    throw new RoomError('NOTICE_NOT_FOUND', 'There is no unread notice of yours with that id.', 404);
+  }
+}
+
+async function listMyNotices(userId: string, db: Database): Promise<QueueNotice[]> {
+  const rows = await db
+    .select({
+      queueItemId: queueItems.id,
+      message: queueItems.listenerNotice,
+      removedAt: queueItems.finishedAt,
+      title: media.title,
+      artist: media.artist,
+    })
+    .from(queueItems)
+    .innerJoin(media, eq(queueItems.mediaId, media.id))
+    .where(and(eq(queueItems.requestedByUserId, userId), isNotNull(queueItems.listenerNotice)))
+    .orderBy(desc(queueItems.finishedAt));
+
+  return rows.map((row) => ({
+    queueItemId: row.queueItemId,
+    title: row.title,
+    artist: row.artist,
+    message: row.message ?? '',
+    removedAt: (row.removedAt ?? new Date()).toISOString(),
+  }));
+}
+
 export async function withdrawQueuedTrack(
   queueItemId: string,
   owner: AuthenticatedUser,
@@ -1037,7 +1089,7 @@ export async function getRoomSnapshot(
     await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, me.id));
   }
 
-  const [state, settings, activeRows, stats, rules] = await Promise.all([
+  const [state, settings, activeRows, stats, rules, myNotices] = await Promise.all([
     db
       .select({ revision: roomState.revision, currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
@@ -1053,6 +1105,7 @@ export async function getRoomSnapshot(
       .then((rows) => rows.map(toQueueRow)),
     listJammers(10, db),
     listActiveRules(db),
+    me ? listMyNotices(me.id, db) : [],
   ]);
 
   if (!state) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
@@ -1100,6 +1153,7 @@ export async function getRoomSnapshot(
     current: current ? hide(current, secondsLeft <= REVEAL_REQUESTER_WITHIN_SECONDS) : null,
     queue: roomQueueRows.map((row) => hide(byId.get(row.id)!, false)),
     myQueue: myQueueRows.map((row) => byId.get(row.id)!),
+    myNotices,
     selectorStats: stats,
     rules,
   };

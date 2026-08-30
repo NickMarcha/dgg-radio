@@ -6,16 +6,37 @@ import { getSessionUserByToken, readSessionTokenFromCookieHeader } from '../src/
 import { getDatabase } from '../src/server/db/client';
 import { getEnv } from '../src/server/env';
 import { advanceIfExpired, currentRevision, ensureRoomExists } from '../src/server/room';
+import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
 import { WebSocket, WebSocketServer } from 'ws';
+import { ConnectionRegistry } from './connections';
 
 const env = getEnv();
-const clients = new Set<WebSocket>();
+const connections = new ConnectionRegistry<WebSocket>();
+const processStartedAt = new Date();
+let clockChecks = 0;
+let clockAdvances = 0;
+let lastClockCheckAt: Date | null = null;
+let lastClockAdvanceAt: Date | null = null;
+
+function operationsSnapshot() {
+  return {
+    capturedAt: new Date().toISOString(),
+    processStartedAt: processStartedAt.toISOString(),
+    ...connections.snapshot(),
+    clock: {
+      checks: clockChecks,
+      advances: clockAdvances,
+      lastCheckedAt: lastClockCheckAt?.toISOString() ?? null,
+      lastAdvancedAt: lastClockAdvanceAt?.toISOString() ?? null,
+    },
+  };
+}
 
 function broadcastRoomChanged(): void {
   void currentRevision()
     .then((revision) => {
       const message = JSON.stringify({ type: 'room_changed', revision });
-      for (const client of clients) {
+      for (const client of connections.clients()) {
         if (client.readyState === WebSocket.OPEN) client.send(message);
       }
     })
@@ -23,7 +44,9 @@ function broadcastRoomChanged(): void {
 }
 
 const app = createApp({
-  listenerCount: () => clients.size,
+  listenerCount: () => connections.listenerCount(),
+  eligibleVoterCount: () => connections.eligibleVoterCount(),
+  operationsSnapshot,
   onRoomChanged: broadcastRoomChanged,
 });
 
@@ -47,7 +70,15 @@ const webSocketServer = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-  if (requestUrl.pathname !== '/ws' || request.headers.origin !== env.APP_ORIGIN) {
+  const connectionRequest = roomConnectionRequestSchema.safeParse({
+    kind: requestUrl.searchParams.get('kind'),
+    visitorId: requestUrl.searchParams.get('visitorId') ?? undefined,
+  });
+  if (
+    requestUrl.pathname !== '/ws' ||
+    request.headers.origin !== env.APP_ORIGIN ||
+    !connectionRequest.success
+  ) {
     socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
     socket.destroy();
     return;
@@ -59,9 +90,19 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 webSocketServer.on('connection', async (client, request) => {
+  const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+  const connectionRequest = roomConnectionRequestSchema.parse({
+    kind: requestUrl.searchParams.get('kind'),
+    visitorId: requestUrl.searchParams.get('visitorId') ?? undefined,
+  });
   const sessionToken = readSessionTokenFromCookieHeader(request.headers.cookie);
   const user = sessionToken ? await getSessionUserByToken(sessionToken) : null;
-  clients.add(client);
+  connections.add(client, {
+    kind: connectionRequest.kind,
+    userId: user?.id ?? null,
+    username: user?.username ?? null,
+    visitorId: connectionRequest.kind === 'room' ? connectionRequest.visitorId : null,
+  });
   client.send(
     JSON.stringify({
       type: 'connected',
@@ -71,20 +112,26 @@ webSocketServer.on('connection', async (client, request) => {
   );
   broadcastRoomChanged();
 
-  client.on('close', () => {
-    clients.delete(client);
-    broadcastRoomChanged();
-  });
-  client.on('error', () => clients.delete(client));
+  const removeConnection = () => {
+    if (connections.delete(client)) broadcastRoomChanged();
+  };
+  client.on('close', removeConnection);
+  client.on('error', removeConnection);
 });
 
 let clockBusy = false;
 const clock = setInterval(() => {
   if (clockBusy) return;
   clockBusy = true;
+  clockChecks += 1;
+  lastClockCheckAt = new Date();
   void advanceIfExpired()
     .then((changed) => {
-      if (changed) broadcastRoomChanged();
+      if (changed) {
+        clockAdvances += 1;
+        lastClockAdvanceAt = new Date();
+        broadcastRoomChanged();
+      }
     })
     .catch((error) => console.error('Room clock failed', error))
     .finally(() => {
@@ -97,7 +144,7 @@ async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(clock);
-  for (const client of clients) client.close(1001, 'Server shutting down');
+  for (const client of connections.clients()) client.close(1001, 'Server shutting down');
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await shutdownServerAnalytics();
   process.exit(0);

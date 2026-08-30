@@ -1,0 +1,2 @@
+ALTER TABLE "queue_items" ADD COLUMN "listener_notice" text;--> statement-breakpoint
+CREATE INDEX "queue_items_requester_notice_index" ON "queue_items" USING btree ("requested_by_user_id") WHERE "queue_items"."listener_notice" is not null;

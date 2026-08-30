@@ -19,6 +19,7 @@ vi.mock('./room', async (importOriginal) => ({
   removeQueuedTrack: vi.fn(),
   reorderRoomQueue: vi.fn(),
   skipCurrentTrack: vi.fn(),
+  voteOnCurrentTrack: vi.fn(),
   withdrawQueuedTrack: vi.fn(),
 }));
 
@@ -33,6 +34,10 @@ vi.mock('./admins', async (importOriginal) => ({
   setUserRole: vi.fn(),
 }));
 
+vi.mock('./storage', () => ({
+  getStorageSnapshot: vi.fn(),
+}));
+
 vi.mock('./playlists', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./playlists')>()),
   addPlaylistTrackByUrl: vi.fn(),
@@ -43,9 +48,16 @@ vi.mock('./playlists', async (importOriginal) => ({
 const { getSessionUser } = await import('./auth');
 const { setUserRole } = await import('./admins');
 const { reorderRules } = await import('./rules');
+const { getStorageSnapshot } = await import('./storage');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
-const { blockQueueItemMedia, removeQueuedTrack, reorderRoomQueue, skipCurrentTrack, withdrawQueuedTrack } =
-  await import('./room');
+const {
+  blockQueueItemMedia,
+  removeQueuedTrack,
+  reorderRoomQueue,
+  skipCurrentTrack,
+  voteOnCurrentTrack,
+  withdrawQueuedTrack,
+} = await import('./room');
 const { createApp } = await import('./app');
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -77,8 +89,43 @@ function request(path: string, method: 'POST' | 'PATCH', body: unknown) {
   });
 }
 
+const storageSnapshot = {
+  databaseBytes: 12_582_912,
+  groups: [
+    {
+      name: 'Track catalogue and provider cache',
+      tables: ['media', 'media_lookups', 'playback_regions'],
+      rowCount: 412,
+      tableBytes: 4_194_304,
+      indexBytes: 1_048_576,
+      totalBytes: 5_242_880,
+      share: 5_242_880 / 12_582_912,
+    },
+  ],
+};
+vi.mocked(getStorageSnapshot).mockResolvedValue(storageSnapshot);
+
 const onRoomChanged = vi.fn();
-const app = createApp({ listenerCount: () => 1, onRoomChanged });
+const operationsSnapshot = vi.fn(() => ({
+  capturedAt: '2026-08-30T03:01:00.000Z',
+  processStartedAt: '2026-08-30T03:00:00.000Z',
+  socketCount: 2,
+  listenerCount: 1,
+  eligibleVoterCount: 1,
+  connections: [],
+  clock: {
+    checks: 60,
+    advances: 1,
+    lastCheckedAt: '2026-08-30T03:01:00.000Z',
+    lastAdvancedAt: '2026-08-30T03:00:30.000Z',
+  },
+}));
+const app = createApp({
+  listenerCount: () => 1,
+  eligibleVoterCount: () => 3,
+  operationsSnapshot,
+  onRoomChanged,
+});
 
 describe('role authorization', () => {
   beforeEach(() => {
@@ -139,6 +186,16 @@ describe('role authorization', () => {
     expect(withdrawQueuedTrack).toHaveBeenCalledOnce();
   });
 
+  it('uses distinct signed-in room listeners as the skip-ratio denominator', async () => {
+    const listener = user('listener');
+    vi.mocked(getSessionUser).mockResolvedValue(listener);
+
+    const response = await request(`/api/queue/${QUEUE_ID}/vote`, 'POST', { value: -1 });
+
+    expect(response.status).toBe(200);
+    expect(voteOnCurrentTrack).toHaveBeenCalledWith(QUEUE_ID, -1, listener, 3);
+  });
+
   it('lets an admin assign the mod role', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
@@ -188,6 +245,31 @@ describe('the header session endpoint', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ listenerCount: 1, me: null });
+  });
+});
+
+describe('the operations endpoint', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns the current server snapshot to an admin', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const response = await app.request('/api/operations');
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ...operationsSnapshot(), storage: storageSnapshot });
+  });
+
+  it('does not expose connection details or storage to listeners', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+
+    const response = await app.request('/api/operations');
+
+    expect(response.status).toBe(403);
+    expect(operationsSnapshot).not.toHaveBeenCalled();
+    expect(getStorageSnapshot).not.toHaveBeenCalled();
   });
 });
 

@@ -235,9 +235,19 @@ export const queueItems = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     moderationReason: text('moderation_reason'),
+    /**
+     * What the room owes the requester an explanation for, written for them to
+     * read. `moderationReason` is the internal log and can hold a moderator's
+     * private note, so the two must never be the same column. Cleared once the
+     * requester has seen it.
+     */
+    listenerNotice: text('listener_notice'),
   },
   (table) => [
     index('queue_items_status_requested_index').on(table.status, table.requestedAt),
+    index('queue_items_requester_notice_index')
+      .on(table.requestedByUserId)
+      .where(sql`${table.listenerNotice} is not null`),
     index('queue_items_requester_status_index').on(
       table.requestedByUserId,
       table.status,

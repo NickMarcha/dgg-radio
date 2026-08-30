@@ -11,7 +11,9 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  TriangleAlert,
   UserRound,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type SubmitEvent } from 'react';
 import {
@@ -33,6 +35,7 @@ import type {
 } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
 import { moveItem, type MoveDestination } from './reorder';
+import { createRoomSocketUrl, getRoomVisitorId } from './roomSocket';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
 import SiteHeader, { SiteHeaderAccount, SiteHeaderPresence } from './SiteHeader';
 import SiteNav from './SiteNav';
@@ -431,9 +434,10 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   useEffect(() => {
     let stopped = false;
     let socket: WebSocket | undefined;
-    const wsUrl = new URL(apiUrl);
-    wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    wsUrl.pathname = '/ws';
+    const wsUrl = createRoomSocketUrl(apiUrl, {
+      kind: 'room',
+      visitorId: getRoomVisitorId(),
+    });
 
     const connect = () => {
       socket = new WebSocket(wsUrl);
@@ -567,6 +571,10 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const withdrawMyTrack = async (item: QueueItem) => {
     await mutate(`/api/queue/${item.id}`, 'DELETE');
+  };
+
+  const dismissNotice = async (queueItemId: string) => {
+    await mutate(`/api/queue/${queueItemId}/notice`, 'DELETE');
   };
 
   const moderateQueueItem = async (action: 'remove' | 'block', item: QueueItem) => {
@@ -921,6 +929,37 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
           {room?.me && (
             <>
+              {room.myNotices.length > 0 && (
+                <>
+                  <div className="queue-heading queue-heading-mine">
+                    <div>
+                      <h2>Dropped from your queue</h2>
+                      <span>The room could not play these when your turn came</span>
+                    </div>
+                    <TriangleAlert size={18} />
+                  </div>
+                  <ul className="queue-notices">
+                    {room.myNotices.map((entry) => (
+                      <li key={entry.queueItemId}>
+                        <div>
+                          <strong>{entry.title}</strong>
+                          <span>{entry.artist}</span>
+                          <p>{entry.message}</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          aria-label={`Dismiss the notice about ${entry.title}`}
+                          onClick={() => void dismissNotice(entry.queueItemId)}
+                        >
+                          <X size={15} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+
               <div className="queue-heading queue-heading-mine">
                 <div>
                   <h2>Your queue</h2>

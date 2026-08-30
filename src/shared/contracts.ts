@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ConnectionKind } from './roomConnection';
 
 export const mediaProviderSchema = z.enum(['youtube', 'soundcloud']);
 export type MediaProvider = z.infer<typeof mediaProviderSchema>;
@@ -322,6 +323,58 @@ export interface RoomMember {
   lastSeenAt: string;
 }
 
+export interface ActiveConnection {
+  kind: ConnectionKind;
+  username: string | null;
+  connectedAt: string;
+}
+
+export interface ConnectionSnapshot {
+  socketCount: number;
+  listenerCount: number;
+  eligibleVoterCount: number;
+  connections: ActiveConnection[];
+}
+
+export interface StorageGroup {
+  name: string;
+  /** The tables the group measures, so an admin can see what it covers. */
+  tables: string[];
+  rowCount: number;
+  tableBytes: number;
+  indexBytes: number;
+  totalBytes: number;
+  /** Share of `databaseBytes`, between 0 and 1. */
+  share: number;
+}
+
+/**
+ * What PostgreSQL reports about its own tables and indexes. Nothing else on the
+ * volume is in these numbers: the write-ahead log, PostgreSQL's fixed files and
+ * container logs all sit outside them, and there is no backup job behind them.
+ */
+export interface StorageSnapshot {
+  databaseBytes: number;
+  /** Largest group first. */
+  groups: StorageGroup[];
+}
+
+/** What the API process knows about itself without asking the database. */
+export interface ProcessSnapshot extends ConnectionSnapshot {
+  capturedAt: string;
+  processStartedAt: string;
+  clock: {
+    checks: number;
+    advances: number;
+    lastCheckedAt: string | null;
+    lastAdvancedAt: string | null;
+  };
+}
+
+export interface OperationsSnapshot extends ProcessSnapshot {
+  storage: StorageSnapshot;
+}
+
 /**
  * What a page header needs: who is signed in, and how many people are
  * listening. Every page shows this, and only the room itself needs the whole
@@ -330,6 +383,19 @@ export interface RoomMember {
 export interface SessionSnapshot {
   me: RoomUser | null;
   listenerCount: number;
+}
+
+/**
+ * Something the room did to one person's request while they were not watching.
+ * The room writes the text itself, so a moderator's private note never reaches
+ * the person it is about.
+ */
+export interface QueueNotice {
+  queueItemId: string;
+  title: string;
+  artist: string;
+  message: string;
+  removedAt: string;
 }
 
 export interface RoomSnapshot {
@@ -352,6 +418,8 @@ export interface RoomSnapshot {
   queue: QueueItem[];
   /** Everything the signed-in user has waiting, in their own order. */
   myQueue: QueueItem[];
+  /** Unread explanations for the signed-in user's own requests, newest first. */
+  myNotices: QueueNotice[];
   /** Active rules, in the order admins arranged them. */
   rules: PublicRule[];
   selectorStats: SelectorStats[];

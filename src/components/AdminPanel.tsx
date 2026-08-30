@@ -1,4 +1,5 @@
 import {
+  Activity,
   ArrowDownToLine,
   ArrowUpToLine,
   Ban,
@@ -9,8 +10,11 @@ import {
   ExternalLink,
   ListMusic,
   Loader2,
+  MonitorPlay,
   Shield,
   Pencil,
+  RefreshCw,
+  SlidersHorizontal,
   ToggleLeft,
   ToggleRight,
   Trash2,
@@ -23,6 +27,7 @@ import type {
   RuleEntrySummary,
   RuleSummary,
   PlaybackRegion,
+  OperationsSnapshot,
   UserRole,
 } from '../shared/contracts';
 import { moveItem, type MoveDestination } from './reorder';
@@ -35,6 +40,21 @@ interface AdminPanelProps {
 type Settings = RoomSnapshot['settings'];
 
 const REGION_HINT = 'The country the YouTube availability checks run against.';
+
+const TABS = [
+  { id: 'room', label: 'Room', icon: SlidersHorizontal },
+  { id: 'people', label: 'People', icon: Users },
+  { id: 'server', label: 'Server', icon: Activity },
+  { id: 'obs', label: 'OBS', icon: MonitorPlay },
+] as const;
+
+export type AdminTab = (typeof TABS)[number]['id'];
+
+/** The open tab lives in the URL hash, so a reload or a shared link reopens it. */
+export function tabFromHash(hash: string): AdminTab {
+  const id = hash.replace(/^#/, '');
+  return TABS.some((tab) => tab.id === id) ? (id as AdminTab) : 'room';
+}
 
 type CooldownUnit = 'minutes' | 'hours' | 'days';
 
@@ -58,14 +78,50 @@ export function cooldownSeconds(amount: number, unit: CooldownUnit): number {
   return Math.round(amount * COOLDOWN_UNIT_SECONDS[unit]);
 }
 
+const BYTE_UNITS = ['bytes', 'kB', 'MB', 'GB', 'TB'] as const;
+
+/** PostgreSQL's own 1024-based units, so the figures match `pg_size_pretty`. */
+export function formatBytes(bytes: number): string {
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  if (unit === 0) return `${value} ${value === 1 ? 'byte' : 'bytes'}`;
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${BYTE_UNITS[unit]}`;
+}
+
+export function formatShare(share: number): string {
+  const percent = share * 100;
+  if (percent > 0 && percent < 0.1) return '<0.1%';
+  return `${percent.toFixed(1)}%`;
+}
+
+export function elapsedTime(from: string, to: string): string {
+  const seconds = Math.max(0, Math.floor((new Date(to).getTime() - new Date(from).getTime()) / 1_000));
+  if (seconds < 60) return `${seconds}s`;
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m${seconds % 60 ? ` ${seconds % 60}s` : ''}`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d${hours % 24 ? ` ${hours % 24}h` : ''}`;
+}
+
 export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   const [me, setMe] = useState<RoomSnapshot['me']>(null);
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [rules, setRules] = useState<RuleSummary[]>([]);
   const [members, setMembers] = useState<RoomMember[]>([]);
-  const [entries, setEntries] = useState<Record<string, RuleEntrySummary[]>>({});
   const [regions, setRegions] = useState<PlaybackRegion[]>([]);
+  const [operations, setOperations] = useState<OperationsSnapshot | null>(null);
+  const [operationsBusy, setOperationsBusy] = useState(false);
+  const [tab, setTab] = useState<AdminTab>('room');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -101,6 +157,17 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
     setMembers(memberList.users);
   }, [call, search]);
 
+  const refreshOperations = useCallback(async () => {
+    setOperationsBusy(true);
+    try {
+      setOperations(await call('/api/operations'));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Server activity could not be loaded.');
+    } finally {
+      setOperationsBusy(false);
+    }
+  }, [call]);
+
   useEffect(() => {
     void refresh()
       .catch((cause: Error) => setError(cause.message))
@@ -115,6 +182,21 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
       .then((payload) => setRegions(payload.regions))
       .catch(() => setRegions([]));
   }, [call, me?.role]);
+
+  // The pages are prerendered, so the hash is only readable once this runs in a
+  // browser.
+  useEffect(() => {
+    const sync = () => setTab(tabFromHash(window.location.hash));
+    sync();
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
+
+  // The snapshot is fetched when the Server tab first opens, so the other tabs
+  // never pay for it.
+  useEffect(() => {
+    if (me?.role === 'admin' && tab === 'server' && !operations) void refreshOperations();
+  }, [me?.role, tab, operations, refreshOperations]);
 
   const act = useCallback(
     async (work: () => Promise<unknown>, message: string) => {
@@ -133,21 +215,6 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
     },
     [refresh],
   );
-
-  function moveRule(rule: RuleSummary, destination: MoveDestination) {
-    const orderedIds = moveItem(rules, rule.id, destination);
-    if (!orderedIds) return;
-    void act(() => call('/api/rules/order', 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
-  }
-
-  async function toggleEntries(ruleId: string) {
-    if (entries[ruleId]) {
-      setEntries(({ [ruleId]: _removed, ...rest }) => rest);
-      return;
-    }
-    const payload = await call(`/api/rules/${ruleId}/entries`);
-    setEntries((current) => ({ ...current, [ruleId]: payload.entries }));
-  }
 
   if (!loaded) {
     return (
@@ -201,124 +268,332 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         </div>
       </header>
 
+      <nav className="admin-tabs" aria-label="Admin sections">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className={id === tab ? 'admin-tab admin-tab-open' : 'admin-tab'}
+            aria-current={id === tab ? 'page' : undefined}
+            onClick={() => {
+              window.location.hash = id;
+              setTab(id);
+            }}
+          >
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </nav>
+
       {error && <p className="admin-error">{error}</p>}
       {notice && <p className="admin-notice">{notice}</p>}
 
-      {settings && (
+      {tab === 'room' && settings && (
         <SettingsSection settings={settings} regions={regions} busy={busy} act={act} call={call} />
       )}
+      {tab === 'room' && <RulesSection rules={rules} busy={busy} act={act} call={call} />}
 
-      <section className="admin-card">
-        <h2>
-          <Ban size={18} /> Rules
-        </h2>
-        <p className="admin-help">
-          A blocklist rule collects the tracks and artists that broke it, so blocking a song under it
-          teaches the room. An advisory rule is only shown to listeners. Switching a rule off hides it
-          from the player and stops it being enforced, but keeps its list for later.
-        </p>
-
-        <NewRuleForm busy={busy} act={act} call={call} />
-
-        {rules.length === 0 ? (
-          <p className="admin-empty">No rules yet.</p>
-        ) : (
-          <ul className="admin-list">
-            {rules.map((rule, index) => (
-              <RuleRow
-                key={rule.id}
-                rule={rule}
-                busy={busy}
-                act={act}
-                call={call}
-                entries={entries[rule.id]}
-                index={index}
-                total={rules.length}
-                onMove={(destination) => moveRule(rule, destination)}
-                onToggleEntries={() => void toggleEntries(rule.id)}
-                onEntryRemoved={() =>
-                  setEntries(({ [rule.id]: _removed, ...rest }) => rest)
-                }
-              />
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="admin-card">
-        <h2>
-          <Users size={18} /> People
-        </h2>
-        <input
-          type="search"
-          value={search}
-          placeholder="Search by username"
-          onChange={(event) => setSearch(event.currentTarget.value)}
-          aria-label="Search people"
+      {tab === 'people' && (
+        <PeopleSection
+          members={members}
+          search={search}
+          onSearch={setSearch}
+          busy={busy}
+          act={act}
+          call={call}
         />
-        <ul className="admin-list">
-          {members.map((member) => (
-            <li key={member.id}>
-              <div className="admin-row">
-                <div>
-                  <strong>{member.username}</strong>
-                  {member.role !== 'listener' && (
-                    <span className="admin-meta">
-                      <Shield size={13} /> {member.isRoot ? 'root admin' : member.role}
-                    </span>
-                  )}
-                  {member.queuedCount > 0 && (
-                    <span className="admin-meta">
-                      <ListMusic size={13} /> {member.queuedCount} queued
-                    </span>
-                  )}
-                </div>
-                <div className="admin-row-actions">
-                  {member.queuedCount > 0 && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        const reason = window.prompt(`Clear ${member.username}'s queue. Reason?`);
-                        if (reason) {
-                          void act(
-                            () => call(`/api/users/${member.id}/clear-queue`, 'POST', { reason }),
-                            `Cleared ${member.username}'s queue.`,
-                          );
-                        }
-                      }}
-                    >
-                      Clear queue
-                    </button>
-                  )}
-                  <select
-                    aria-label={`Role for ${member.username}`}
-                    value={member.role}
-                    disabled={busy || member.isRoot}
-                    title={member.isRoot ? 'Root admins are set in the environment' : undefined}
-                    onChange={(event) => {
-                      const role = event.currentTarget.value as UserRole;
-                      void act(
-                        () => call(`/api/users/${member.id}/role`, 'PATCH', { role }),
-                        `${member.username} is now ${role === 'listener' ? 'a listener' : `a ${role}`}.`,
-                      );
-                    }}
-                  >
-                    <option value="listener">Listener</option>
-                    <option value="mod">Mod</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-              </div>
-            </li>
-          ))}
-          {members.length === 0 && <li className="admin-empty">Nobody matches that.</li>}
-        </ul>
-      </section>
+      )}
 
-      <ObsSources />
+      {tab === 'server' && (
+        <OperationsSection
+          snapshot={operations}
+          busy={operationsBusy}
+          onRefresh={() => void refreshOperations()}
+        />
+      )}
+
+      {tab === 'obs' && <ObsSources />}
     </main>
   );
+}
+
+function RulesSection({ rules, busy, act, call }: SectionProps & { rules: RuleSummary[] }) {
+  const [entries, setEntries] = useState<Record<string, RuleEntrySummary[]>>({});
+
+  function moveRule(rule: RuleSummary, destination: MoveDestination) {
+    const orderedIds = moveItem(rules, rule.id, destination);
+    if (!orderedIds) return;
+    void act(() => call('/api/rules/order', 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
+  }
+
+  async function toggleEntries(ruleId: string) {
+    if (entries[ruleId]) {
+      setEntries(({ [ruleId]: _removed, ...rest }) => rest);
+      return;
+    }
+    const payload = await call(`/api/rules/${ruleId}/entries`);
+    setEntries((current) => ({ ...current, [ruleId]: payload.entries }));
+  }
+
+  return (
+    <section className="admin-card">
+      <h2>
+        <Ban size={18} /> Rules
+      </h2>
+      <p className="admin-help">
+        A blocklist rule collects the tracks and artists that broke it, so blocking a song under it
+        teaches the room. An advisory rule is only shown to listeners. Switching a rule off hides it
+        from the player and stops it being enforced, but keeps its list for later.
+      </p>
+
+      <NewRuleForm busy={busy} act={act} call={call} />
+
+      {rules.length === 0 ? (
+        <p className="admin-empty">No rules yet.</p>
+      ) : (
+        <ul className="admin-list">
+          {rules.map((rule, index) => (
+            <RuleRow
+              key={rule.id}
+              rule={rule}
+              busy={busy}
+              act={act}
+              call={call}
+              entries={entries[rule.id]}
+              index={index}
+              total={rules.length}
+              onMove={(destination) => moveRule(rule, destination)}
+              onToggleEntries={() => void toggleEntries(rule.id)}
+              onEntryRemoved={() =>
+                setEntries(({ [rule.id]: _removed, ...rest }) => rest)
+              }
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function PeopleSection({
+  members,
+  search,
+  onSearch,
+  busy,
+  act,
+  call,
+}: SectionProps & { members: RoomMember[]; search: string; onSearch: (value: string) => void }) {
+  return (
+    <section className="admin-card">
+      <h2>
+        <Users size={18} /> People
+      </h2>
+      <input
+        type="search"
+        value={search}
+        placeholder="Search by username"
+        onChange={(event) => onSearch(event.currentTarget.value)}
+        aria-label="Search people"
+      />
+      <ul className="admin-list">
+        {members.map((member) => (
+          <li key={member.id}>
+            <div className="admin-row">
+              <div>
+                <strong>{member.username}</strong>
+                {member.role !== 'listener' && (
+                  <span className="admin-meta">
+                    <Shield size={13} /> {member.isRoot ? 'root admin' : member.role}
+                  </span>
+                )}
+                {member.queuedCount > 0 && (
+                  <span className="admin-meta">
+                    <ListMusic size={13} /> {member.queuedCount} queued
+                  </span>
+                )}
+              </div>
+              <div className="admin-row-actions">
+                {member.queuedCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      const reason = window.prompt(`Clear ${member.username}'s queue. Reason?`);
+                      if (reason) {
+                        void act(
+                          () => call(`/api/users/${member.id}/clear-queue`, 'POST', { reason }),
+                          `Cleared ${member.username}'s queue.`,
+                        );
+                      }
+                    }}
+                  >
+                    Clear queue
+                  </button>
+                )}
+                <select
+                  aria-label={`Role for ${member.username}`}
+                  value={member.role}
+                  disabled={busy || member.isRoot}
+                  title={member.isRoot ? 'Root admins are set in the environment' : undefined}
+                  onChange={(event) => {
+                    const role = event.currentTarget.value as UserRole;
+                    void act(
+                      () => call(`/api/users/${member.id}/role`, 'PATCH', { role }),
+                      `${member.username} is now ${role === 'listener' ? 'a listener' : `a ${role}`}.`,
+                    );
+                  }}
+                >
+                  <option value="listener">Listener</option>
+                  <option value="mod">Mod</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+          </li>
+        ))}
+        {members.length === 0 && <li className="admin-empty">Nobody matches that.</li>}
+      </ul>
+    </section>
+  );
+}
+
+const CONNECTION_LABELS = {
+  room: 'Room page',
+  'embed-player': 'Synchronized video player',
+  'embed-playing': 'Now-playing overlay',
+  'embed-queue': 'Upcoming queue',
+} as const;
+
+function OperationsSection({
+  snapshot,
+  busy,
+  onRefresh,
+}: {
+  snapshot: OperationsSnapshot | null;
+  busy: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="admin-card">
+      <div className="admin-section-heading">
+        <h2>
+          <Activity size={18} /> Server activity
+        </h2>
+        <button className="admin-refresh" type="button" disabled={busy} onClick={onRefresh}>
+          <RefreshCw className={busy ? 'spin' : undefined} size={14} /> Refresh
+        </button>
+      </div>
+
+      {!snapshot ? (
+        <p className="admin-empty">Loading server activity…</p>
+      ) : (
+        <>
+          <dl className="admin-operation-counts">
+            <div>
+              <dt>Open sockets</dt>
+              <dd>{snapshot.socketCount}</dd>
+            </div>
+            <div>
+              <dt>Distinct listeners</dt>
+              <dd>{snapshot.listenerCount}</dd>
+            </div>
+            <div>
+              <dt>Eligible voters</dt>
+              <dd>{snapshot.eligibleVoterCount}</dd>
+            </div>
+          </dl>
+
+          <p className="admin-operation-clock">
+            The API has been up for {elapsedTime(snapshot.processStartedAt, snapshot.capturedAt)}. The
+            room clock checked {snapshot.clock.checks.toLocaleString()}{' '}
+            {snapshot.clock.checks === 1 ? 'time' : 'times'} and advanced playback{' '}
+            {snapshot.clock.advances.toLocaleString()}{' '}
+            {snapshot.clock.advances === 1 ? 'time' : 'times'}.
+            {snapshot.clock.lastAdvancedAt
+              ? ` Its last advance was ${elapsedTime(snapshot.clock.lastAdvancedAt, snapshot.capturedAt)} before this snapshot.`
+              : ' It has not advanced playback since this API process started.'}
+          </p>
+
+          <div className="admin-section-subheading">
+            <h3>Open connections</h3>
+            <span>{new Date(snapshot.capturedAt).toLocaleString()}</span>
+          </div>
+          {snapshot.connections.length === 0 ? (
+            <p className="admin-empty">No sockets are open.</p>
+          ) : (
+            <ul className="admin-connection-list">
+              {snapshot.connections.map((connection, index) => (
+                <li key={`${connection.connectedAt}-${connection.kind}-${connection.username ?? 'anonymous'}-${index}`}>
+                  <div>
+                    <strong>
+                      {connection.kind === 'room'
+                        ? connection.username ?? 'Anonymous browser'
+                        : CONNECTION_LABELS[connection.kind]}
+                    </strong>
+                    <span>
+                      {connection.kind === 'room' ? CONNECTION_LABELS.room : 'OBS browser source'}
+                    </span>
+                  </div>
+                  <time dateTime={connection.connectedAt}>
+                    Connected for {elapsedTime(connection.connectedAt, snapshot.capturedAt)}
+                  </time>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="admin-section-subheading">
+            <h3>Database storage</h3>
+            <span>{formatBytes(snapshot.storage.databaseBytes)}</span>
+          </div>
+          <p className="admin-help">
+            What PostgreSQL reports for its own tables and indexes. Nothing else on the volume is in
+            this figure: the write-ahead log, PostgreSQL's fixed files and container logs sit outside
+            it, it says nothing about free disk, and there is no backup job behind it.
+          </p>
+          <ul className="admin-storage-list">
+            {snapshot.storage.groups.map((group) => (
+              <li key={group.name}>
+                <div className="admin-storage-head">
+                  <strong>{group.name}</strong>
+                  <span>
+                    {formatBytes(group.totalBytes)} · {formatShare(group.share)}
+                  </span>
+                </div>
+                <div className="admin-storage-bar">
+                  <span style={{ width: `${Math.min(group.share * 100, 100)}%` }} />
+                </div>
+                <dl className="admin-storage-figures">
+                  <div>
+                    <dt>Rows</dt>
+                    <dd>{group.rowCount.toLocaleString()}</dd>
+                  </div>
+                  <div>
+                    <dt>Table</dt>
+                    <dd>{formatBytes(group.tableBytes)}</dd>
+                  </div>
+                  <div>
+                    <dt>Indexes</dt>
+                    <dd>{formatBytes(group.indexBytes)}</dd>
+                  </div>
+                </dl>
+                <p className="admin-meta">{group.tables.join(', ')}</p>
+              </li>
+            ))}
+          </ul>
+          <p className="admin-help">
+            These groups hold {formatShare(measuredShare(snapshot.storage))} of the database. The rest
+            is PostgreSQL's own catalogues and the room it keeps inside its files.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** How much of the database the named groups account for, catalogues aside. */
+function measuredShare(storage: OperationsSnapshot['storage']): number {
+  return storage.groups.reduce((total, group) => total + group.share, 0);
 }
 
 function CopyButton({ value, label }: { value: string; label: string }) {

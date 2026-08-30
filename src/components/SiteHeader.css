@@ -192,14 +192,23 @@
   .topbar {
     height: auto;
     min-height: 58px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
     padding: 10px 14px;
   }
 
-  .account-name,
-  .account .avatar,
-  .admin-label,
-  .text-button {
-    display: none;
+  .account {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .account-name {
+    min-width: 0;
+  }
+
+  .account .text-button,
+  .login-button {
+    margin-left: auto;
   }
 
   .login-button {

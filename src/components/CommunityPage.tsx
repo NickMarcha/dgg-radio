@@ -142,7 +142,7 @@ function HistoryTable({
                 </div>
               </td>
               {showRequester && (
-                <td>
+                <td data-label="Requested by">
                   <a
                     className={userClass(entry.requestedBy, 'profile-link')}
                     href={profileUrl(entry.requestedBy.username)}
@@ -151,9 +151,9 @@ function HistoryTable({
                   </a>
                 </td>
               )}
-              <td><time dateTime={entry.startedAt}>{formatDate(entry.startedAt)}</time></td>
-              <td><span className="vote-up">+{entry.upvotes}</span> <span className="vote-down">-{entry.downvotes}</span></td>
-              <td className={`history-status status-${entry.status}`}>{entry.status}</td>
+              <td data-label="Played"><time dateTime={entry.startedAt}>{formatDate(entry.startedAt)}</time></td>
+              <td data-label="Votes"><span className="vote-up">+{entry.upvotes}</span> <span className="vote-down">-{entry.downvotes}</span></td>
+              <td data-label="Result" className={`history-status status-${entry.status}`}>{entry.status}</td>
             </tr>
           ))}
         </tbody>
@@ -208,6 +208,7 @@ function ChatCheck({ profile, apiUrl }: { profile: UserProfile; apiUrl: string }
 
 function ProfileView({ profile, apiUrl }: { profile: UserProfile; apiUrl: string }) {
   const { stats } = profile;
+  const library = usePlaylistLibrary(apiUrl, profile.history.map(({ media }) => media.id));
   return (
     <>
       <header className="profile-heading">
@@ -230,12 +231,17 @@ function ProfileView({ profile, apiUrl }: { profile: UserProfile; apiUrl: string
         <div><dt>Score per play</dt><dd>{stats.averageScorePerPlay > 0 ? '+' : ''}{stats.averageScorePerPlay.toFixed(1)}</dd></div>
       </dl>
 
+      {library.error && (
+        <p className="community-error" role="alert">
+          {library.error} Saving to a playlist is unavailable.
+        </p>
+      )}
       <section className="community-section">
         <div className="community-section-heading">
           <h2>Play history</h2>
           <span>{stats.played} finished · {stats.skipped} skipped</span>
         </div>
-        <HistoryTable entries={profile.history} showRequester={false} />
+        <HistoryTable entries={profile.history} showRequester={false} library={library} />
       </section>
     </>
   );
@@ -269,8 +275,11 @@ function StatsView({ stats }: { stats: CommunityStats }) {
                   <td className={`team-name team-name-${team.team}`}>
                     {team.team === 'pepe' ? 'PEPE' : team.team === 'yee' ? 'YEE' : 'Unassigned'}
                   </td>
-                  <td>{team.members}</td><td>{team.plays}</td><td>{team.upvotes}</td><td>{team.downvotes}</td>
-                  <td><Score value={team.score} /></td>
+                  <td data-label="Members">{team.members}</td>
+                  <td data-label="Plays">{team.plays}</td>
+                  <td data-label="Up">{team.upvotes}</td>
+                  <td data-label="Down">{team.downvotes}</td>
+                  <td data-label="Score"><Score value={team.score} /></td>
                 </tr>
               ))}
             </tbody>
@@ -311,8 +320,10 @@ function StatsView({ stats }: { stats: CommunityStats }) {
                         </div>
                       </div>
                     </td>
-                    <td>{entry.plays}</td><td>{entry.upvotes}</td><td>{entry.downvotes}</td>
-                    <td><Score value={entry.score} /></td>
+                    <td data-label="Plays">{entry.plays}</td>
+                    <td data-label="Up">{entry.upvotes}</td>
+                    <td data-label="Down">{entry.downvotes}</td>
+                    <td data-label="Score"><Score value={entry.score} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -340,8 +351,10 @@ function StatsView({ stats }: { stats: CommunityStats }) {
                         <TeamText team={entry.user.team} />
                       </div>
                     </td>
-                    <td>{entry.plays}</td><td>{entry.upvotes}</td><td>{entry.downvotes}</td>
-                    <td><Score value={entry.score} /></td>
+                    <td data-label="Plays">{entry.plays}</td>
+                    <td data-label="Up">{entry.upvotes}</td>
+                    <td data-label="Down">{entry.downvotes}</td>
+                    <td data-label="Score"><Score value={entry.score} /></td>
                   </tr>
                 ))}
               </tbody>

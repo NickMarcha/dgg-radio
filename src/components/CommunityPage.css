@@ -364,6 +364,127 @@
   .community-section-heading > span {
     text-align: left;
   }
+
+  .community-table-wrap {
+    overflow-x: visible;
+  }
+
+  .history-table,
+  .history-table tbody,
+  .team-table,
+  .team-table tbody,
+  .track-table,
+  .track-table tbody,
+  .jammer-table,
+  .jammer-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .history-table thead,
+  .team-table thead,
+  .track-table thead,
+  .jammer-table thead {
+    display: none;
+  }
+
+  .history-table tr,
+  .team-table tr,
+  .track-table tr,
+  .jammer-table tr {
+    width: 100%;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .history-table td,
+  .team-table td,
+  .track-table td,
+  .jammer-table td {
+    min-width: 0;
+    height: auto;
+    padding: 3px 4px;
+    border-bottom: 0;
+    white-space: normal;
+  }
+
+  .history-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px 0;
+  }
+
+  .history-table td:first-child {
+    width: auto;
+    min-width: 0;
+    grid-column: 1 / -1;
+    padding: 0 0 9px;
+  }
+
+  .history-table td:not(:first-child)::before,
+  .team-table td:not(:first-child)::before,
+  .track-table td:nth-child(n + 3)::before,
+  .jammer-table td:nth-child(n + 3)::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 1px;
+    color: var(--faint);
+    font-size: 10px;
+  }
+
+  .history-table .history-track > div,
+  .track-table .history-track > div,
+  .jammer-table .jammer-user {
+    flex: 1;
+  }
+
+  .team-table tr {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding: 10px 0;
+  }
+
+  .team-table td:first-child {
+    grid-column: 1 / -1;
+    padding-bottom: 7px;
+  }
+
+  .track-table tr,
+  .jammer-table tr {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 12px 0;
+  }
+
+  .track-table td:first-child,
+  .jammer-table td:first-child {
+    grid-column: 1;
+    grid-row: 1;
+    padding-top: 10px;
+    color: var(--faint);
+  }
+
+  .track-table td:nth-child(2),
+  .jammer-table td:nth-child(2) {
+    width: auto;
+    min-width: 0;
+    grid-column: 2 / -1;
+    grid-row: 1;
+    padding: 0 0 9px;
+  }
+
+  .track-table td:nth-child(3),
+  .jammer-table td:nth-child(3) { grid-column: 1; }
+  .track-table td:nth-child(4),
+  .jammer-table td:nth-child(4) { grid-column: 2; }
+  .track-table td:nth-child(5),
+  .jammer-table td:nth-child(5) { grid-column: 3; }
+  .track-table td:nth-child(6),
+  .jammer-table td:nth-child(6) { grid-column: 4; }
+
+  .track-table td:nth-child(n + 3),
+  .jammer-table td:nth-child(n + 3) {
+    grid-row: 2;
+  }
 }
 
 .profile-check {

@@ -79,6 +79,7 @@ function roomSnapshot(): RoomSnapshot {
       },
     ],
     myQueue: [],
+    myNotices: [],
     rules: [],
     selectorStats: [],
   };
