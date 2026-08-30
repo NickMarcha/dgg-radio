@@ -175,16 +175,22 @@ there. The local compose stack is not it.
 - **The Cloudflare rate-limiting rule has not been created.** `docs/backlog.md`
   carries it: `/api/*`, 100 requests per 10 seconds by IP. The Free plan allows
   one rule, counts by IP only, and offers no period longer than ten seconds.
-- **Two test releases in PostHog**, `dgg-radio-web@local-host-test-ingestion`
-  and `@local-verify`, from proving the upload worked. Forty symbol sets each,
-  uploaded successfully, so they read as healthy rather than failed -- their
-  chunk ids simply belong to local builds and can never match a deployed
-  bundle. Cosmetic, and deletable through the error tracking settings page.
+That is the only one left. Two other things were on this list and were dealt
+with:
 
-Saved queries naming the old `YOUTUBE_BLOCKED_IN_UAE` error code were on this
-list and are not: the project holds eight insights, all PostHog's own onboarding
-templates, no alerts, and nothing referencing any of this room's events. The
-rename in `785775d` broke nothing, so the item was dropped rather than carried.
+- **The test releases from proving the upload worked** are deleted, along with
+  the symbol sets PostHog had auto-created with a failure when it tried to
+  resolve a trace and found no matching chunk. Every set now in the project
+  traces to a real deploy commit, and none is invalid.
+- **Saved queries naming the old `YOUTUBE_BLOCKED_IN_UAE` code** turned out not
+  to exist. The project holds eight insights, all PostHog's own onboarding
+  templates, no alerts, and nothing referencing any event this room sends, so
+  the rename in `785775d` broke nothing. Checked rather than assumed, and the
+  item was dropped rather than carried.
+
+Source-map uploads leave about forty symbol sets per deploy, which is the Astro
+multi-pass upload described above rather than anything going wrong. Expect that
+list to grow at that rate.
 
 ## Next
 
