@@ -50,18 +50,6 @@ different feature.
 Leave it at 50 until somebody complains, then decide with that complaint in
 hand rather than in advance.
 
-## PostHog source maps are never uploaded
-
-`.env.example` declares `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and
-`POSTHOG_RELEASE_VERSION` for source-map uploads, but nothing runs one. The
-Netlify build is `npm run build:web` and stops there, so every browser stack
-trace in PostHog is minified: one real error reads `i.getCurrentTime is not a
-function`, where `i` is the YouTube player.
-
-The upload belongs in the Netlify build, after `build:web`, guarded so that a
-build without the credentials still succeeds rather than failing the site.
-`POSTHOG_RELEASE_VERSION` should be the commit SHA, which Netlify exposes.
-
 ## The PostHog event set has never been judged against real data
 
 Server events only started arriving on 2026-08-30, when `POSTHOG_PROJECT_KEY`
