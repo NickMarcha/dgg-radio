@@ -12,7 +12,16 @@ export function initClientAnalytics(key: string | undefined, host: string | unde
     capture_pageview: true,
     capture_pageleave: true,
     capture_exceptions: true,
-    disable_session_recording: true,
+    // Recording is on, but PostHog only keeps a session where an `$exception`
+    // was captured: the recorder holds the session in memory and uploads it
+    // when the trigger fires, so a visit where nothing broke is never sent and
+    // the lead-up to one that did is not lost. The trigger lives in the
+    // project's replay settings, not here, so this reads as "record everything"
+    // on its own.
+    //
+    // Input values are masked by default and stay that way. Anything worth
+    // knowing that a person typed is attached to the error instead, which is
+    // exact rather than pixels and costs nobody else their privacy.
     person_profiles: 'identified_only',
     respect_dnt: true,
   });

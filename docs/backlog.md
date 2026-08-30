@@ -93,6 +93,28 @@ for the same reason.
 Worth revisiting if the room ever outgrows the Free plan: a longer period and
 counting by cookie would let the rule follow a person instead of an address.
 
+## Session replay records every exception, including other people's
+
+Replay is on and gated by an `$exception` trigger in the project's replay
+settings: a visit where nothing broke is never uploaded, and one that did keeps
+the in-memory lead-up. There is no sampling and no minimum duration, because at
+eleven exceptions in three days there is nothing to sample.
+
+`capture_exceptions` catches whatever reaches the window, which includes browser
+extensions and third-party scripts the room did not load. None of that is worth
+a recording, and each one spends a session on somebody else's bug.
+
+Leave it alone until there is enough history to say what the noise actually is.
+The fix is then one of three, in order of preference: name the offenders in
+`autocapture_exceptions_errors_to_ignore` so they never become events at all;
+add a minimum duration so a page that broke instantly and was closed is dropped;
+or sample. Sampling is last because it discards real errors at the same rate as
+noise.
+
+The room's own player is a cross-origin iframe, so the video is a blank
+rectangle in every recording. That is understood and accepted -- the controls,
+the queue and the console around it are the parts worth watching.
+
 ## Database storage has no history and no owner view
 
 `/admin#server` measures the whole database and six named groups on load or on

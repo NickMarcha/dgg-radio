@@ -518,15 +518,26 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     const query = searchQuery.trim();
     if (query.length < 2) return;
     setSearching(true);
+    let status: number | null = null;
     try {
       const response = await fetch(`${apiUrl}/api/search?q=${encodeURIComponent(query)}`, {
         credentials: 'include',
       });
+      status = response.status;
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error?.message ?? 'Search failed.');
       setResults(payload.results);
     } catch (cause) {
-      setNotice(cause instanceof Error ? cause.message : 'Search failed.');
+      const error = cause instanceof Error ? cause : new Error('Search failed.');
+      // An answer the room meant to give -- a rate limit, a query it rejected --
+      // is not a fault worth a trace. A provider that failed or an API that
+      // could not be reached is, and the query rides along because a replay
+      // masks what people type and the search box is the one field that
+      // explains the error.
+      if (status === null || status >= 500) {
+        captureClientException(error, { area: 'search', query, status });
+      }
+      setNotice(error.message);
       setResults([]);
     } finally {
       setSearching(false);
