@@ -19,6 +19,24 @@ export const blockMediaSchema = z.object({
   note: z.string().trim().max(240).optional(),
 });
 
+/**
+ * Blocking something nobody has requested. The link is read the way a request
+ * is, so the same paste blocks one track or everything by whoever published it.
+ */
+export const blockByUrlSchema = z.object({
+  url: z.string().trim().min(1).max(400),
+  entryType: z.enum(['track', 'artist']),
+  note: z.string().trim().max(240).optional(),
+});
+
+/** What blocking a link turned out to cover. */
+export interface BlockByUrlResult {
+  /** What went on the list, which is the track's title or the artist's name. */
+  label: string;
+  /** Requests already waiting that the new entry took out. */
+  removed: number;
+}
+
 export const ruleSchema = z.object({
   name: z.string().trim().min(2).max(80),
   description: z.string().trim().max(600).default(''),
@@ -206,10 +224,50 @@ export interface RoomUser {
   topEmote: string | null;
 }
 
+export type GenreSource = 'musicbrainz' | 'discogs';
+export type GenreLevel = 'recording' | 'release_group' | 'artist' | 'master';
+
+/** What one source says a track is, kept in that source's own vocabulary. */
+export interface TrackGenre {
+  source: GenreSource;
+  /**
+   * What the genre describes. `artist` is coarse -- it is the artist's whole
+   * catalogue, not this track -- and is labelled as such wherever it is shown.
+   */
+  level: GenreLevel;
+  genres: string[];
+  /** Discogs' sharper second vocabulary. Always empty for MusicBrainz. */
+  styles: string[];
+  /** Where a reader can check it. Both licences ask for the link. */
+  url: string | null;
+  /**
+   * Discogs attached this video to several masters that disagreed. The answer
+   * is still worth showing, but not as though it were settled.
+   */
+  ambiguous: boolean;
+}
+
+export interface TrackGenres {
+  entries: TrackGenre[];
+  /**
+   * Two independent sources both labelled the track itself. It does not mean
+   * they used the same words: their vocabularies are different by design and
+   * are never normalised into each other.
+   */
+  corroborated: boolean;
+  /** Nothing here describes the track, only whoever made it. */
+  artistLevelOnly: boolean;
+}
+
 export interface RoomMedia {
   id: string;
   provider: MediaProvider;
   providerMediaId: string;
+  /**
+   * The channel on YouTube, the uploading account on SoundCloud. It is what an
+   * artist page is keyed by, and what blocking an artist blocks.
+   */
+  providerArtistId: string;
   canonicalUrl: string;
   title: string;
   artist: string;
@@ -237,6 +295,17 @@ export interface PlaylistDetail extends PlaylistSummary {
 export interface PlaylistLibrary {
   playlists: PlaylistSummary[];
   memberships: Record<string, string[]>;
+}
+
+/** What saving one archived play into a playlist did. */
+export interface LegacySaveResult {
+  /**
+   * The row the archive entry resolved to. The page keeps it so the track stops
+   * being an unresolved one and behaves like every other saved track.
+   */
+  mediaId: string;
+  /** False when the track was already in that playlist. */
+  saved: boolean;
 }
 
 export interface PlaylistSaveResult {
@@ -286,13 +355,24 @@ export interface SelectorStats {
  * here can be queued, saved, or voted on.
  */
 export interface LegacyPlay {
+  /** QueUp's own id for the play, which is what the archive is keyed by. */
   id: string;
   provider: MediaProvider;
+  /** The provider's id for the track, which the room's own pages are keyed by. */
+  providerMediaId: string;
   title: string;
   /** The track's own page, when the provider's id makes a link on its own. */
   canonicalUrl: string | null;
   durationSeconds: number;
   thumbnailUrl: string | null;
+  /**
+   * The room's own row for this track, when one already exists. Null means the
+   * archive holds a provider and an id and nothing else, so saving the track
+   * has to ask the provider before it can go anywhere.
+   */
+  mediaId: string | null;
+  /** What the track is, where anyone knows. Null is the ordinary answer. */
+  genres: TrackGenres | null;
   /** Their QueUp name. Some of them are somebody's Destiny name too; most are guesses. */
   requesterName: string;
   playedAt: string;
@@ -303,15 +383,18 @@ export interface LegacyPlay {
 
 export interface LegacyHistoryPage {
   entries: LegacyPlay[];
-  /** Every archived play, not just this page, so the page can say how far back it goes. */
+  /**
+   * Every archived play the request matched, not just this page. It is what
+   * says how many pages there are and how much a search found.
+   */
   total: number;
-  /** Pass as `before` to read the next page, or null at the end of the archive. */
-  nextCursor: string | null;
 }
 
 export interface HistoryEntry {
   id: string;
   media: RoomMedia;
+  /** What the track is, where anyone knows. Null is the ordinary answer. */
+  genres: TrackGenres | null;
   requestedBy: RoomUser;
   status: 'playing' | 'played' | 'skipped';
   requestedAt: string;
@@ -319,6 +402,25 @@ export interface HistoryEntry {
   finishedAt: string | null;
   upvotes: number;
   downvotes: number;
+}
+
+/**
+ * How a history is being read. Both of them take the same four, which is why
+ * one search box and one pager drive either.
+ */
+export interface HistoryQuery {
+  limit?: number;
+  page?: number;
+  /** Matched against the track, the artist, and who requested it. */
+  search?: string | null;
+  /** One genre or style, exactly as a tag on a row spells it. */
+  genre?: string | null;
+}
+
+/** The room's own history, paged and counted the same way the archive is. */
+export interface HistoryPage {
+  entries: HistoryEntry[];
+  total: number;
 }
 
 export interface UserProfile {
@@ -361,6 +463,233 @@ export interface TrackStats {
   score: number;
 }
 
+/**
+ * Which slice of time the stats are about. A month without a year means
+ * nothing, so it is ignored rather than guessed at.
+ */
+export interface StatsPeriod {
+  year: number | null;
+  /** 1 to 12, and only meaningful alongside a year. */
+  month: number | null;
+}
+
+/** A year the room has plays in, and which of its months have any. */
+export interface AvailablePeriod {
+  year: number;
+  months: number[];
+}
+
+/** One genre, and how much of each history it accounts for. */
+export interface GenreCount {
+  genre: string;
+  /** Plays in this room. */
+  roomPlays: number;
+  /** Plays on QueUp, before this room existed. */
+  archivePlays: number;
+  /**
+   * Which vocabularies this name belongs to. Usually one: Discogs' fifteen
+   * broad genres and MusicBrainz's hundreds are different lists, and a name
+   * appearing in both is the exception rather than the rule.
+   */
+  sources: GenreSource[];
+}
+
+export interface GenreStats {
+  genres: GenreCount[];
+  /** How much of what the room knows about is labelled at all. */
+  coverage: {
+    labelledTracks: number;
+    tracks: number;
+  };
+}
+
+/**
+ * One track as the QueUp archive remembers it. It cannot be a `TrackStats`:
+ * there is no `media` row behind it, and the votes were cast on another site
+ * and stored per play rather than per person.
+ */
+export interface LegacyTrackStats {
+  provider: MediaProvider;
+  providerMediaId: string;
+  title: string;
+  canonicalUrl: string | null;
+  thumbnailUrl: string | null;
+  plays: number;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+}
+
+/** One requester, by their QueUp name. There is no account behind it. */
+export interface LegacyJammerStats {
+  requesterName: string;
+  plays: number;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+}
+
+/** What the archive says, kept apart from what this room says. */
+export interface LegacyStats {
+  tracks: LegacyTrackStats[];
+  jammers: LegacyJammerStats[];
+  totals: {
+    plays: number;
+    tracks: number;
+    people: number;
+    /** When the archive starts, or null when there is no archive. */
+    since: string | null;
+  };
+}
+
+/** One play of a track, in either history. */
+export interface TrackPlay {
+  /** The account that requested it, or null for an archived QueUp name. */
+  requester: RoomUser | null;
+  requesterName: string;
+  playedAt: string;
+  upvotes: number;
+  downvotes: number;
+  status: 'played' | 'skipped';
+}
+
+/** Enough of a track to offer it in a list of other things to hear. */
+export interface TrackSummary {
+  provider: MediaProvider;
+  providerMediaId: string;
+  title: string;
+  thumbnailUrl: string | null;
+  /** Across both histories. */
+  plays: number;
+}
+
+/** Everything the room knows about one track. */
+export interface TrackDetail {
+  provider: MediaProvider;
+  providerMediaId: string;
+  title: string;
+  /** Null for a track only the archive remembers: QueUp never stored one. */
+  artist: string | null;
+  providerArtistId: string | null;
+  canonicalUrl: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  /** The room's own row, when it has played here. */
+  mediaId: string | null;
+  genres: TrackGenres | null;
+  totals: {
+    roomPlays: number;
+    archivePlays: number;
+    upvotes: number;
+    downvotes: number;
+    firstPlayed: string | null;
+    lastPlayed: string | null;
+  };
+  /** The most recent plays of it, newest first, each history on its own. */
+  roomPlays: TrackPlay[];
+  archivePlays: TrackPlay[];
+  related: {
+    /** Others from the same channel or account. Empty without a media row. */
+    byArtist: TrackSummary[];
+    /** Others sharing a genre, from either history. */
+    byGenre: TrackSummary[];
+  };
+}
+
+export interface ArtistTrack extends TrackSummary {
+  roomPlays: number;
+  archivePlays: number;
+}
+
+/** Everything the room has by one channel or account. */
+export interface ArtistDetail {
+  provider: MediaProvider;
+  providerArtistId: string;
+  name: string;
+  totals: {
+    tracks: number;
+    roomPlays: number;
+    archivePlays: number;
+  };
+  /** What their tracks are, by how many of them carry each name. */
+  genres: { name: string; tracks: number }[];
+  tracks: ArtistTrack[];
+}
+
+/** One play of a track, in either history. */
+export interface TrackPlay {
+  /** The account that requested it, or null for an archived QueUp name. */
+  requester: RoomUser | null;
+  requesterName: string;
+  playedAt: string;
+  upvotes: number;
+  downvotes: number;
+  status: 'played' | 'skipped';
+}
+
+/** Enough of a track to offer it in a list of other things to hear. */
+export interface TrackSummary {
+  provider: MediaProvider;
+  providerMediaId: string;
+  title: string;
+  thumbnailUrl: string | null;
+  /** Across both histories. */
+  plays: number;
+}
+
+/** Everything the room knows about one track. */
+export interface TrackDetail {
+  provider: MediaProvider;
+  providerMediaId: string;
+  title: string;
+  /** Null for a track only the archive remembers: QueUp never stored one. */
+  artist: string | null;
+  providerArtistId: string | null;
+  canonicalUrl: string | null;
+  thumbnailUrl: string | null;
+  durationSeconds: number | null;
+  /** The room's own row, when it has played here. */
+  mediaId: string | null;
+  genres: TrackGenres | null;
+  totals: {
+    roomPlays: number;
+    archivePlays: number;
+    upvotes: number;
+    downvotes: number;
+    firstPlayed: string | null;
+    lastPlayed: string | null;
+  };
+  /** The most recent plays of it, newest first, each history on its own. */
+  roomPlays: TrackPlay[];
+  archivePlays: TrackPlay[];
+  related: {
+    /** Others from the same channel or account. Empty without a media row. */
+    byArtist: TrackSummary[];
+    /** Others sharing a genre, from either history. */
+    byGenre: TrackSummary[];
+  };
+}
+
+export interface ArtistTrack extends TrackSummary {
+  roomPlays: number;
+  archivePlays: number;
+}
+
+/** Everything the room has by one channel or account. */
+export interface ArtistDetail {
+  provider: MediaProvider;
+  providerArtistId: string;
+  name: string;
+  totals: {
+    tracks: number;
+    roomPlays: number;
+    archivePlays: number;
+  };
+  /** What their tracks are, by how many of them carry each name. */
+  genres: { name: string; tracks: number }[];
+  tracks: ArtistTrack[];
+}
+
 export interface CommunityStats {
   totals: {
     members: number;
@@ -370,6 +699,16 @@ export interface CommunityStats {
   jammers: SelectorStats[];
   teams: TeamStats[];
   tracks: TrackStats[];
+  genres: GenreStats;
+  /** The same two tables for the QueUp years, empty when nothing is imported. */
+  legacy: LegacyStats;
+  /** What was asked for, echoed back so a page can trust what it is showing. */
+  period: StatsPeriod;
+  /**
+   * Every year and month either history has a play in, newest first. It ignores
+   * the current filter: it is what the filter offers to choose from.
+   */
+  periods: AvailablePeriod[];
 }
 
 export type RuleEnforcement = 'blocklist' | 'advisory';
@@ -531,6 +870,11 @@ export interface RoomSnapshot {
   };
   me: RoomUser | null;
   current: QueueItem | null;
+  /**
+   * What the track playing now is. Null while nobody knows, which includes the
+   * moments after a track starts and before the sources have been asked.
+   */
+  currentGenres: TrackGenres | null;
   /** One track per person waiting, in the order the room will reach them. */
   queue: QueueItem[];
   /** Everything the signed-in user has waiting, in their own order. */

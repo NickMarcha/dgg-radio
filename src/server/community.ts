@@ -3,21 +3,32 @@ import {
   countDistinct,
   desc,
   eq,
+  ilike,
   inArray,
   isNotNull,
+  or,
   sql,
 } from 'drizzle-orm';
 import type {
+  AvailablePeriod,
   CommunityStats,
   HistoryEntry,
+  HistoryPage,
+  HistoryQuery,
   RoomUser,
+  StatsPeriod,
   SelectorStats,
   TeamStats,
+  TrackGenres,
   TrackStats,
   UserProfile,
 } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
 import { media, queueItems, users, votes } from './db/schema';
+import { getGenreStats, listGenres, matchesGenre, TOP_GENRES, trackKey } from './genre';
+import { getLegacyStats } from './legacy';
+import { ALL_TIME, withinPeriod } from './period';
+import { likePattern } from './search';
 
 export class CommunityError extends Error {
   constructor(
@@ -50,6 +61,7 @@ function historySelection() {
     mediaId: media.id,
     provider: media.provider,
     providerMediaId: media.providerMediaId,
+    providerArtistId: media.providerArtistId,
     canonicalUrl: media.canonicalUrl,
     title: media.title,
     artist: media.artist,
@@ -76,6 +88,7 @@ type HistoryRow = {
   mediaId: string;
   provider: 'youtube' | 'soundcloud';
   providerMediaId: string;
+  providerArtistId: string;
   canonicalUrl: string;
   title: string;
   artist: string;
@@ -92,16 +105,18 @@ type HistoryRow = {
   downvotes: number;
 };
 
-function toHistoryEntry(row: HistoryRow): HistoryEntry {
+function toHistoryEntry(row: HistoryRow, genres: TrackGenres | null = null): HistoryEntry {
   if (!row.startedAt || !['playing', 'played', 'skipped'].includes(row.status)) {
     throw new Error('A history row must have started playback.');
   }
   return {
     id: row.id,
+    genres,
     media: {
       id: row.mediaId,
       provider: row.provider,
       providerMediaId: row.providerMediaId,
+      providerArtistId: row.providerArtistId,
       canonicalUrl: row.canonicalUrl,
       title: row.title,
       artist: row.artist,
@@ -126,23 +141,80 @@ function toHistoryEntry(row: HistoryRow): HistoryEntry {
   };
 }
 
+/**
+ * Title, artist and requester. Those are the three things somebody scanning a
+ * history is looking by, and they are all one join away.
+ */
+function historyMatches(search: string) {
+  const pattern = likePattern(search);
+  return or(
+    ilike(media.title, pattern),
+    ilike(media.artist, pattern),
+    ilike(users.username, pattern),
+  );
+}
+
+/**
+ * One page of what this room has played, newest first.
+ *
+ * Paged by offset rather than by a cursor, because the page a reader is on has
+ * to survive being put in a link and sent to somebody. The cost is that a track
+ * finishing while somebody reads shifts everything down by one row; at a track
+ * every few minutes that is a fair trade for a page number that means something.
+ *
+ * `startedAt` orders it rather than `finishedAt`: every row here has one by
+ * definition. The id breaks ties, so two tracks recorded in the same instant
+ * cannot swap places between one page and the next and be read twice or not at
+ * all.
+ */
 export async function listHistory(
-  limit = 50,
+  query: HistoryQuery = {},
   db: Database = getDatabase(),
-): Promise<HistoryEntry[]> {
-  const rows = await db
-    .select(historySelection())
-    .from(queueItems)
-    .innerJoin(media, eq(queueItems.mediaId, media.id))
-    .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
-    .where(inArray(queueItems.status, ['played', 'skipped']))
-    .orderBy(desc(queueItems.finishedAt), desc(queueItems.startedAt))
-    .limit(limit);
-  return rows.map((row) => toHistoryEntry(row as HistoryRow));
+): Promise<HistoryPage> {
+  const { limit = 50, page = 1, search = null, genre = null } = query;
+  const matching = and(
+    inArray(queueItems.status, ['played', 'skipped']),
+    search ? historyMatches(search) : undefined,
+    genre ? matchesGenre(media.provider, media.providerMediaId, genre) : undefined,
+  );
+
+  const [rows, [counted]] = await Promise.all([
+    db
+      .select(historySelection())
+      .from(queueItems)
+      .innerJoin(media, eq(queueItems.mediaId, media.id))
+      .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
+      .where(matching)
+      .orderBy(desc(queueItems.startedAt), desc(queueItems.id))
+      .limit(limit)
+      .offset((page - 1) * limit),
+    db
+      .select({ total: sql<number>`count(*)::int`.mapWith(Number) })
+      .from(queueItems)
+      .innerJoin(media, eq(queueItems.mediaId, media.id))
+      .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
+      .where(matching),
+  ]);
+
+  // One more query for the whole page, rather than a join: genre is keyed by
+  // the provider's id so that the QueUp archive can share this table, and that
+  // is not the key `media` is joined on.
+  const genres = await listGenres(
+    rows.map((row) => ({ provider: row.provider, providerMediaId: row.providerMediaId })),
+    db,
+  );
+  const entries = rows.map((row) =>
+    toHistoryEntry(
+      row as HistoryRow,
+      genres.get(trackKey(row.provider, row.providerMediaId)) ?? null,
+    ),
+  );
+  return { entries, total: counted?.total ?? 0 };
 }
 
 export async function listJammers(
   limit = 100,
+  period: StatsPeriod = ALL_TIME,
   db: Database = getDatabase(),
 ): Promise<SelectorStats[]> {
   const scoreExpression = sql<number>`coalesce(sum(${votes.value}), 0)`.mapWith(Number);
@@ -163,7 +235,7 @@ export async function listJammers(
     .from(queueItems)
     .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
     .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
-    .where(isNotNull(queueItems.startedAt))
+    .where(and(isNotNull(queueItems.startedAt), withinPeriod(queueItems.startedAt, period)))
     .groupBy(users.id, users.username, users.avatarUrl, users.role, users.team, users.flair, users.topEmote)
     .orderBy(desc(scoreExpression), desc(countDistinct(queueItems.id)))
     .limit(limit);
@@ -192,6 +264,7 @@ export async function listJammers(
  */
 export async function listTopTracks(
   limit = 100,
+  period: StatsPeriod = ALL_TIME,
   db: Database = getDatabase(),
 ): Promise<TrackStats[]> {
   const playExpression = countDistinct(queueItems.id).mapWith(Number);
@@ -201,6 +274,7 @@ export async function listTopTracks(
       id: media.id,
       provider: media.provider,
       providerMediaId: media.providerMediaId,
+      providerArtistId: media.providerArtistId,
       canonicalUrl: media.canonicalUrl,
       title: media.title,
       artist: media.artist,
@@ -214,7 +288,7 @@ export async function listTopTracks(
     .from(queueItems)
     .innerJoin(media, eq(queueItems.mediaId, media.id))
     .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
-    .where(isNotNull(queueItems.startedAt))
+    .where(and(isNotNull(queueItems.startedAt), withinPeriod(queueItems.startedAt, period)))
     .groupBy(media.id)
     .orderBy(desc(playExpression), desc(scoreExpression))
     .limit(limit);
@@ -228,7 +302,7 @@ export async function listTopTracks(
   }));
 }
 
-async function teamStats(db: Database): Promise<TeamStats[]> {
+async function teamStats(db: Database, period: StatsPeriod): Promise<TeamStats[]> {
   const scoreExpression = sql<number>`coalesce(sum(${votes.value}), 0)`.mapWith(Number);
   const rows = await db
     .select({
@@ -242,7 +316,11 @@ async function teamStats(db: Database): Promise<TeamStats[]> {
     .from(users)
     .leftJoin(
       queueItems,
-      and(eq(queueItems.requestedByUserId, users.id), isNotNull(queueItems.startedAt)),
+      and(
+        eq(queueItems.requestedByUserId, users.id),
+        isNotNull(queueItems.startedAt),
+        withinPeriod(queueItems.startedAt, period),
+      ),
     )
     .leftJoin(votes, eq(votes.queueItemId, queueItems.id))
     .groupBy(users.team);
@@ -261,13 +339,41 @@ async function teamStats(db: Database): Promise<TeamStats[]> {
   });
 }
 
+/**
+ * Every year and month either history has a play in. It is what the filter
+ * offers, so it deliberately ignores whatever the filter is currently set to.
+ */
+async function availablePeriods(db: Database): Promise<AvailablePeriod[]> {
+  const rows = await db.execute<{ year: number; month: number }>(sql`
+    select distinct
+      extract(year from played)::int as year,
+      extract(month from played)::int as month
+    from (
+      select started_at as played from queue_items where started_at is not null
+      union all
+      select played_at from legacy_plays
+    ) as plays
+    order by year desc, month desc
+  `);
+
+  const byYear = new Map<number, number[]>();
+  for (const row of rows.rows) {
+    byYear.set(row.year, [...(byYear.get(row.year) ?? []), row.month]);
+  }
+  return [...byYear].map(([year, months]) => ({ year, months }));
+}
+
 export async function getCommunityStats(
   db: Database = getDatabase(),
+  period: StatsPeriod = ALL_TIME,
 ): Promise<CommunityStats> {
-  const [jammers, teams, tracks] = await Promise.all([
-    listJammers(100, db),
-    teamStats(db),
-    listTopTracks(100, db),
+  const [jammers, teams, tracks, genres, legacy, periods] = await Promise.all([
+    listJammers(100, period, db),
+    teamStats(db, period),
+    listTopTracks(100, period, db),
+    getGenreStats(db, TOP_GENRES, period),
+    getLegacyStats(100, period, db),
+    availablePeriods(db),
   ]);
   return {
     totals: {
@@ -278,6 +384,10 @@ export async function getCommunityStats(
     jammers,
     teams,
     tracks,
+    genres,
+    legacy,
+    period,
+    periods,
   };
 }
 

@@ -120,6 +120,13 @@
       "when": 1788274150691,
       "tag": "0016_ordinary_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788338951916,
+      "tag": "0017_white_nekra",
+      "breakpoints": true
     }
   ]
 }

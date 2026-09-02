@@ -9,6 +9,7 @@ function item(id: string): QueueItem {
       id: `media-${id}`,
       provider: 'youtube',
       providerMediaId: id,
+      providerArtistId: `channel-${id}`,
       canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
       title: `Track ${id}`,
       artist: 'Artist',

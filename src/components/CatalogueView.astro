@@ -1,0 +1,17 @@
+---
+import CataloguePage from './CataloguePage';
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+interface Props {
+  kind: 'track' | 'artist';
+}
+
+const { kind } = Astro.props;
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+const title = kind === 'track' ? 'Track · DGG Radio' : 'Artist · DGG Radio';
+---
+
+<BaseLayout title={title} description="What this room has played, and when.">
+  <CataloguePage client:load apiUrl={apiUrl} kind={kind} />
+</BaseLayout>

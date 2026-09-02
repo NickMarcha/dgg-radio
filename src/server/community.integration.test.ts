@@ -160,11 +160,72 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
   it('orders completed room history newest first and excludes queued requests', async () => {
     const { alicePlayed, aliceSkipped, bobPlayed } = await seedCommunity();
 
-    const history = await listHistory(50, db);
+    const page = await listHistory({}, db);
 
-    expect(history.map((item) => item.id)).toEqual([aliceSkipped, alicePlayed, bobPlayed]);
-    expect(history.every((item) => item.startedAt && item.finishedAt)).toBe(true);
-    expect(history[0]).toMatchObject({ status: 'skipped', upvotes: 0, downvotes: 1 });
+    expect(page.entries.map((item) => item.id)).toEqual([aliceSkipped, alicePlayed, bobPlayed]);
+    expect(page.total).toBe(3);
+    expect(page.entries.every((item) => item.startedAt && item.finishedAt)).toBe(true);
+    expect(page.entries[0]).toMatchObject({ status: 'skipped', upvotes: 0, downvotes: 1 });
+  });
+
+  it('numbers the pages, and counts every match rather than the page', async () => {
+    const { alicePlayed, aliceSkipped, bobPlayed } = await seedCommunity();
+
+    const first = await listHistory({ limit: 2 }, db);
+    const second = await listHistory({ limit: 2, page: 2 }, db);
+    const past = await listHistory({ limit: 2, page: 9 }, db);
+
+    expect(first.entries.map((item) => item.id)).toEqual([aliceSkipped, alicePlayed]);
+    expect(second.entries.map((item) => item.id)).toEqual([bobPlayed]);
+    // The count is of everything the request matched, so a page can say how
+    // many there are without reading them.
+    expect([first.total, second.total]).toEqual([3, 3]);
+    expect(past.entries).toEqual([]);
+  });
+
+  it('searches the room history by track and by who requested it', async () => {
+    const { alicePlayed, aliceSkipped } = await seedCommunity();
+
+    const byTitle = await listHistory({ search: 'bbbbbbbbbbb' }, db);
+    const byRequester = await listHistory({ search: 'alice' }, db);
+    const byNothing = await listHistory({ search: 'nothing matches this' }, db);
+
+    expect(byTitle.entries.map((item) => item.id)).toEqual([aliceSkipped]);
+    expect(byTitle.total).toBe(1);
+    expect(byRequester.entries.map((item) => item.id)).toEqual([aliceSkipped, alicePlayed]);
+    expect(byNothing).toEqual({ entries: [], total: 0 });
+  });
+
+  it('treats a LIKE wildcard in a search as the character somebody typed', async () => {
+    await seedCommunity();
+
+    // Unescaped, `_` would match any character and find all three tracks.
+    await expect(listHistory({ search: 'Track _' }, db)).resolves.toMatchObject({ total: 0 });
+  });
+
+  it('narrows every table to a year or a month, and says what it could offer', async () => {
+    const { alicePlayed, aliceSkipped, bobPlayed } = await seedCommunity();
+
+    const everything = await getCommunityStats(db);
+    // The seed plays on 2026-08-27 and 2026-08-28.
+    const august = await getCommunityStats(db, { year: 2026, month: 8 });
+    const july = await getCommunityStats(db, { year: 2026, month: 7 });
+    const wrongYear = await getCommunityStats(db, { year: 2025, month: null });
+
+    expect(everything.totals.tracksPlayed).toBe(3);
+    expect(august.totals.tracksPlayed).toBe(3);
+    expect(august.tracks.map(({ media: track }) => track.providerMediaId).sort()).toEqual([
+      'aaaaaaaaaaa',
+      'bbbbbbbbbbb',
+      'ccccccccccc',
+    ]);
+    expect(july.tracks).toEqual([]);
+    expect(july.totals.tracksPlayed).toBe(0);
+    expect(wrongYear.jammers.every((entry) => entry.plays === 0)).toBe(true);
+
+    // What the filter can offer ignores what the filter is currently set to.
+    expect(july.periods).toEqual([{ year: 2026, months: [8] }]);
+    expect([alicePlayed, aliceSkipped, bobPlayed].every(Boolean)).toBe(true);
   });
 
   it('ranks jammers and keeps users without a detected team visible', async () => {

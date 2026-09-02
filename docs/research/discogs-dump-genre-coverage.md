@@ -219,7 +219,55 @@ attribution and a non-commercial use. The room qualifies.
    that alongside the genre.
 7. Link back to both sources wherever the data is shown.
 
+## What was built from this
+
+All seven steps, on 2026-09-02.
+
+| Step | Where it lives |
+| --- | --- |
+| Identity from the YouTube Music card | `src/server/youtube-music.ts` |
+| MusicBrainz recording match and genre, by level | `src/server/musicbrainz.ts` |
+| Storage, provenance and the display summary | `src/server/genre.ts`, `track_genres` (migration `0017`) |
+| The dump join, with both tie-breaks | `scripts/discogs-dump-import.ts` |
+| The per-track MusicBrainz pass, most played first | `scripts/enrich-genres.ts` |
+| Live Discogs search for a playing track, cached in memory only | `src/server/discogs.ts` |
+| Showing the source, the level, and the doubt | `src/components/TrackGenres.tsx` |
+
+The first real run of the dump import, against 1,929 distinct YouTube tracks in
+a partial archive, labelled 668 of them (34.6%), 92 from masters that disagree.
+That is close to the 30.8% measured here, on a different sample.
+
+## The MusicBrainz dumps, which were not used
+
+MusicBrainz publishes database dumps too, and for the same reason the Discogs
+dump won — no per-track requests — they are worth measuring before another long
+enrichment run. This has **not** been done. What is known so far is only what
+their [download documentation](https://musicbrainz.org/doc/MusicBrainz_Database/Download)
+says:
+
+- `mbdump.tar.bz2` is the core database, CC0, and holds the URL relationships.
+- `mbdump-derived.tar.bz2` holds tags, and genre association is done through
+  tags, so it is the file the genres are in. It is CC BY-NC-SA 3.0, which
+  matches what the room already attributes.
+
+Three things would decide it, and none of them is answered yet:
+
+1. **How many recordings carry a YouTube URL relation.** If that number is
+   anything like Discogs' 5.76 million embedded ids, the same exact join works
+   and the Music card scrape stops being needed at all. If it is small, it does
+   not.
+2. **Whether a local title-and-artist index is workable** for the room's few
+   thousand tracks. It would replace the search request but not the Music card,
+   so it turns three requests a track into one.
+3. **Streaming cost.** The dumps are bzip2 tarballs of PostgreSQL `COPY` output.
+   Node has no bzip2 in `zlib`, so this needs a dependency the room does not
+   have, and the core dump is several times the size of the Discogs one.
+
+Nothing here is guesswork about the numbers: they have not been looked at.
+
 ## Scripts
 
 - `scripts/musicbrainz-genre-source.prototype.ts`, where MusicBrainz keeps genre
 - `scripts/discogs-dump-coverage.prototype.ts`, the dump join and its ambiguity
+
+Both are superseded by the code above and can go.

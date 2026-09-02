@@ -11,7 +11,7 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
+import { useCallback, useEffect, useState, type DragEvent, type SubmitEvent } from 'react';
 import type {
   ApiErrorBody,
   PlaylistDetail,
@@ -49,6 +49,7 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const library = usePlaylistLibrary(
     apiUrl,
     detail?.tracks.map(({ media }) => media.id) ?? [],
@@ -118,9 +119,9 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
     const trimmed = name.trim();
     if (!trimmed) return;
     void act(async () => {
-      const id = await library.create(trimmed);
+      const { playlistId } = await library.create(trimmed);
       setName('');
-      setSelectedId(id);
+      setSelectedId(playlistId);
     }, `Created "${trimmed}".`);
   }
 
@@ -141,6 +142,18 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
       setImportResult(result);
       await library.refresh();
     });
+  }
+
+  /**
+   * The export lands in the downloads folder, so dragging it onto the panel is
+   * the shorter route to it than the file picker. The panel is the drop target
+   * rather than the button, because a file dropped near a small button misses.
+   */
+  function dropQueup(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setDragging(false);
+    const [file] = event.dataTransfer.files;
+    if (file) importQueup(file);
   }
 
   function rename() {
@@ -291,7 +304,21 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
               </form>
             </header>
 
-            <section className="playlist-import">
+            <section
+              className={`playlist-import${dragging ? ' is-dragging' : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={(event) => {
+                // Moving between the panel's own children fires a leave for the
+                // one being left, which is not a leave of the panel.
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  setDragging(false);
+                }
+              }}
+              onDrop={dropQueup}
+            >
               <label className="playlist-import-file">
                 <Upload size={16} /> Import from QueUp
                 <input
@@ -309,9 +336,10 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
               <p>
                 Bring your QueUp playlists over: sign in at queup.net, paste{' '}
                 <a href="/queup-export-playlists.js" target="_blank" rel="noreferrer">this snippet</a>{' '}
-                into the browser console, then choose the file it saves. A playlist you already
-                have is added to rather than duplicated.
+                into the browser console, then drop the file it saves here, or choose it above.
+                A playlist you already have is added to rather than duplicated.
               </p>
+              {dragging && <p className="playlist-import-drop">Drop the QueUp file to import it</p>}
             </section>
 
             {importResult && (
@@ -492,7 +520,12 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
                               </div>
                               <div className="playlist-track-actions">
                                 <button type="button" disabled={busy} onClick={() => queueTrack(track.media.id)} title="Add to queue"><Play size={15} /></button>
-                                <SaveToPlaylistButton media={track.media} library={library} compact onChanged={refreshDetail} />
+                                <SaveToPlaylistButton
+                                  target={{ kind: 'media', mediaId: track.media.id, title: track.media.title }}
+                                  library={library}
+                                  compact
+                                  onChanged={refreshDetail}
+                                />
                                 <button type="button" disabled={busy} onClick={() => removeTrack(track.media.id)} title="Remove from playlist"><Trash2 size={15} /></button>
                               </div>
                             </li>

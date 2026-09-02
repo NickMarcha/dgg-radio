@@ -12,6 +12,7 @@ import {
 import {
   MAX_PLAYLIST_TRACKS,
   MAX_QUEUE_IMPORT_TRACKS,
+  type MediaProvider,
   type QueueItem,
   type QueueNotice,
   type RoomMedia,
@@ -31,6 +32,7 @@ import {
 } from './db/schema';
 import { getEnv } from './env';
 import { listJammers } from './community';
+import { nowPlayingGenres } from './genre';
 import {
   inspectManyCached,
   inspectMediaCached,
@@ -91,6 +93,7 @@ function queueRowSelection() {
     mediaId: media.id,
     provider: media.provider,
     providerMediaId: media.providerMediaId,
+    providerArtistId: media.providerArtistId,
     canonicalUrl: media.canonicalUrl,
     title: media.title,
     artist: media.artist,
@@ -119,6 +122,7 @@ function toQueueRow(row: ReturnType<typeof queueRowSelection> extends never ? ne
       id: row.mediaId,
       provider: row.provider,
       providerMediaId: row.providerMediaId,
+      providerArtistId: row.providerArtistId,
       canonicalUrl: row.canonicalUrl,
       title: row.title,
       artist: row.artist,
@@ -945,6 +949,86 @@ export async function withdrawQueuedTrack(
   await bumpRevision(db);
 }
 
+/** What is being blocked, however somebody arrived at it. */
+interface BlockTarget {
+  provider: MediaProvider;
+  entryType: 'track' | 'artist';
+  /** The id the entry is keyed by: one track, or everything by one artist. */
+  providerId: string;
+  /** What a reader sees on the list. */
+  label: string;
+  /** The row this came from, where the room has one. */
+  mediaId?: string | null;
+  /** The request this came from, where a request is what prompted it. */
+  queueItemId?: string | null;
+}
+
+/**
+ * The part of blocking that is the same whether a moderator blocked the track
+ * playing now or an admin pasted a link: write the entry under every rule
+ * named, drop everything already queued that the entry now covers, and record
+ * what was done.
+ */
+async function applyBlock(
+  target: BlockTarget,
+  options: { ruleIds: string[]; note?: string | null },
+  moderator: AuthenticatedUser,
+  db: Database,
+): Promise<{ removed: number }> {
+  if (options.ruleIds.length === 0) {
+    throw new RoomError('NO_RULE_GIVEN', 'Choose at least one rule to block this under.');
+  }
+
+  const blockingArtist = target.entryType === 'artist';
+  for (const ruleId of options.ruleIds) {
+    await addRuleEntry(
+      ruleId,
+      {
+        provider: target.provider,
+        entryType: target.entryType,
+        providerId: target.providerId,
+        label: target.label,
+        note: options.note ?? null,
+      },
+      moderator,
+      db,
+    );
+  }
+
+  // Everything the new entry now covers, not only whatever prompted it.
+  const covered = and(
+    eq(media.provider, target.provider),
+    blockingArtist
+      ? eq(media.providerArtistId, target.providerId)
+      : eq(media.providerMediaId, target.providerId),
+  );
+  const doomed = await db
+    .select({ id: queueItems.id })
+    .from(queueItems)
+    .innerJoin(media, eq(queueItems.mediaId, media.id))
+    .where(and(eq(queueItems.status, 'queued'), covered));
+  if (doomed.length > 0) {
+    await db
+      .update(queueItems)
+      .set({
+        status: 'removed',
+        finishedAt: new Date(),
+        moderationReason: options.note ?? 'Blocked by a room rule.',
+      })
+      .where(inArray(queueItems.id, doomed.map(({ id }) => id)));
+  }
+
+  await db.insert(moderationActions).values({
+    actorUserId: moderator.id,
+    action: blockingArtist ? 'block_artist' : 'block_track',
+    queueItemId: target.queueItemId ?? null,
+    mediaId: target.mediaId ?? null,
+    details: { ruleIds: options.ruleIds, note: options.note ?? null },
+  });
+
+  return { removed: doomed.length };
+}
+
 export async function blockQueueItemMedia(
   queueItemId: string,
   options: { ruleIds: string[]; entryType: 'track' | 'artist'; note?: string | null },
@@ -968,57 +1052,77 @@ export async function blockQueueItemMedia(
   if (!item) throw new RoomError('QUEUE_ITEM_NOT_FOUND', 'That queue item does not exist.', 404);
 
   const blockingArtist = options.entryType === 'artist';
-  if (options.ruleIds.length === 0) {
-    throw new RoomError('NO_RULE_GIVEN', 'Choose at least one rule to block this under.');
-  }
-  for (const ruleId of options.ruleIds) {
-    await addRuleEntry(
-      ruleId,
-      {
-        provider: item.provider,
-        entryType: options.entryType,
-        providerId: blockingArtist ? item.providerArtistId : item.providerMediaId,
-        label: blockingArtist ? item.artist : item.title,
-        note: options.note ?? null,
-      },
-      moderator,
-      db,
-    );
-  }
-
-  // Drop everything the new entry now covers, not just the item that triggered it.
-  const covered = blockingArtist
-    ? and(eq(media.provider, item.provider), eq(media.providerArtistId, item.providerArtistId))
-    : eq(queueItems.mediaId, item.mediaId);
-  const doomed = await db
-    .select({ id: queueItems.id })
-    .from(queueItems)
-    .innerJoin(media, eq(queueItems.mediaId, media.id))
-    .where(and(eq(queueItems.status, 'queued'), covered));
-  if (doomed.length > 0) {
-    await db
-      .update(queueItems)
-      .set({
-        status: 'removed',
-        finishedAt: new Date(),
-        moderationReason: options.note ?? 'Blocked by a room rule.',
-      })
-      .where(inArray(queueItems.id, doomed.map(({ id }) => id)));
-  }
-
-  await db.insert(moderationActions).values({
-    actorUserId: moderator.id,
-    action: blockingArtist ? 'block_artist' : 'block_track',
-    queueItemId,
-    mediaId: item.mediaId,
-    details: { ruleIds: options.ruleIds, note: options.note ?? null },
-  });
+  await applyBlock(
+    {
+      provider: item.provider,
+      entryType: options.entryType,
+      providerId: blockingArtist ? item.providerArtistId : item.providerMediaId,
+      label: blockingArtist ? item.artist : item.title,
+      mediaId: item.mediaId,
+      queueItemId,
+    },
+    options,
+    moderator,
+    db,
+  );
 
   if (item.status === 'playing') {
     await advanceCurrentTrack('skipped', 'Blocked by a room rule.', queueItemId, db);
   } else {
     await bumpRevision(db);
   }
+}
+
+/**
+ * Blocking something nobody has requested yet.
+ *
+ * A link is read the same way a request is, so an admin can block a track, or
+ * everything by whoever published it, before it ever reaches the room. Nothing
+ * is added to `media` on the way: a track the room has never played does not
+ * need a row here just to be refused, and the entry is keyed by the provider's
+ * own id either way.
+ *
+ * On YouTube the artist is the channel; on SoundCloud it is the account that
+ * uploaded the track. Both are what that provider hangs a catalogue off.
+ */
+export async function blockMediaByUrl(
+  url: string,
+  options: { ruleIds: string[]; entryType: 'track' | 'artist'; note?: string | null },
+  admin: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<{ label: string; removed: number }> {
+  const settings = await getSettings(db);
+  const { metadata } = await inspectMediaCached(url, settings.targetCountry, db);
+  const blockingArtist = options.entryType === 'artist';
+
+  // A row only if the room happens to have one, so the log can point at it.
+  const [known] = await db
+    .select({ id: media.id })
+    .from(media)
+    .where(
+      and(
+        eq(media.provider, metadata.provider),
+        eq(media.providerMediaId, metadata.providerMediaId),
+      ),
+    )
+    .limit(1);
+
+  const label = blockingArtist ? metadata.artist : metadata.title;
+  const { removed } = await applyBlock(
+    {
+      provider: metadata.provider,
+      entryType: options.entryType,
+      providerId: blockingArtist ? metadata.providerArtistId : metadata.providerMediaId,
+      label,
+      mediaId: known?.id ?? null,
+    },
+    options,
+    admin,
+    db,
+  );
+
+  await bumpRevision(db);
+  return { label, removed };
 }
 
 export type RoomSettingsPatch = Partial<{
@@ -1104,7 +1208,7 @@ export async function getRoomSnapshot(
       .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
       .where(inArray(queueItems.status, ['queued', 'playing']))
       .then((rows) => rows.map(toQueueRow)),
-    listJammers(10, db),
+    listJammers(10, undefined, db),
     listActiveRules(db),
     me ? listMyNotices(me.id, db) : [],
   ]);
@@ -1152,6 +1256,14 @@ export async function getRoomSnapshot(
     settings,
     me: toRoomUser(me),
     current: current ? hide(current, secondsLeft <= REVEAL_REQUESTER_WITHIN_SECONDS) : null,
+    currentGenres: current
+      ? nowPlayingGenres(
+          { provider: current.media.provider, providerMediaId: current.media.providerMediaId },
+          current.media.title,
+          current.media.artist,
+          db,
+        )
+      : null,
     queue: roomQueueRows.map((row) => hide(byId.get(row.id)!, false)),
     myQueue: myQueueRows.map((row) => byId.get(row.id)!),
     myNotices,

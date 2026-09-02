@@ -24,6 +24,7 @@ function mediaRow(id: string, title: string) {
     id,
     provider: 'youtube' as const,
     providerMediaId: id.slice(0, 8),
+    providerArtistId: `channel-${id.slice(0, 8)}`,
     canonicalUrl: `https://www.youtube.com/watch?v=${id.slice(0, 8)}`,
     title,
     artist: 'Someone',
@@ -217,6 +218,31 @@ describe('PlaylistsPage', () => {
     );
     expect(screen.getByText(/2 added to the playlist you had/)).toBeDefined();
     await waitFor(() => expect(importedFile).toEqual(exported));
+  });
+
+  it('takes the export dropped anywhere on the import panel', async () => {
+    render(<PlaylistsPage apiUrl={API} />);
+
+    const exported = {
+      source: 'queup',
+      kind: 'playlists',
+      playlists: [
+        { name: 'Driving', tracks: [{ provider: 'youtube', providerMediaId: 'aaaaaaaaaaa', title: 'A Track' }] },
+      ],
+    };
+    const panel = document.querySelector<HTMLElement>('.playlist-import')!;
+
+    fireEvent.dragOver(panel);
+    expect(panel.className).toContain('is-dragging');
+
+    fireEvent.drop(panel, {
+      dataTransfer: {
+        files: [new File([JSON.stringify(exported)], 'queup-playlists.json', { type: 'application/json' })],
+      },
+    });
+
+    await waitFor(() => expect(importedFile).toEqual(exported));
+    expect(panel.className).not.toContain('is-dragging');
   });
 
   it('refuses a file that is not the export, without asking the server', async () => {

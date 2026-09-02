@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
+  Download,
   ExternalLink,
   ListMusic,
   Loader2,
@@ -31,6 +32,7 @@ import type {
   ModerationEntry,
   ModerationLog,
   OperationsSnapshot,
+  SearchResult,
   UserRole,
 } from '../shared/contracts';
 import { moveItem, type MoveDestination } from './reorder';
@@ -334,15 +336,108 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
       )}
 
       {tab === 'server' && (
-        <OperationsSection
-          snapshot={operations}
-          busy={operationsBusy}
-          onRefresh={() => void refreshOperations()}
-        />
+        <>
+          <OperationsSection
+            snapshot={operations}
+            busy={operationsBusy}
+            onRefresh={() => void refreshOperations()}
+          />
+          <ExportsSection apiUrl={apiUrl} />
+        </>
       )}
 
       {tab === 'obs' && <ObsSources />}
     </main>
+  );
+}
+
+/** What can be taken out of the room, and what is in each of them. */
+const EXPORT_GROUPS = [
+  {
+    title: 'What the room holds',
+    datasets: [
+      {
+        id: 'history',
+        label: 'Room history',
+        description: 'Every track this room has played or skipped, with who requested it and its votes.',
+      },
+      {
+        id: 'archive',
+        label: 'QueUp archive',
+        description: 'The plays imported from QueUp, as they were imported.',
+      },
+      {
+        id: 'tracks',
+        label: 'Track catalogue',
+        description: 'Every track the room has a row for, with what each source says it is.',
+      },
+      {
+        id: 'lookups',
+        label: 'Provider cache',
+        description: 'What YouTube and SoundCloud last said about each track, including refusals.',
+      },
+    ],
+  },
+  {
+    title: 'Stats, in full rather than the page\u2019s top of each',
+    datasets: [
+      {
+        id: 'stats-tracks',
+        label: 'Tracks',
+        description: 'Every track by plays and votes, not only the hundred the stats page shows.',
+      },
+      {
+        id: 'stats-jammers',
+        label: 'Jammers',
+        description: 'Every listener by plays and the votes their requests drew.',
+      },
+      {
+        id: 'stats-genres',
+        label: 'Genres',
+        description: 'Every genre by plays, this room and the QueUp archive counted apart.',
+      },
+    ],
+  },
+] as const;
+
+/**
+ * Copies of the room's data, as CSV.
+ *
+ * Plain links rather than buttons that fetch: the browser is being asked to
+ * save a file, and a top-level navigation carries the session cookie and hands
+ * the download to the browser without any of it passing through here. The
+ * archive is the big one, tens of thousands of rows, so it is worth saying that
+ * it takes a moment rather than looking broken while it does.
+ */
+function ExportsSection({ apiUrl }: { apiUrl: string }) {
+  return (
+    <section className="admin-card">
+      <div className="admin-section-heading">
+        <h2>
+          <Download size={18} /> Export data
+        </h2>
+      </div>
+      <p className="admin-export-note">
+        A copy of what the room knows, as CSV. Everything but the provider cache opens in a
+        spreadsheet as it is; the cache keeps each provider's stored answer as JSON in its own
+        column. A large export takes a few seconds to build before the download starts.
+      </p>
+      {EXPORT_GROUPS.map((group) => (
+        <div key={group.title} className="admin-export-group">
+          <h3>{group.title}</h3>
+          <ul className="admin-exports">
+            {group.datasets.map((dataset) => (
+              <li key={dataset.id}>
+                <a href={`${apiUrl}/api/exports/${dataset.id}`}>
+                  <Download size={14} /> {dataset.label}
+                </a>
+                <span>{dataset.description}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -1037,6 +1132,16 @@ function RuleRow({
       </div>
 
       {entries && (
+        <BlockForm
+          ruleId={rule.id}
+          busy={busy}
+          act={act}
+          call={call}
+          onBlocked={onEntryRemoved}
+        />
+      )}
+
+      {entries && (
         <ul className="admin-entries">
           {entries.length === 0 && <li className="admin-empty">Nothing listed.</li>}
           {entries.map((entry) => (
@@ -1070,6 +1175,142 @@ interface SectionProps {
   busy: boolean;
   act: (work: () => Promise<unknown>, message: string) => Promise<void>;
   call: (path: string, method?: string, body?: unknown) => Promise<any>;
+}
+
+/**
+ * Adding to a blocklist without waiting for somebody to play the thing.
+ *
+ * Two ways in, because there are two ways an admin knows what they want gone.
+ * A link is read exactly as a request would be, so the same paste blocks one
+ * track or everything by whoever published it. A search is for when the name is
+ * known and the link is not, and every result offers the same two choices,
+ * which is also how a channel is blocked: find one of its videos and block the
+ * channel rather than the video.
+ *
+ * There is no channel search. The library the room searches YouTube with reads
+ * videos and playlists and nothing else, and YouTube's own channel search costs
+ * a hundred quota units a query for something any video by that channel already
+ * answers for free.
+ *
+ * On SoundCloud the same button blocks the account that uploaded the track,
+ * which is that provider's equivalent of a channel.
+ */
+function BlockForm({
+  ruleId,
+  busy,
+  act,
+  call,
+  onBlocked,
+}: SectionProps & { ruleId: string; onBlocked: () => void }) {
+  const [value, setValue] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const typed = value.trim();
+  const isLink = /^https?:\/\//i.test(typed);
+
+  function block(url: string, entryType: 'track' | 'artist', label: string) {
+    void act(async () => {
+      await call(`/api/rules/${ruleId}/entries`, 'POST', { url, entryType });
+      setValue('');
+      setResults([]);
+      // The list is folded shut so the next look at it reads from the server
+      // rather than from what was on screen before the block.
+      onBlocked();
+    }, `Blocked ${label}.`);
+  }
+
+  function search(event: SubmitEvent) {
+    event.preventDefault();
+    if (typed.length < 2) return;
+    if (isLink) {
+      // A link needs no searching: it already names one track.
+      block(typed, 'track', 'that track');
+      return;
+    }
+    void act(async () => {
+      setSearching(true);
+      try {
+        const payload = await call(`/api/search?q=${encodeURIComponent(typed)}`);
+        setResults(payload.results);
+      } finally {
+        setSearching(false);
+      }
+    }, `Searched for "${typed}".`);
+  }
+
+  return (
+    <div className="admin-block">
+      <form onSubmit={search}>
+        <input
+          value={value}
+          maxLength={400}
+          placeholder="Paste a YouTube or SoundCloud link, or search for a track"
+          aria-label="Track to block"
+          onChange={(event) => setValue(event.currentTarget.value)}
+        />
+        {isLink ? (
+          <>
+            <button type="button" disabled={busy} onClick={() => block(typed, 'track', 'that track')}>
+              <Ban size={14} /> Block track
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => block(typed, 'artist', 'that channel')}
+            >
+              <Ban size={14} /> Block channel
+            </button>
+          </>
+        ) : (
+          <button type="submit" disabled={busy || typed.length < 2}>
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        )}
+      </form>
+
+      {results.length > 0 && (
+        <ul className="admin-block-results">
+          {results.map((result) => (
+            <li key={result.url}>
+              {result.thumbnailUrl ? (
+                <img src={result.thumbnailUrl} alt="" loading="lazy" />
+              ) : (
+                <span className="admin-block-art"><ListMusic size={14} /></span>
+              )}
+              <div>
+                <a href={result.url} target="_blank" rel="noreferrer">{result.title}</a>
+                <span>
+                  {result.provider === 'youtube' ? 'YouTube' : 'SoundCloud'} · {result.artist}
+                </span>
+              </div>
+              <div className="admin-row-actions">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => block(result.url, 'track', `"${result.title}"`)}
+                >
+                  Track
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => block(result.url, 'artist', result.artist)}
+                  title={
+                    result.provider === 'youtube'
+                      ? 'Block everything from this channel'
+                      : 'Block everything from this SoundCloud account'
+                  }
+                >
+                  {result.provider === 'youtube' ? 'Channel' : 'Account'}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 /** "United Arab Emirates (AE)" — the text the region box shows for a code. */

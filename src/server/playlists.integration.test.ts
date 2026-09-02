@@ -65,6 +65,7 @@ vi.mock('./media', async (importOriginal) => ({
 const { listPlaylistTrackUrls, MediaLookupError } = await import('./media');
 const schema = await import('./db/schema');
 const {
+  addLegacyPlayToPlaylist,
   addPlaylistTrack,
   addPlaylistTrackByUrl,
   createPlaylist,
@@ -80,6 +81,7 @@ const {
 } = await import('./playlists');
 const { enqueueMedia, getRoomSnapshot } = await import('./room');
 const {
+  legacyPlays,
   media,
   moderationActions,
   playlistItems,
@@ -109,7 +111,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
 
   afterEach(async () => {
     await db.execute(
-      sql`truncate table ${playlistItems}, ${playlists}, ${moderationActions}, ${votes}, ${roomState}, ${roomSettings}, ${queueItems}, ${media}, ${sessions}, ${userChatCounts}, ${users} restart identity cascade`,
+      sql`truncate table ${playlistItems}, ${playlists}, ${moderationActions}, ${votes}, ${roomState}, ${roomSettings}, ${queueItems}, ${legacyPlays}, ${media}, ${sessions}, ${userChatCounts}, ${users} restart identity cascade`,
     );
     cachedLookup.mockReset();
     playbackIssues.clear();
@@ -173,6 +175,59 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
 
     const playlist = await getPlaylist(playlistId, owner.id, db);
     expect(playlist.tracks.map(({ media }) => media.id)).toEqual([saved.id]);
+  });
+
+  it('saves a play out of the QueUp archive, asking the provider once for it', async () => {
+    const owner = await createUser('owner');
+    const playlistId = await createPlaylist('Driving', owner.id, db);
+    await db.insert(legacyPlays).values({
+      sourceId: 'queup-play-1',
+      playedAt: new Date('2025-06-01T12:00:00.000Z'),
+      requesterName: 'a queup name',
+      provider: 'youtube',
+      providerMediaId: 'aaaaaaaaaaa',
+      title: 'A Track',
+      durationSeconds: 200,
+    });
+    cachedLookup.mockResolvedValue({
+      provider: 'youtube',
+      providerMediaId: 'aaaaaaaaaaa',
+      providerArtistId: 'channel-aaaaaaaaaaa',
+      canonicalUrl: 'https://www.youtube.com/watch?v=aaaaaaaaaaa',
+      title: 'Track aaaaaaaaaaa',
+      artist: 'Test Artist',
+      durationSeconds: 120,
+      thumbnailUrl: null,
+    });
+
+    const first = await addLegacyPlayToPlaylist(playlistId, 'queup-play-1', owner.id, db);
+    const again = await addLegacyPlayToPlaylist(playlistId, 'queup-play-1', owner.id, db);
+
+    expect(first.saved).toBe(true);
+    // The second save is the same media row, and it is already in the playlist.
+    expect(again).toEqual({ mediaId: first.mediaId, saved: false });
+    const playlist = await getPlaylist(playlistId, owner.id, db);
+    expect(playlist.tracks.map(({ media }) => media.providerMediaId)).toEqual(['aaaaaaaaaaa']);
+  });
+
+  it('will not spend a provider lookup on somebody else playlist', async () => {
+    const owner = await createUser('owner');
+    const stranger = await createUser('stranger');
+    const playlistId = await createPlaylist('Driving', owner.id, db);
+    await db.insert(legacyPlays).values({
+      sourceId: 'queup-play-1',
+      playedAt: new Date('2025-06-01T12:00:00.000Z'),
+      requesterName: 'a queup name',
+      provider: 'youtube',
+      providerMediaId: 'aaaaaaaaaaa',
+      title: 'A Track',
+      durationSeconds: 200,
+    });
+
+    await expect(
+      addLegacyPlayToPlaylist(playlistId, 'queup-play-1', stranger.id, db),
+    ).rejects.toMatchObject({ code: 'PLAYLIST_NOT_FOUND' });
+    expect(cachedLookup).not.toHaveBeenCalled();
   });
 
   it('rejects case-insensitive duplicate names for one owner', async () => {

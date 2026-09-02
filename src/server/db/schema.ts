@@ -26,6 +26,20 @@ export const mediaProvider = pgEnum('media_provider', ['youtube', 'soundcloud'])
  */
 export const djRotation = pgSequence('dj_rotation_seq');
 
+/** Where a genre came from. The two vocabularies are never merged, so both stay named. */
+export const genreSource = pgEnum('genre_source', ['musicbrainz', 'discogs']);
+/**
+ * What the genre actually describes. `artist` is the coarse one: every Boards of
+ * Canada track inherits the same genres regardless of which track played, so it
+ * is worth having and must never be shown as though it described the track.
+ */
+export const genreLevel = pgEnum('genre_level', [
+  'recording',
+  'release_group',
+  'artist',
+  'master',
+]);
+
 export const ruleEnforcement = pgEnum('rule_enforcement', ['blocklist', 'advisory']);
 export const ruleEntryType = pgEnum('rule_entry_type', ['track', 'artist']);
 export const skipMode = pgEnum('skip_mode', ['absolute', 'ratio']);
@@ -397,6 +411,54 @@ export const moderationActions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('moderation_actions_created_at_index').on(table.createdAt)],
+);
+
+/**
+ * What a source says a track is, one row per source per track.
+ *
+ * Keyed by the provider's own id rather than by `media.id`, because the archive
+ * imported from QueUp holds 34,114 tracks that have no `media` row and never
+ * will until somebody reaches for one. Genre is a property of the recording,
+ * not of this room's copy of it, so one table labels both lists.
+ *
+ * A row with no genres is an answer too: it records that the source was asked
+ * and had nothing, so an enrichment run does not ask again.
+ *
+ * The two vocabularies are deliberately not merged. Discogs has about fifteen
+ * broad genres plus a sharper `styles` list; MusicBrainz has a folksonomy of
+ * hundreds. Normalising them together manufactures both false agreement and
+ * false conflict, so each source keeps its own row and its own link back.
+ *
+ * Nothing from the Discogs *API* belongs here. Its terms forbid storing that,
+ * and `genre.ts` keeps API answers in a short-lived display cache instead. Only
+ * the CC0 monthly dump is written to this table.
+ */
+export const trackGenres = pgTable(
+  'track_genres',
+  {
+    provider: mediaProvider('provider').notNull(),
+    providerMediaId: text('provider_media_id').notNull(),
+    source: genreSource('source').notNull(),
+    /** Null when the source was asked and knew nothing. */
+    level: genreLevel('level'),
+    genres: text('genres').array().notNull().default(sql`'{}'::text[]`),
+    /** Discogs' second, sharper vocabulary. MusicBrainz has no equivalent. */
+    styles: text('styles').array().notNull().default(sql`'{}'::text[]`),
+    /** The MBID or Discogs master id this came from. */
+    sourceEntityId: text('source_entity_id'),
+    /** Where a reader can check it, which both licences ask for. */
+    sourceUrl: text('source_url'),
+    /**
+     * Discogs attaches one video to several masters — the album, a best-of, a
+     * compilation — and they do not always agree. When they disagree there is
+     * no tie-break that rescues the track, so the answer is kept and marked.
+     */
+    ambiguous: boolean('ambiguous').notNull().default(false),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.provider, table.providerMediaId, table.source] }),
+  ],
 );
 
 /**

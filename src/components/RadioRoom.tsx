@@ -641,6 +641,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
         <div className="main-column">
           <MediaPlayer
             current={room?.current ?? null}
+            genres={room?.currentGenres ?? null}
             serverTime={room?.serverTime ?? null}
             onListeningStarted={(provider) => captureClientEvent('listening_started', { provider })}
             onPlayerError={(message, provider, errorCode) =>
@@ -675,7 +676,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             {room?.me && room.current && (
               <SaveToPlaylistButton
                 key={room.current.media.id}
-                media={room.current.media}
+                target={{
+                  kind: 'media',
+                  mediaId: room.current.media.id,
+                  title: room.current.media.title,
+                }}
                 library={playlistLibrary}
               />
             )}

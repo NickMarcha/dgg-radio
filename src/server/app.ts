@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import {
+  blockByUrlSchema,
   blockMediaSchema,
   clearQueueSchema,
   playlistSchema,
@@ -46,6 +47,7 @@ import {
 import { ChatLookupError, requestChatCheck } from './chat';
 import { listPlaybackRegions, RegionLookupError } from './regions';
 import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
+import { CatalogueError, getArtistDetail, getTrackDetail } from './catalogue';
 import {
   CommunityError,
   getCommunityStats,
@@ -53,9 +55,10 @@ import {
   listHistory,
 } from './community';
 import { getEnv } from './env';
-import { listLegacyHistory } from './legacy';
+import { enqueueLegacyPlay, listLegacyHistory } from './legacy';
 import { MediaLookupError, searchMedia } from './media';
 import {
+  blockMediaByUrl,
   blockQueueItemMedia,
   clearUserQueue,
   enqueueMedia,
@@ -73,6 +76,7 @@ import {
   withdrawQueuedTrack,
 } from './room';
 import {
+  addLegacyPlayToPlaylist,
   addPlaylistTrack,
   addPlaylistTrackByUrl,
   createPlaylist,
@@ -89,6 +93,7 @@ import {
 } from './playlists';
 import { getModerationLog } from './moderation';
 import { limitPerAddress, limitPerUser } from './rate-limit';
+import { exportCsv, exportFilename, EXPORTS } from './export';
 import { getStorageSnapshot } from './storage';
 
 interface AppDependencies {
@@ -109,14 +114,50 @@ const callbackSchema = z.object({
 
 const idParamSchema = z.object({ id: z.uuid() });
 const playlistTrackParamSchema = z.object({ id: z.uuid(), mediaId: z.uuid() });
+/** QueUp's own id for a play, which is what the archive is keyed by. */
+const legacySourceId = z.string().trim().min(1).max(64);
+const legacyTrackParamSchema = z.object({ id: z.uuid(), sourceId: legacySourceId });
+const legacySourceParamSchema = z.object({ sourceId: legacySourceId });
 const usernameParamSchema = z.object({ username: z.string().trim().min(1).max(64) });
+/** A provider id, as the provider spells it rather than as a UUID. */
+const providerId = z.string().trim().min(1).max(120);
+const trackParamSchema = z.object({
+  provider: z.enum(['youtube', 'soundcloud']),
+  providerMediaId: providerId,
+});
+const artistParamSchema = z.object({
+  provider: z.enum(['youtube', 'soundcloud']),
+  providerArtistId: providerId,
+});
+
+/** A month on its own means nothing, and is ignored rather than guessed at. */
+const statsQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+});
+
+const exportParamSchema = z.object({
+  dataset: z.enum([
+    'history',
+    'archive',
+    'tracks',
+    'lookups',
+    'stats-tracks',
+    'stats-jammers',
+    'stats-genres',
+  ]),
+});
+/**
+ * Both histories are read the same way: one numbered page at a time, newest
+ * first, optionally narrowed by a search. Numbered rather than walked by a
+ * cursor so that the page somebody is reading survives being shared as a link.
+ */
 const historyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-});
-const legacyHistoryQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  /** The `playedAt` of the last row already read. Older rows follow it. */
-  before: z.iso.datetime().optional(),
+  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  q: z.string().trim().min(1).max(80).optional(),
+  /** One genre or style, spelled the way the tag a reader clicked spells it. */
+  genre: z.string().trim().min(1).max(60).optional(),
 });
 
 function errorBody(code: string, message: string) {
@@ -180,6 +221,7 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof MediaLookupError ||
       error instanceof RuleError ||
       error instanceof AdminError ||
+      error instanceof CatalogueError ||
       error instanceof CommunityError ||
       error instanceof RegionLookupError ||
       error instanceof ChatLookupError ||
@@ -245,21 +287,54 @@ export function createApp(dependencies: AppDependencies) {
       '/api/history',
       limitPerAddress('history', 60),
       zValidator('query', historyQuerySchema),
-      async (context) => context.json({ history: await listHistory(context.req.valid('query').limit) }),
+      async (context) => {
+        const { limit, page, q, genre } = context.req.valid('query');
+        return context.json(await listHistory({ limit, page, search: q, genre }));
+      },
     )
-    // The archive from QueUp. Public like the room's own history, and paged by
-    // cursor because it holds every play the room made before this one existed.
+    // The archive from QueUp. Public like the room's own history, and paged the
+    // same way, because it holds every play the room made before this one
+    // existed.
     .get(
       '/api/history/legacy',
       limitPerAddress('history', 60),
-      zValidator('query', legacyHistoryQuerySchema),
+      zValidator('query', historyQuerySchema),
       async (context) => {
-        const { limit, before } = context.req.valid('query');
-        return context.json(await listLegacyHistory(limit, before ?? null));
+        const { limit, page, q, genre } = context.req.valid('query');
+        return context.json(await listLegacyHistory({ limit, page, search: q, genre }));
       },
     )
-    .get('/api/stats', limitPerAddress('stats', 60), async (context) =>
-      context.json(await getCommunityStats()),
+    // One track, and whoever published it. Public, like the history they are
+    // reached from, and keyed by the provider's own id so that a track only the
+    // QueUp archive remembers has a page too.
+    .get(
+      '/api/tracks/:provider/:providerMediaId',
+      limitPerAddress('catalogue', 60),
+      zValidator('param', trackParamSchema),
+      async (context) => {
+        const { provider, providerMediaId } = context.req.valid('param');
+        return context.json(await getTrackDetail(provider, providerMediaId));
+      },
+    )
+    .get(
+      '/api/artists/:provider/:providerArtistId',
+      limitPerAddress('catalogue', 60),
+      zValidator('param', artistParamSchema),
+      async (context) => {
+        const { provider, providerArtistId } = context.req.valid('param');
+        return context.json(await getArtistDetail(provider, providerArtistId));
+      },
+    )
+    .get(
+      '/api/stats',
+      limitPerAddress('stats', 60),
+      zValidator('query', statsQuerySchema),
+      async (context) => {
+        const { year, month } = context.req.valid('query');
+        return context.json(
+          await getCommunityStats(undefined, { year: year ?? null, month: month ?? null }),
+        );
+      },
     )
     .get(
       '/api/playlists',
@@ -376,6 +451,23 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
+    // Saving a track out of the QueUp archive. Unlike the route above it may
+    // have to ask a provider first, because the archive holds no media rows, so
+    // it is limited like everything else that spends a lookup.
+    .put(
+      '/api/playlists/:id/legacy/:sourceId',
+      requireUser,
+      limitPerUser('legacy-save', 30),
+      zValidator('param', legacyTrackParamSchema),
+      async (context) => {
+        const { id, sourceId } = context.req.valid('param');
+        const saved = await addLegacyPlayToPlaylist(id, sourceId, context.get('user').id);
+        captureServerEvent(context.get('user').id, 'track_saved_to_playlist', {
+          source: 'queup_archive',
+        });
+        return context.json(saved);
+      },
+    )
     .patch(
       '/api/playlists/:id/tracks/order',
       requireUser,
@@ -434,6 +526,28 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json({ id: queued.id }, 201);
     })
+    // Requesting a track out of the QueUp archive. The archive holds a provider
+    // id rather than a link, so this resolves one and then goes through the
+    // room's ordinary request path, rules and cooldown included.
+    .post(
+      '/api/queue/legacy/:sourceId',
+      requireUser,
+      limitPerUser('lookup', 20),
+      zValidator('param', legacySourceParamSchema),
+      async (context) => {
+        const queued = await enqueueLegacyPlay(
+          context.req.valid('param').sourceId,
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'track_requested', {
+          provider: queued.provider,
+          duration_seconds: queued.durationSeconds,
+          source: 'queup_archive',
+        });
+        dependencies.onRoomChanged();
+        return context.json({ id: queued.id }, 201);
+      },
+    )
     .post(
       '/api/queue/:id/vote',
       requireUser,
@@ -567,6 +681,30 @@ export function createApp(dependencies: AppDependencies) {
     .get('/api/rules/:id/entries', requireAdmin, zValidator('param', idParamSchema), async (context) =>
       context.json({ entries: await listRuleEntries(context.req.valid('param').id) }),
     )
+    // Blocking something before anyone requests it. It costs a provider lookup,
+    // so it is limited like every other route that spends one.
+    .post(
+      '/api/rules/:id/entries',
+      requireAdmin,
+      limitPerUser('lookup', 20),
+      zValidator('param', idParamSchema),
+      zValidator('json', blockByUrlSchema),
+      async (context) => {
+        const { id } = context.req.valid('param');
+        const { url, entryType, note } = context.req.valid('json');
+        const blocked = await blockMediaByUrl(
+          url,
+          { ruleIds: [id], entryType, note },
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'media_blocked', {
+          entry_type: entryType,
+          source: 'link',
+        });
+        dependencies.onRoomChanged();
+        return context.json(blocked, 201);
+      },
+    )
     .post('/api/rules', requireAdmin, zValidator('json', ruleSchema), async (context) => {
       const id = await createRule(context.req.valid('json'), context.get('user'));
       captureServerEvent(context.get('user').id, 'rule_created');
@@ -611,6 +749,30 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json(result);
     })
+    // Taking the room's data out of it. A browser downloads these by navigating
+    // to them, so they are a plain GET with the session cookie rather than a
+    // fetch, and the whole answer is one response.
+    .get('/api/exports', requireAdmin, (context) => context.json({ exports: EXPORTS }))
+    .get(
+      '/api/exports/:dataset',
+      requireAdmin,
+      limitPerUser('export', 10),
+      zValidator('param', exportParamSchema),
+      async (context) => {
+        const { dataset } = context.req.valid('param');
+        const csv = await exportCsv(dataset);
+        captureServerEvent(context.get('user').id, 'data_exported', {
+          dataset,
+          bytes: Buffer.byteLength(csv),
+        });
+        return new Response(csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${exportFilename(dataset)}"`,
+          },
+        });
+      },
+    )
     .get('/api/moderation', requireAdmin, async (context) => context.json(await getModerationLog()))
     .get('/api/operations', requireAdmin, async (context) =>
       context.json({

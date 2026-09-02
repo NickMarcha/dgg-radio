@@ -48,6 +48,13 @@ const envSchema = z
     DGG_AUTHORIZE_ORIGIN: providerOrigin,
     ADMIN_DGG_USERNAMES: z.string().default(''),
     YOUTUBE_API_KEY: z.string().min(1),
+    /**
+     * Discogs application credentials, sent as a pair. They only raise the
+     * search limit from 25 requests a minute to 60, and the stored genres come
+     * from the CC0 dump rather than the API, so the room runs without them.
+     */
+    DISCOGS_CONSUMER_KEY: optional(z.string().min(1)),
+    DISCOGS_CONSUMER_SECRET: optional(z.string().min(1)),
   })
   .superRefine((env, context) => {
     // The stand-in signs anyone in as anyone, so a deployed room reaching one

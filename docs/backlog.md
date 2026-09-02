@@ -22,23 +22,22 @@ the strings are spelled `ADMIN` and `MODERATOR`. Turning it back on is a small
 change to `radioRole` in `src/server/auth.ts`; `git log` has the version that
 did it.
 
-## Nothing can be saved or queued out of the QueUp archive
+## The MusicBrainz dumps have never been measured
 
-`/history` shows the 47,982 plays imported from QueUp under the room's own
-history, and every row is a dead end: the title links out to YouTube, and that
-is all. There is no save-to-playlist button and no way to queue one.
+Genre from MusicBrainz is fetched a track at a time against a one-request-a-
+second limit, three requests each. Labelling 34,114 tracks that way is days of
+running, which is why `enrich-genres.ts` takes the most played first and is safe
+to stop.
 
-The reason is that the archive holds what QueUp knew — a provider and an id —
-and not a row in `media`. `SaveToPlaylistButton` works from a media id, and the
-room's whole save path is built on one. Giving those rows a media id means a
-provider lookup each, which is exactly what the import avoids by not making
-34,114 of them.
+MusicBrainz publishes database dumps, and the whole reason the Discogs dump beat
+the Discogs API was that a dump needs no per-track request. The same argument
+may apply here and nobody has checked. `docs/research/discogs-dump-genre-coverage.md`
+records what is known — which file holds genres, which holds URL relationships,
+and the three questions that would decide it — and, deliberately, no estimates
+of the numbers, because none have been measured.
 
-The path already exists for a person: paste the link on the playlists page, and
-the normal URL route resolves it. The feature would be a variant of the save
-button that posts a URL instead of a media id, resolving on first save. Worth
-doing if people actually go looking through the archive for things to play; it
-is not worth building before anyone has.
+Worth doing before anyone leaves the per-track pass running for days. Not worth
+doing on the assumption that it will win.
 
 ## The PostHog event set has never been judged against real data
 

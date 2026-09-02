@@ -73,6 +73,7 @@ const {
   enqueueProviderPlaylist,
   reorderMyQueue,
   reorderRoomQueue,
+  blockMediaByUrl,
   blockQueueItemMedia,
   enqueueMedia,
   ensureRoomExists,
@@ -284,6 +285,48 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await expect(enqueueMedia(banned.canonicalUrl, swagy, db)).rejects.toMatchObject({
       code: 'MEDIA_BLOCKED',
     });
+  });
+
+  it('blocks a link nobody has requested, and takes out what it already covers', async () => {
+    await ensureRoomExists(db);
+    const swagy = await createUser('swagy_swagerson');
+    const admin = await createUser('admin', 'admin');
+    const playing = track('aaaaaaaaaaa');
+    // Same channel as the track above, so blocking the artist covers both.
+    const queued: MediaMetadata = { ...track('bbbbbbbbbbb'), providerArtistId: 'channel-aaaaaaaaaaa' };
+    const never = track('ccccccccccc');
+    resolveTracks(playing, queued, never);
+
+    await enqueueMedia(playing.canonicalUrl, swagy, db);
+    await enqueueMedia(queued.canonicalUrl, admin, db);
+    const ruleId = await createRule(
+      { name: 'No meme songs', description: '', enforcement: 'blocklist' },
+      admin,
+      db,
+    );
+
+    // A track the room has never seen, blocked before anyone asks for it.
+    const blocked = await blockMediaByUrl(
+      never.canonicalUrl,
+      { ruleIds: [ruleId], entryType: 'track' },
+      admin,
+      db,
+    );
+    expect(blocked).toEqual({ label: 'Track ccccccccccc', removed: 0 });
+    await expect(enqueueMedia(never.canonicalUrl, swagy, db)).rejects.toMatchObject({
+      code: 'MEDIA_BLOCKED',
+    });
+
+    // Blocking the channel takes the waiting request out with it.
+    const channel = await blockMediaByUrl(
+      playing.canonicalUrl,
+      { ruleIds: [ruleId], entryType: 'artist' },
+      admin,
+      db,
+    );
+    expect(channel.label).toBe('Test Artist');
+    expect(channel.removed).toBe(1);
+    expect((await getRoomSnapshot(null, 0, db)).queue).toEqual([]);
   });
 
   it('rejects a track that is already queued', async () => {

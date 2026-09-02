@@ -6,6 +6,7 @@ import {
   MAX_PLAYLIST_TRACKS,
   MAX_QUEUE_IMPORT_TRACKS,
   queupImportSchema,
+  type LegacySaveResult,
   type QueupImportResult,
   type PlaylistDetail,
   type PlaylistLibrary,
@@ -16,8 +17,9 @@ import {
 } from '../shared/contracts';
 import type { AuthenticatedUser } from './auth';
 import { getDatabase, type Database } from './db/client';
-import { media, playlistItems, playlists } from './db/schema';
-import { MediaLookupError, soundCloudPermalink } from './media';
+import { legacyPlays, media, playlistItems, playlists } from './db/schema';
+import { queupTrackUrl } from './legacy';
+import { MediaLookupError } from './media';
 import { warmYouTubeLookups } from './media-cache';
 import {
   enqueueMedia,
@@ -128,6 +130,7 @@ export async function getPlaylist(
       id: media.id,
       provider: media.provider,
       providerMediaId: media.providerMediaId,
+      providerArtistId: media.providerArtistId,
       canonicalUrl: media.canonicalUrl,
       title: media.title,
       artist: media.artist,
@@ -146,6 +149,7 @@ export async function getPlaylist(
       id: row.id,
       provider: row.provider,
       providerMediaId: row.providerMediaId,
+      providerArtistId: row.providerArtistId,
       canonicalUrl: row.canonicalUrl,
       title: row.title,
       artist: row.artist,
@@ -432,6 +436,46 @@ export async function addPlaylistTrackByUrl(
   return result;
 }
 
+/**
+ * Saves one play out of the QueUp archive.
+ *
+ * The archive deliberately holds no media rows: importing 34,114 of them would
+ * have meant a provider lookup each, and almost none of them would ever be
+ * wanted. So a row is resolved the first time somebody actually reaches for the
+ * track, and from then on it is an ordinary saved track like any other, which
+ * is why the answer carries the media id back.
+ *
+ * Ownership is settled before the provider is asked anything, so a guess at
+ * someone else's playlist cannot spend a lookup.
+ */
+export async function addLegacyPlayToPlaylist(
+  playlistId: string,
+  sourceId: string,
+  ownerId: string,
+  db: Database = getDatabase(),
+): Promise<LegacySaveResult> {
+  await ownedPlaylist(playlistId, ownerId, db);
+
+  const [play] = await db
+    .select({
+      provider: legacyPlays.provider,
+      providerMediaId: legacyPlays.providerMediaId,
+    })
+    .from(legacyPlays)
+    .where(eq(legacyPlays.sourceId, sourceId))
+    .limit(1);
+  if (!play) {
+    throw new PlaylistError('LEGACY_PLAY_NOT_FOUND', 'That archived track is not there.', 404);
+  }
+
+  const mediaId = await resolveMediaForLibrary(
+    await queupTrackUrl(play.provider, play.providerMediaId),
+    db,
+  );
+  const outcome = await addPlaylistTrack(playlistId, mediaId, ownerId, db);
+  return { mediaId, saved: outcome === 'saved' };
+}
+
 export async function queuePlaylistTrack(
   playlistId: string,
   mediaId: string,
@@ -516,17 +560,6 @@ function trackKey(provider: string, providerMediaId: string): TrackKey {
   return `${provider}:${providerMediaId}`;
 }
 
-/**
- * The link the room can act on. QueUp stored YouTube tracks by video id, which
- * makes a URL on its own, and SoundCloud tracks by numeric id, which does not:
- * SoundCloud has to name the permalink first.
- */
-async function trackUrl(provider: string, providerMediaId: string): Promise<string> {
-  if (provider === 'youtube') return `https://www.youtube.com/watch?v=${providerMediaId}`;
-  if (provider === 'soundcloud') return soundCloudPermalink(providerMediaId);
-  throw new MediaLookupError('UNSUPPORTED_PROVIDER', `This room cannot play ${provider} tracks.`);
-}
-
 /** Resolves in small parallel groups, the same way a provider playlist import does. */
 async function resolveTracks(
   tracks: QueupExport['playlists'][number]['tracks'],
@@ -540,7 +573,7 @@ async function resolveTracks(
       tracks.slice(start, start + concurrency).map(async (track) => {
         const key = trackKey(track.provider, track.providerMediaId);
         try {
-          const url = await trackUrl(track.provider, track.providerMediaId);
+          const url = await queupTrackUrl(track.provider, track.providerMediaId);
           resolved.set(key, { mediaId: await resolveMediaForLibrary(url, db) });
         } catch (error) {
           resolved.set(key, {
