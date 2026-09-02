@@ -1,0 +1,1044 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Music identity model prototype</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --page: #111113;
+        --surface: #18191b;
+        --raised: #1f2023;
+        --line: #26282c;
+        --line-strong: #43484e;
+        --text: #edeef0;
+        --muted: #8b8f98;
+        --accent: #0090ff;
+        --accent-hover: #33a6ff;
+        --accent-bg: #0d2847;
+        --danger: #ff9592;
+        --danger-bg: #3b1219;
+        --success: #1fd8a4;
+        --success-bg: #0f2e22;
+        --warning: #f4c76b;
+        --warning-bg: #342a12;
+        font-family: "Cascadia Mono", "Share Tech Mono", ui-monospace, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      button {
+        font: inherit;
+      }
+
+      .page {
+        width: min(1320px, 100%);
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      header {
+        padding-bottom: 20px;
+        border-bottom: 1px solid var(--line-strong);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 8px;
+        font-size: 24px;
+        font-weight: 600;
+      }
+
+      h2 {
+        margin-bottom: 12px;
+        font-size: 17px;
+        font-weight: 600;
+      }
+
+      h3 {
+        margin-bottom: 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      p:last-child {
+        margin-bottom: 0;
+      }
+
+      .intro {
+        max-width: 920px;
+        color: var(--muted);
+      }
+
+      .prototype-note {
+        margin-top: 14px;
+        padding: 10px 12px;
+        border-left: 3px solid var(--warning);
+        background: var(--warning-bg);
+        color: var(--text);
+      }
+
+      main {
+        display: grid;
+        gap: 28px;
+        padding-top: 24px;
+      }
+
+      section {
+        min-width: 0;
+      }
+
+      .summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 24px;
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .summary div {
+        display: flex;
+        gap: 8px;
+      }
+
+      .summary dt {
+        color: var(--muted);
+      }
+
+      .summary dd {
+        margin: 0;
+      }
+
+      .last-action {
+        margin: 12px 0 18px;
+        padding: 10px 12px;
+        background: var(--accent-bg);
+        border-left: 3px solid var(--accent);
+      }
+
+      .state-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+        gap: 18px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: var(--surface);
+        border-radius: 6px;
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-header h3 {
+        margin: 0;
+      }
+
+      .panel-header span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .source-title,
+      .recording-title {
+        display: block;
+        color: var(--text);
+      }
+
+      .source-detail,
+      .recording-detail {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .status {
+        display: inline-block;
+        padding: 1px 6px;
+        border: 1px solid var(--line-strong);
+        border-radius: 4px;
+        font-size: 12px;
+      }
+
+      .status.confirmed {
+        border-color: #1b5745;
+        background: var(--success-bg);
+        color: var(--success);
+      }
+
+      .status.proposed {
+        border-color: #765d23;
+        background: var(--warning-bg);
+        color: var(--warning);
+      }
+
+      .status.rejected {
+        border-color: #72232d;
+        background: var(--danger-bg);
+        color: var(--danger);
+      }
+
+      .status.unmatched {
+        color: var(--muted);
+      }
+
+      .recording-list,
+      .work-list,
+      .event-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .recording-list li,
+      .work-list li,
+      .event-list li {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .recording-list li:last-child,
+      .work-list li:last-child,
+      .event-list li:last-child {
+        border-bottom: 0;
+      }
+
+      .empty {
+        padding: 16px 14px;
+        color: var(--muted);
+      }
+
+      .license {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .button {
+        min-height: 34px;
+        padding: 7px 11px;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        background: var(--raised);
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      .button:hover:not(:disabled) {
+        border-color: var(--accent-hover);
+        color: white;
+      }
+
+      .button.primary {
+        border-color: var(--accent);
+        background: var(--accent-bg);
+      }
+
+      .button.danger {
+        border-color: #72232d;
+        background: var(--danger-bg);
+        color: var(--danger);
+      }
+
+      .button:disabled {
+        cursor: not-allowed;
+        opacity: 0.42;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 20px;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line-strong);
+      }
+
+      .tab {
+        padding: 9px 0;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .tab[aria-selected="true"] {
+        border-bottom-color: var(--accent);
+        color: var(--text);
+      }
+
+      .walkthrough {
+        padding-top: 16px;
+      }
+
+      .walkthrough p {
+        max-width: 850px;
+        color: var(--muted);
+      }
+
+      .steps {
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .step-number {
+        color: var(--muted);
+      }
+
+      .step.done .step-number {
+        color: var(--success);
+      }
+
+      .step-copy strong {
+        display: block;
+        font-weight: 500;
+      }
+
+      .step-copy span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .event-list {
+        max-height: 240px;
+        overflow-y: auto;
+      }
+
+      .event-list time {
+        margin-right: 10px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 900px) {
+        .page {
+          padding: 20px;
+        }
+
+        .state-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .step {
+          grid-template-columns: 28px minmax(0, 1fr);
+        }
+
+        .step .button {
+          grid-column: 2;
+          justify-self: start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <h1>Music identity model prototype</h1>
+        <p class="intro">
+          Question: can provider-specific uploads share one canonical MusicBrainz recording without
+          accidentally merging covers, remixes or live performances, while metadata stays unchanged
+          until an admin explicitly refreshes it?
+        </p>
+        <p class="prototype-note">
+          Throwaway prototype. It stores everything in this browser tab and never contacts YouTube,
+          SoundCloud or MusicBrainz.
+        </p>
+      </header>
+
+      <main>
+        <section aria-labelledby="state-heading">
+          <h2 id="state-heading">Current state</h2>
+          <dl class="summary" id="summary"></dl>
+          <p class="last-action" id="last-action"></p>
+
+          <div class="state-grid">
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Provider media</h3>
+                <span>Playable sources remain separate</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Source</th>
+                      <th>Plays</th>
+                      <th>Identity decision</th>
+                      <th>Canonical recording</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sources"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Canonical recordings</h3>
+                <span>Stats combine only confirmed matches</span>
+              </div>
+              <ul class="recording-list" id="recordings"></ul>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Musical works</h3>
+                <span>Optional composition-level grouping</span>
+              </div>
+              <ul class="work-list" id="works"></ul>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h3>Metadata policy</h3>
+                <span>Admin refresh only</span>
+              </div>
+              <div id="metadata-policy" class="empty"></div>
+            </div>
+          </div>
+        </section>
+
+        <section aria-labelledby="actions-heading">
+          <h2 id="actions-heading">Free play</h2>
+          <div class="controls" id="free-play"></div>
+        </section>
+
+        <section aria-labelledby="walkthrough-heading">
+          <h2 id="walkthrough-heading">Guided walkthroughs</h2>
+          <div class="tabs" id="tabs" role="tablist"></div>
+          <div class="walkthrough" id="walkthrough"></div>
+        </section>
+
+        <section aria-labelledby="events-heading">
+          <h2 id="events-heading">Decision log</h2>
+          <div class="panel">
+            <ul class="event-list" id="events"></ul>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      /*
+       * Portable prototype logic. It has no DOM dependencies. Production code
+       * could keep this split between provider media, canonical recordings,
+       * musical works and explicit match decisions.
+       */
+      const MusicIdentityModel = (() => {
+        const sources = [
+          {
+            id: "yt-official",
+            provider: "YouTube",
+            kind: "official music video",
+            title: "Nova Echo - Midnight Signal",
+            durationSeconds: 214,
+            plays: 48,
+          },
+          {
+            id: "yt-lyrics",
+            provider: "YouTube",
+            kind: "lyrics-only upload",
+            title: "Midnight Signal (Lyrics)",
+            durationSeconds: 213,
+            plays: 31,
+          },
+          {
+            id: "sc-upload",
+            provider: "SoundCloud",
+            kind: "artist upload",
+            title: "Nova Echo - Midnight Signal",
+            durationSeconds: 214,
+            plays: 17,
+          },
+          {
+            id: "yt-cover",
+            provider: "YouTube",
+            kind: "cover performance",
+            title: "Midnight Signal - Harbor Lights cover",
+            durationSeconds: 228,
+            plays: 12,
+          },
+          {
+            id: "yt-live",
+            provider: "YouTube",
+            kind: "live performance",
+            title: "Nova Echo - Midnight Signal live at Vega",
+            durationSeconds: 246,
+            plays: 9,
+          },
+        ];
+
+        const baseRecording = () => ({
+          id: "mb-recording-studio",
+          mbid: "60f49cc8-82d6-46cc-91cb-7eeca9f21931",
+          title: "Midnight Signal",
+          artistCredits: [
+            { mbid: "25a6cd91-9fdf-4f7a-b325-18ce83fdbf24", name: "Nova Echo" },
+          ],
+          workId: "mb-work-midnight-signal",
+          version: "studio recording",
+          genres: ["electronic", "synth-pop"],
+          fetchedAt: "initial lookup",
+          sourceLicense: "Core facts CC0; genre associations CC BY-NC-SA 3.0",
+        });
+
+        const initialState = () => ({
+          sources: sources.map((source) => ({ ...source })),
+          recordings: {},
+          works: {},
+          matches: {},
+          manualRefreshCount: 0,
+          providerPlayCount: 0,
+          events: ["Model reset. No provider media has a canonical identity yet."],
+          lastAction: "Start a walkthrough or use the free-play actions.",
+        });
+
+        function clone(state) {
+          return JSON.parse(JSON.stringify(state));
+        }
+
+        function ensureWork(next) {
+          next.works["mb-work-midnight-signal"] ??= {
+            id: "mb-work-midnight-signal",
+            mbid: "7dbf6e8b-2a8f-40d6-942d-a643891a8c65",
+            title: "Midnight Signal",
+            writers: ["Nova Echo"],
+          };
+        }
+
+        function ensureStudioRecording(next) {
+          ensureWork(next);
+          next.recordings["mb-recording-studio"] ??= baseRecording();
+        }
+
+        function setMatch(next, sourceId, decision) {
+          next.matches[sourceId] = decision;
+        }
+
+        function addEvent(next, message) {
+          next.lastAction = message;
+          next.events.unshift(message);
+          next.events = next.events.slice(0, 12);
+        }
+
+        function reduce(state, action) {
+          if (action.type === "RESET") return initialState();
+          const next = clone(state);
+
+          switch (action.type) {
+            case "MATCH_OFFICIAL": {
+              ensureStudioRecording(next);
+              setMatch(next, "yt-official", {
+                status: "confirmed",
+                recordingId: "mb-recording-studio",
+                method: "exact URL, then music-video relation to audio recording",
+                confidence: 1,
+              });
+              addEvent(next, "The official video now points to the canonical studio recording.");
+              return next;
+            }
+            case "MATCH_LYRICS": {
+              ensureStudioRecording(next);
+              setMatch(next, "yt-lyrics", {
+                status: "confirmed",
+                recordingId: "mb-recording-studio",
+                method: "exact URL relationship",
+                confidence: 1,
+              });
+              addEvent(next, "The lyrics upload now shares the studio recording with the official video.");
+              return next;
+            }
+            case "PROPOSE_SOUNDCLOUD": {
+              ensureStudioRecording(next);
+              setMatch(next, "sc-upload", {
+                status: "proposed",
+                recordingId: "mb-recording-studio",
+                method: "title, uploader and duration search",
+                confidence: 0.86,
+              });
+              addEvent(next, "The SoundCloud match is proposed. Its plays are not combined until an admin confirms it.");
+              return next;
+            }
+            case "CONFIRM_SOUNDCLOUD": {
+              const proposed = next.matches["sc-upload"];
+              if (!proposed || proposed.status !== "proposed") {
+                addEvent(next, "Confirmation was refused because no SoundCloud proposal exists.");
+                return next;
+              }
+              proposed.status = "confirmed";
+              proposed.method = `${proposed.method}, admin confirmed`;
+              proposed.confidence = 1;
+              addEvent(next, "An admin confirmed the SoundCloud upload. Its plays now count with the same recording.");
+              return next;
+            }
+            case "REJECT_SOUNDCLOUD": {
+              const proposed = next.matches["sc-upload"];
+              if (!proposed || proposed.status !== "proposed") {
+                addEvent(next, "Rejection was refused because no SoundCloud proposal exists.");
+                return next;
+              }
+              setMatch(next, "sc-upload", {
+                status: "rejected",
+                recordingId: null,
+                method: "admin rejected search candidate",
+                confidence: 0,
+              });
+              addEvent(next, "The SoundCloud candidate was rejected and remains separate.");
+              return next;
+            }
+            case "MATCH_COVER": {
+              ensureWork(next);
+              next.recordings["mb-recording-cover"] = {
+                id: "mb-recording-cover",
+                mbid: "08c45a13-360f-4df2-81bb-560813dea196",
+                title: "Midnight Signal",
+                artistCredits: [
+                  { mbid: "33123fe2-c03c-42aa-a8dd-00396741323f", name: "Harbor Lights" },
+                ],
+                workId: "mb-work-midnight-signal",
+                version: "cover recording",
+                genres: ["indie rock"],
+                fetchedAt: "initial lookup",
+                sourceLicense: "Core facts CC0; genre associations CC BY-NC-SA 3.0",
+              };
+              setMatch(next, "yt-cover", {
+                status: "confirmed",
+                recordingId: "mb-recording-cover",
+                method: "exact MusicBrainz recording relationship",
+                confidence: 1,
+              });
+              addEvent(next, "The cover shares the composition but keeps its own recording and artist stats.");
+              return next;
+            }
+            case "MATCH_LIVE": {
+              ensureWork(next);
+              next.recordings["mb-recording-live"] = {
+                id: "mb-recording-live",
+                mbid: "71df93f3-98f2-449a-8285-15c389f81845",
+                title: "Midnight Signal",
+                artistCredits: [
+                  { mbid: "25a6cd91-9fdf-4f7a-b325-18ce83fdbf24", name: "Nova Echo" },
+                ],
+                workId: "mb-work-midnight-signal",
+                version: "live recording",
+                genres: ["electronic"],
+                fetchedAt: "initial lookup",
+                sourceLicense: "Core facts CC0; genre associations CC BY-NC-SA 3.0",
+              };
+              setMatch(next, "yt-live", {
+                status: "confirmed",
+                recordingId: "mb-recording-live",
+                method: "exact MusicBrainz recording relationship",
+                confidence: 1,
+              });
+              addEvent(next, "The live performance shares the work but remains a distinct recording.");
+              return next;
+            }
+            case "ATTEMPT_BAD_MERGE": {
+              ensureStudioRecording(next);
+              addEvent(next, "Merge blocked. The cover has a different recording MBID, so it cannot join the studio recording.");
+              return next;
+            }
+            case "ADMIN_REFRESH": {
+              const recordingIds = Object.keys(next.recordings);
+              if (recordingIds.length === 0) {
+                addEvent(next, "Refresh did nothing because there is no stored MusicBrainz metadata yet.");
+                return next;
+              }
+              next.manualRefreshCount += 1;
+              for (const recording of Object.values(next.recordings)) {
+                recording.fetchedAt = `admin refresh ${next.manualRefreshCount}`;
+              }
+              addEvent(next, `An admin refreshed ${recordingIds.length} canonical recording${recordingIds.length === 1 ? "" : "s"}.`);
+              return next;
+            }
+            case "PLAY_OFFICIAL": {
+              next.sources.find((source) => source.id === "yt-official").plays += 1;
+              next.providerPlayCount += 1;
+              addEvent(next, "The official video played once. No MusicBrainz request was scheduled.");
+              return next;
+            }
+            default:
+              addEvent(next, `Unknown action ${action.type} was ignored.`);
+              return next;
+          }
+        }
+
+        function recordingStats(state) {
+          return Object.values(state.recordings).map((recording) => {
+            const matchedSources = state.sources.filter((source) => {
+              const decision = state.matches[source.id];
+              return decision?.status === "confirmed" && decision.recordingId === recording.id;
+            });
+            return {
+              ...recording,
+              plays: matchedSources.reduce((sum, source) => sum + source.plays, 0),
+              sourceIds: matchedSources.map((source) => source.id),
+            };
+          });
+        }
+
+        function workStats(state) {
+          const recordings = recordingStats(state);
+          return Object.values(state.works).map((work) => ({
+            ...work,
+            recordingIds: recordings.filter((recording) => recording.workId === work.id).map((recording) => recording.id),
+            plays: recordings
+              .filter((recording) => recording.workId === work.id)
+              .reduce((sum, recording) => sum + recording.plays, 0),
+          }));
+        }
+
+        return { initialState, reduce, recordingStats, workStats };
+      })();
+
+      const actionLabels = {
+        MATCH_OFFICIAL: "Match official video",
+        MATCH_LYRICS: "Match lyrics upload",
+        PROPOSE_SOUNDCLOUD: "Propose SoundCloud match",
+        CONFIRM_SOUNDCLOUD: "Admin confirms SoundCloud",
+        REJECT_SOUNDCLOUD: "Admin rejects SoundCloud",
+        MATCH_COVER: "Match cover correctly",
+        MATCH_LIVE: "Match live version correctly",
+        ATTEMPT_BAD_MERGE: "Try to merge cover into studio",
+        ADMIN_REFRESH: "Admin refreshes metadata",
+        PLAY_OFFICIAL: "Play official video",
+        RESET: "Reset model",
+      };
+
+      const scenarios = [
+        {
+          id: "same-recording",
+          name: "Same recording, three providers",
+          description:
+            "An official video, a lyrics upload and a SoundCloud upload contain the same studio audio. Exact links confirm the YouTube sources. The fuzzy SoundCloud result remains outside combined stats until an admin confirms it.",
+          steps: [
+            { action: "MATCH_OFFICIAL", note: "Create the canonical studio recording from an exact URL relationship." },
+            { action: "MATCH_LYRICS", note: "Attach a second YouTube presentation to that same recording." },
+            { action: "PROPOSE_SOUNDCLOUD", note: "Search suggests the same recording, but does not assert it." },
+            { action: "CONFIRM_SOUNDCLOUD", note: "An admin accepts the candidate and the play totals combine." },
+          ],
+        },
+        {
+          id: "cover-trap",
+          name: "Cover and live version",
+          description:
+            "The title is the same, but the audio performances are not. Each gets its own recording identity. They share a musical work only when composition-level statistics are wanted.",
+          steps: [
+            { action: "MATCH_OFFICIAL", note: "Create the studio recording." },
+            { action: "MATCH_COVER", note: "Keep the cover as a separate recording by a different artist." },
+            { action: "MATCH_LIVE", note: "Keep the live performance separate from the studio take." },
+            { action: "ATTEMPT_BAD_MERGE", note: "Prove that a different recording MBID cannot be folded into the studio stats." },
+          ],
+        },
+        {
+          id: "uncertain-match",
+          name: "Reject an uncertain match",
+          description:
+            "A title and duration search finds a plausible SoundCloud candidate. The proposal is visible but contributes no canonical artist or genre stats until a person decides.",
+          steps: [
+            { action: "MATCH_OFFICIAL", note: "Create the known recording." },
+            { action: "PROPOSE_SOUNDCLOUD", note: "Save the candidate and its confidence separately." },
+            { action: "REJECT_SOUNDCLOUD", note: "An admin rejects it without changing the provider media." },
+          ],
+        },
+        {
+          id: "manual-refresh",
+          name: "Manual refresh only",
+          description:
+            "Normal playback uses the stored identity forever. Only the explicit admin action asks MusicBrainz for updated metadata.",
+          steps: [
+            { action: "MATCH_OFFICIAL", note: "Store MusicBrainz facts once." },
+            { action: "PLAY_OFFICIAL", note: "Playback changes our own count and performs no metadata refresh." },
+            { action: "PLAY_OFFICIAL", note: "Repeated use still performs no refresh." },
+            { action: "ADMIN_REFRESH", note: "An admin explicitly replaces the stored MusicBrainz response." },
+          ],
+        },
+      ];
+
+      const freeActions = [
+        "MATCH_OFFICIAL",
+        "MATCH_LYRICS",
+        "PROPOSE_SOUNDCLOUD",
+        "CONFIRM_SOUNDCLOUD",
+        "REJECT_SOUNDCLOUD",
+        "MATCH_COVER",
+        "MATCH_LIVE",
+        "ATTEMPT_BAD_MERGE",
+        "PLAY_OFFICIAL",
+        "ADMIN_REFRESH",
+        "RESET",
+      ];
+
+      let state = MusicIdentityModel.initialState();
+      let activeScenario = scenarios[0].id;
+      let completedSteps = 0;
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function decisionFor(sourceId) {
+        return state.matches[sourceId] ?? {
+          status: "unmatched",
+          recordingId: null,
+          method: "No MusicBrainz decision",
+          confidence: null,
+        };
+      }
+
+      function renderSummary() {
+        const confirmed = Object.values(state.matches).filter((match) => match.status === "confirmed").length;
+        const proposed = Object.values(state.matches).filter((match) => match.status === "proposed").length;
+        document.querySelector("#summary").innerHTML = `
+          <div><dt>Provider sources</dt><dd>${state.sources.length}</dd></div>
+          <div><dt>Canonical recordings</dt><dd>${Object.keys(state.recordings).length}</dd></div>
+          <div><dt>Confirmed links</dt><dd>${confirmed}</dd></div>
+          <div><dt>Waiting for admin</dt><dd>${proposed}</dd></div>
+          <div><dt>Manual refreshes</dt><dd>${state.manualRefreshCount}</dd></div>
+        `;
+        document.querySelector("#last-action").textContent = state.lastAction;
+      }
+
+      function renderSources() {
+        document.querySelector("#sources").innerHTML = state.sources
+          .map((source) => {
+            const decision = decisionFor(source.id);
+            const recording = decision.recordingId ? state.recordings[decision.recordingId] : null;
+            const confidence = decision.confidence === null ? "" : `, ${Math.round(decision.confidence * 100)}% confidence`;
+            return `
+              <tr>
+                <td>
+                  <span class="source-title">${escapeHtml(source.title)}</span>
+                  <span class="source-detail">${escapeHtml(source.provider)} · ${escapeHtml(source.kind)} · ${source.durationSeconds}s</span>
+                </td>
+                <td>${source.plays}</td>
+                <td>
+                  <span class="status ${escapeHtml(decision.status)}">${escapeHtml(decision.status)}</span>
+                  <span class="source-detail">${escapeHtml(decision.method)}${confidence}</span>
+                </td>
+                <td>${recording ? `${escapeHtml(recording.title)}<span class="source-detail">${escapeHtml(recording.version)}</span>` : "—"}</td>
+              </tr>
+            `;
+          })
+          .join("");
+      }
+
+      function renderRecordings() {
+        const recordings = MusicIdentityModel.recordingStats(state);
+        const target = document.querySelector("#recordings");
+        if (recordings.length === 0) {
+          target.innerHTML = '<li class="empty">No canonical recording has been identified.</li>';
+          return;
+        }
+        target.innerHTML = recordings
+          .map((recording) => `
+            <li>
+              <span class="recording-title">${escapeHtml(recording.title)} · ${escapeHtml(recording.version)}</span>
+              <span class="recording-detail">${escapeHtml(recording.artistCredits.map((artist) => artist.name).join(" + "))}</span>
+              <span class="recording-detail">${recording.plays} combined plays from ${recording.sourceIds.length} confirmed source${recording.sourceIds.length === 1 ? "" : "s"}</span>
+              <span class="recording-detail">Genres: ${escapeHtml(recording.genres.join(", "))}</span>
+              <span class="recording-detail">MBID ${escapeHtml(recording.mbid)}</span>
+              <span class="license">Fetched: ${escapeHtml(recording.fetchedAt)}. ${escapeHtml(recording.sourceLicense)}</span>
+            </li>
+          `)
+          .join("");
+      }
+
+      function renderWorks() {
+        const works = MusicIdentityModel.workStats(state);
+        const target = document.querySelector("#works");
+        if (works.length === 0) {
+          target.innerHTML = '<li class="empty">No musical work relationship is known.</li>';
+          return;
+        }
+        target.innerHTML = works
+          .map((work) => `
+            <li>
+              <span class="recording-title">${escapeHtml(work.title)}</span>
+              <span class="recording-detail">Written by ${escapeHtml(work.writers.join(", "))}</span>
+              <span class="recording-detail">${work.plays} plays across ${work.recordingIds.length} distinct recording${work.recordingIds.length === 1 ? "" : "s"}</span>
+              <span class="recording-detail">Work MBID ${escapeHtml(work.mbid)}</span>
+            </li>
+          `)
+          .join("");
+      }
+
+      function renderMetadataPolicy() {
+        document.querySelector("#metadata-policy").innerHTML = `
+          <p>Provider playback never schedules a MusicBrainz request.</p>
+          <p>Stored matches and misses have no automatic expiry. Only an admin refresh changes MusicBrainz facts.</p>
+          <p>Provider plays performed in this demo: ${state.providerPlayCount}. MusicBrainz refreshes caused by them: 0.</p>
+          <p class="license">Genre associations retain MusicBrainz attribution and their CC BY-NC-SA 3.0 provenance.</p>
+        `;
+      }
+
+      function renderEvents() {
+        document.querySelector("#events").innerHTML = state.events
+          .map((event, index) => `<li><time>${String(state.events.length - index).padStart(2, "0")}</time>${escapeHtml(event)}</li>`)
+          .join("");
+      }
+
+      function dispatch(type) {
+        state = MusicIdentityModel.reduce(state, { type });
+        render();
+      }
+
+      function renderFreePlay() {
+        document.querySelector("#free-play").innerHTML = freeActions
+          .map((action) => {
+            const className = action === "RESET" ? "button danger" : action === "ADMIN_REFRESH" ? "button primary" : "button";
+            return `<button class="${className}" type="button" data-action="${action}">${escapeHtml(actionLabels[action])}</button>`;
+          })
+          .join("");
+        document.querySelectorAll("#free-play [data-action]").forEach((button) => {
+          button.addEventListener("click", () => dispatch(button.dataset.action));
+        });
+      }
+
+      function activateScenario(id) {
+        activeScenario = id;
+        completedSteps = 0;
+        state = MusicIdentityModel.initialState();
+        render();
+      }
+
+      function renderWalkthrough() {
+        document.querySelector("#tabs").innerHTML = scenarios
+          .map((scenario) => `
+            <button
+              type="button"
+              class="tab"
+              role="tab"
+              aria-selected="${scenario.id === activeScenario}"
+              data-scenario="${scenario.id}"
+            >${escapeHtml(scenario.name)}</button>
+          `)
+          .join("");
+        document.querySelectorAll("[data-scenario]").forEach((button) => {
+          button.addEventListener("click", () => activateScenario(button.dataset.scenario));
+        });
+
+        const scenario = scenarios.find((candidate) => candidate.id === activeScenario);
+        document.querySelector("#walkthrough").innerHTML = `
+          <p>${escapeHtml(scenario.description)}</p>
+          <button class="button" type="button" id="restart-walkthrough">Restart walkthrough</button>
+          <div class="steps">
+            ${scenario.steps
+              .map((step, index) => `
+                <div class="step ${index < completedSteps ? "done" : ""}">
+                  <span class="step-number">${index < completedSteps ? "✓" : index + 1}</span>
+                  <span class="step-copy">
+                    <strong>${escapeHtml(actionLabels[step.action])}</strong>
+                    <span>${escapeHtml(step.note)}</span>
+                  </span>
+                  <button
+                    class="button ${index === completedSteps ? "primary" : ""}"
+                    type="button"
+                    data-step="${index}"
+                    ${index === completedSteps ? "" : "disabled"}
+                  >Run step</button>
+                </div>
+              `)
+              .join("")}
+          </div>
+        `;
+        document.querySelector("#restart-walkthrough").addEventListener("click", () => activateScenario(activeScenario));
+        document.querySelectorAll("[data-step]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const index = Number(button.dataset.step);
+            if (index !== completedSteps) return;
+            dispatch(scenario.steps[index].action);
+            completedSteps += 1;
+            render();
+          });
+        });
+      }
+
+      function render() {
+        renderSummary();
+        renderSources();
+        renderRecordings();
+        renderWorks();
+        renderMetadataPolicy();
+        renderEvents();
+        renderFreePlay();
+        renderWalkthrough();
+      }
+
+      render();
+    </script>
+  </body>
+</html>

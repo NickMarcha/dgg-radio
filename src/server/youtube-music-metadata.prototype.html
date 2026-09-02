@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PROTOTYPE: YouTube music-card parser</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        background: #101316;
+        color: #e9eef2;
+      }
+
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 28px; }
+      main { max-width: 1050px; margin: 0 auto; }
+      h1 { margin: 0 0 8px; font-size: clamp(25px, 4vw, 42px); letter-spacing: -0.04em; }
+      h2 { margin: 0; font-size: 16px; }
+      p { color: #aeb8bf; line-height: 1.55; }
+      button {
+        border: 1px solid #3b474f;
+        border-radius: 4px;
+        padding: 10px 13px;
+        color: #e9eef2;
+        background: #192027;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover, button[aria-pressed="true"] { background: #26343d; border-color: #7ee0b5; }
+      .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0; }
+      .status {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 1px;
+        border: 1px solid #303940;
+        background: #303940;
+      }
+      .metric { background: #151a1e; padding: 15px; }
+      .metric span { display: block; color: #8d9aa3; font-size: 12px; margin-bottom: 8px; }
+      .metric strong { font-size: 21px; }
+      .panel { margin-top: 18px; border: 1px solid #303940; background: #151a1e; }
+      .panel-header { padding: 15px; border-bottom: 1px solid #303940; }
+      .tracks { display: grid; gap: 1px; background: #303940; }
+      article { padding: 17px; background: #151a1e; }
+      article h3 { margin: 0 0 7px; font-size: 18px; }
+      dl { display: grid; grid-template-columns: 150px 1fr; gap: 7px 14px; margin: 14px 0 0; }
+      dt { color: #8d9aa3; }
+      dd { margin: 0; overflow-wrap: anywhere; }
+      code { color: #7ee0b5; }
+      .empty { padding: 28px; color: #f2bd72; }
+      .pass { color: #7ee0b5; }
+      .fail { color: #ff8f8f; }
+      footer { margin-top: 20px; font-size: 12px; color: #77838b; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Can the visible Music card be parsed safely?</h1>
+      <p>
+        Throwaway logic prototype. It runs a pure parser over reduced fixtures captured from current public
+        YouTube watch responses. It makes no network requests.
+      </p>
+
+      <div class="controls" id="fixture-controls" aria-label="Fixture scenarios"></div>
+
+      <section class="status" aria-label="Current parser state">
+        <div class="metric"><span>Fixture</span><strong id="fixture-name"></strong></div>
+        <div class="metric"><span>Music cards</span><strong id="card-count"></strong></div>
+        <div class="metric"><span>Expected</span><strong id="expected-count"></strong></div>
+        <div class="metric"><span>Assertion</span><strong id="assertion"></strong></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header"><h2>Normalized result</h2></div>
+        <div class="tracks" id="tracks"></div>
+      </section>
+
+      <footer>
+        Prototype contract: absent metadata stays unknown; multiple cards stay multiple; arbitrary credit labels are preserved.
+      </footer>
+    </main>
+
+    <script type="module">
+      const card = ({ title, artist, album, linkedYoutubeId = null, credits = {} }) => ({
+        videoAttributeViewModel: {
+          title,
+          subtitle: artist,
+          secondarySubtitle: album ? { content: album } : undefined,
+          image: { sources: [{ url: `https://example.invalid/${encodeURIComponent(title)}.jpg` }] },
+          onTap: linkedYoutubeId
+            ? { innertubeCommand: { watchEndpoint: { videoId: linkedYoutubeId } } }
+            : undefined,
+          overflowMenuOnTap: Object.keys(credits).length
+            ? {
+                innertubeCommand: {
+                  confirmDialogEndpoint: {
+                    content: {
+                      confirmDialogRenderer: {
+                        dialogMessages: [{ runs: [{ text: Object.entries(credits).map(([key, value]) => `${key}: ${value}`).join('\n\n') }] }],
+                      },
+                    },
+                  },
+                },
+              }
+            : undefined,
+        },
+      });
+
+      const fixture = (cards) => ({
+        engagementPanels: [{
+          engagementPanelSectionListRenderer: {
+            content: {
+              structuredDescriptionContentRenderer: {
+                items: [{
+                  horizontalCardListRenderer: {
+                    header: { richListHeaderRenderer: { title: { simpleText: 'Music' } } },
+                    cards,
+                  },
+                }],
+              },
+            },
+          },
+        }],
+      });
+
+      const fixtures = [
+        {
+          name: 'Eat It live shape',
+          expected: 1,
+          data: fixture([card({
+            title: 'Eat It',
+            artist: '"Weird Al" Yankovic',
+            album: 'In 3-D',
+            linkedYoutubeId: 'ZcJjMnHoIBI',
+            credits: { Song: 'Eat It', Artist: '"Weird Al" Yankovic', Album: 'In 3-D', Writers: 'Michael Jackson' },
+          })]),
+        },
+        {
+          name: 'Eight-song album stream',
+          expected: 8,
+          data: fixture(['Vespers', 'Poppy', 'Headlights', 'Acid Rain', 'Departures', 'Audience', 'Ring Road', 'Baton'].map((title, index) => card({
+            title,
+            artist: 'Model/Actriz',
+            album: 'Pirouette',
+            linkedYoutubeId: ['qBgfPmnH0Q8', 'JfrYz1r4vmM', 'wEGtqWo45oU', 'Oz9gxM1iZxM', 'eG_K9ecAjfk', 'X7VkSP3ogR4', '-7uUkjCZEgY', 'KgKNAfBfL54'][index],
+            credits: { Song: title, Artist: 'Model/Actriz', Album: 'Pirouette' },
+          }))),
+        },
+        {
+          name: 'No Music section',
+          expected: 0,
+          data: { engagementPanels: [{ unrelatedRenderer: { title: 'Unknown upload' } }] },
+        },
+        {
+          name: 'Unrelated horizontal cards',
+          expected: 0,
+          data: {
+            items: [{ horizontalCardListRenderer: {
+              header: { richListHeaderRenderer: { title: { simpleText: 'Products' } } },
+              cards: [card({ title: 'Not a song', artist: 'Seller', album: null })],
+            } }],
+          },
+        },
+      ];
+
+      function get(value, path) {
+        return path.reduce((current, part) => current && typeof current === 'object' ? current[part] : undefined, value);
+      }
+
+      function objectsNamed(value, key) {
+        const matches = [];
+        const visit = (candidate) => {
+          if (!candidate || typeof candidate !== 'object') return;
+          if (Array.isArray(candidate)) return candidate.forEach(visit);
+          for (const [candidateKey, child] of Object.entries(candidate)) {
+            if (candidateKey === key && child && typeof child === 'object' && !Array.isArray(child)) matches.push(child);
+            visit(child);
+          }
+        };
+        visit(value);
+        return matches;
+      }
+
+      function parseCredits(view) {
+        const runs = get(view, ['overflowMenuOnTap', 'innertubeCommand', 'confirmDialogEndpoint', 'content', 'confirmDialogRenderer', 'dialogMessages', 0, 'runs']);
+        if (!Array.isArray(runs)) return {};
+        return Object.fromEntries(runs.map((run) => run?.text ?? '').join('').split('\n\n')
+          .map((line) => line.split(': ', 2)).filter((parts) => parts.length === 2));
+      }
+
+      function parseMusicCards(initialData) {
+        return objectsNamed(initialData, 'horizontalCardListRenderer')
+          .filter((list) => get(list, ['header', 'richListHeaderRenderer', 'title', 'simpleText']) === 'Music')
+          .flatMap((list) => Array.isArray(list.cards) ? list.cards : [])
+          .map((entry) => entry.videoAttributeViewModel)
+          .filter(Boolean)
+          .map((view) => ({
+            title: view.title || null,
+            artist: view.subtitle || null,
+            album: get(view, ['secondarySubtitle', 'content']) || null,
+            linkedYoutubeId: get(view, ['onTap', 'innertubeCommand', 'watchEndpoint', 'videoId']) || null,
+            artworkUrl: get(view, ['image', 'sources', 0, 'url']) || null,
+            credits: parseCredits(view),
+          }));
+      }
+
+      const controls = document.querySelector('#fixture-controls');
+      const tracks = document.querySelector('#tracks');
+
+      function row(label, value) {
+        const dt = document.createElement('dt');
+        dt.textContent = label;
+        const dd = document.createElement('dd');
+        dd.textContent = value ?? 'unknown';
+        return [dt, dd];
+      }
+
+      function render(index) {
+        const selected = fixtures[index];
+        const parsed = parseMusicCards(selected.data);
+        document.querySelector('#fixture-name').textContent = selected.name;
+        document.querySelector('#card-count').textContent = String(parsed.length);
+        document.querySelector('#expected-count').textContent = String(selected.expected);
+        const assertion = document.querySelector('#assertion');
+        const passed = parsed.length === selected.expected;
+        assertion.textContent = passed ? 'PASS' : 'FAIL';
+        assertion.className = passed ? 'pass' : 'fail';
+        [...controls.children].forEach((button, buttonIndex) => button.setAttribute('aria-pressed', String(buttonIndex === index)));
+        tracks.replaceChildren();
+        if (!parsed.length) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = 'No provider-authored match. Keep this video unknown.';
+          tracks.append(empty);
+          return;
+        }
+        parsed.forEach((track, trackIndex) => {
+          const article = document.createElement('article');
+          const heading = document.createElement('h3');
+          heading.textContent = `${trackIndex + 1}. ${track.title ?? 'Unknown track'}`;
+          const details = document.createElement('dl');
+          [
+            ...row('Artist', track.artist),
+            ...row('Album', track.album),
+            ...row('Linked video ID', track.linkedYoutubeId),
+            ...row('Credits', Object.entries(track.credits).map(([key, value]) => `${key}: ${value}`).join(' | ') || null),
+          ].forEach((node) => details.append(node));
+          article.append(heading, details);
+          tracks.append(article);
+        });
+      }
+
+      fixtures.forEach((entry, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = entry.name;
+        button.addEventListener('click', () => render(index));
+        controls.append(button);
+      });
+      render(0);
+    </script>
+  </body>
+</html>
