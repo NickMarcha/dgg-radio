@@ -22,26 +22,23 @@ the strings are spelled `ADMIN` and `MODERATOR`. Turning it back on is a small
 change to `radioRole` in `src/server/auth.ts`; `git log` has the version that
 did it.
 
-## Fifty tracks per playlist is a guess, not a decision
+## Nothing can be saved or queued out of the QueUp archive
 
-`MAX_PLAYLIST_TRACKS` is 50 in `playlists.ts`, mirrored by the `.max(50)` on
-`playlistOrderSchema` and by the same cap on provider-playlist imports in
-`room.ts`. It was picked because it matches the import limit and because it lets
-"add playlist to queue" mean the whole playlist: no paging, no background job,
-one request that either finishes or reports what it skipped.
+`/history` shows the 47,982 plays imported from QueUp under the room's own
+history, and every row is a dead end: the title links out to YouTube, and that
+is all. There is no save-to-playlist button and no way to queue one.
 
-Nothing has tested it against real use. Nobody has hit it yet, and it is not
-known whether people want a handful of short themed playlists or one long
-library of everything they have ever liked.
+The reason is that the archive holds what QueUp knew — a provider and an id —
+and not a row in `media`. `SaveToPlaylistButton` works from a media id, and the
+room's whole save path is built on one. Giving those rows a media id means a
+provider lookup each, which is exactly what the import avoids by not making
+34,114 of them.
 
-Raising it is not free. Queueing a whole playlist walks every track through
-`enqueueMedia` in one request, so the ceiling is also how long that request can
-run and how many provider lookups it can spend. Past a few hundred it stops
-being one request and becomes a job with progress to report, which is a
-different feature.
-
-Leave it at 50 until somebody complains, then decide with that complaint in
-hand rather than in advance.
+The path already exists for a person: paste the link on the playlists page, and
+the normal URL route resolves it. The feature would be a variant of the save
+button that posts a URL instead of a media id, resolving on first save. Worth
+doing if people actually go looking through the archive for things to play; it
+is not worth building before anyone has.
 
 ## The PostHog event set has never been judged against real data
 

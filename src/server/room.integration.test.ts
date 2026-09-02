@@ -53,6 +53,9 @@ vi.mock('./media-cache', () => {
     lookupManyCached: vi.fn((urls: string[], country: string, db: unknown) =>
       many(urls, (url) => lookup(url, country, db)),
     ),
+    // Only a cost saving live: the per-track lookups below answer the same
+    // either way, so the stub does nothing.
+    warmYouTubeLookups: vi.fn(async () => {}),
   };
 });
 

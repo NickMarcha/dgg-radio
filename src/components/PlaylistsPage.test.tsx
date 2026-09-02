@@ -6,6 +6,7 @@ import type {
   PlaylistLibrary,
   PlaylistQueueResult,
   PlaylistSaveResult,
+  QueupImportResult,
 } from '../shared/contracts';
 import PlaylistsPage from './PlaylistsPage';
 
@@ -67,12 +68,31 @@ const importResult: PlaylistSaveResult = {
   skipped: [{ title: 'A private video', reason: 'That YouTube video is unavailable.' }],
 };
 
+const queupResult: QueupImportResult = {
+  playlists: [
+    { name: 'Driving', created: false, attempted: 4, saved: 2, duplicates: 1, skipped: [] },
+    {
+      name: 'Late night',
+      created: true,
+      attempted: 2,
+      saved: 1,
+      duplicates: 0,
+      skipped: [{ title: 'A private video', reason: 'That YouTube video is unavailable.' }],
+    },
+  ],
+};
+
 let queueCalls = 0;
+let importedFile: unknown = null;
 let savedUrl: string | null = null;
 let saveResponse: PlaylistSaveResult = importResult;
 
 function route(url: string, method: string, body?: BodyInit | null) {
   if (url.endsWith('/api/room')) return { status: 200, body: { listenerCount: 0, me: null } };
+  if (url.endsWith('/api/playlists/import') && method === 'POST') {
+    importedFile = JSON.parse(String(body));
+    return { status: 200, body: queupResult };
+  }
   if (url.endsWith(`/api/playlists/${driving.id}/tracks`) && method === 'POST') {
     savedUrl = JSON.parse(String(body)).url;
     return { status: 201, body: saveResponse };
@@ -88,6 +108,7 @@ function route(url: string, method: string, body?: BodyInit | null) {
 
 beforeEach(() => {
   queueCalls = 0;
+  importedFile = null;
   savedUrl = null;
   saveResponse = importResult;
   vi.stubGlobal(
@@ -170,6 +191,46 @@ describe('PlaylistsPage', () => {
       'That YouTube video is unavailable.',
     );
     expect(screen.queryByText(`That track is already in "${driving.name}".`)).toBeNull();
+  });
+
+
+  it('sends a chosen QueUp export and reports what each playlist took', async () => {
+    render(<PlaylistsPage apiUrl={API} />);
+
+    const exported = {
+      source: 'queup',
+      kind: 'playlists',
+      playlists: [
+        { name: 'Driving', tracks: [{ provider: 'youtube', providerMediaId: 'aaaaaaaaaaa', title: 'A Track' }] },
+      ],
+    };
+    const input = document.querySelector<HTMLInputElement>('.playlist-import-file input')!;
+    fireEvent.change(input, {
+      target: {
+        files: [new File([JSON.stringify(exported)], 'queup-playlists.json', { type: 'application/json' })],
+      },
+    });
+
+    const report = await screen.findByText('Late night');
+    expect(report.closest('.playlist-import-result')!.textContent).toContain(
+      'A private video: That YouTube video is unavailable.',
+    );
+    expect(screen.getByText(/2 added to the playlist you had/)).toBeDefined();
+    await waitFor(() => expect(importedFile).toEqual(exported));
+  });
+
+  it('refuses a file that is not the export, without asking the server', async () => {
+    render(<PlaylistsPage apiUrl={API} />);
+
+    const input = document.querySelector<HTMLInputElement>('.playlist-import-file input')!;
+    fireEvent.change(input, {
+      target: { files: [new File(['not json at all'], 'notes.txt', { type: 'text/plain' })] },
+    });
+
+    expect((await screen.findByText(/That file is not JSON/)).textContent).toContain(
+      'Use the file the QueUp snippet saved.',
+    );
+    expect(importedFile).toBeNull();
   });
 
   it('offers sign-in instead of a library when the viewer is signed out', async () => {

@@ -21,6 +21,8 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
 - Usernames coloured by Destiny flair, the same way they appear in chat
 - Optionally hiding requesters until a track ends, so votes are cast on the track
 - Volume and play state remembered per browser
+- The room's QueUp years imported and readable under the history, and a
+  self-service import for anyone bringing their own QueUp playlists across
 - Responsive desktop and mobile room layouts
 
 ## Local setup
@@ -162,6 +164,83 @@ the community, and this stops being a thing to run.
 docker compose exec -T db psql -U dgg_radio -d dgg_radio -v confirm=yes   -f - < scripts/clear-beta-history.sql
 ```
 
+It leaves the QueUp archive alone: `legacy_plays` records another site's room,
+not testing done in this one.
+
+## Moving in from QueUp
+
+The room ran on [QueUp](https://queup.net/join/dgg-radio) before this one
+existed, so there are two things worth bringing across: what the room played,
+and what people saved. QueUp's own data export is gone, but its web client's API
+answers well enough for both, in two different ways — room data is public, and
+personal playlists are not.
+
+### The room's history
+
+`scripts/queup-export-room.ts` reads everything the room's own pages read. It
+needs no login and works against any public room:
+
+```shell
+npx tsx scripts/queup-export-room.ts dgg-radio          # writes queup-dgg-radio.json
+npx tsx scripts/queup-export-room.ts dgg-radio --pages 5 --out sample.json
+```
+
+The file holds every play (who requested it, when it played, its votes, whether
+it was skipped), everyone the room has a record of, and the moderation log with
+the ban and staff lists folded into it. For dggJams that is 47,982 plays across
+34,114 distinct tracks by 1,050 people, back to the room's first day in October
+2024, in about 26 MB.
+
+`scripts/queup-import-room.ts` loads the plays into `legacy_plays`:
+
+```shell
+npx tsx scripts/queup-import-room.ts queup-dgg-radio.json
+```
+
+It writes that one table and nothing else. No accounts are created, no `media`
+rows are added, and no provider is asked anything, so a full import takes
+seconds. Rows are keyed by QueUp's own id for the play, so running it again
+brings across whatever is new and rewrites nothing — which is how a room still
+running on QueUp gets topped up later.
+
+The archive shows up under the room's own history on `/history`, and stops
+there. It is another service's records: the requesters are QueUp names with no
+Destiny account behind them, and the votes were cast somewhere else. Stats,
+profiles, the DJ rotation and the repeat cooldown all ignore it on purpose.
+
+Bans, roles and the moderation log are exported but not imported. This room has
+no concept of a banned user, and a QueUp name is not a Destiny identity, so
+importing them would mean inventing both a feature and a mapping. QueUp has no
+song blocklist at all — the room's disallowed-song list only ever existed as
+prose in the room description — so nothing there maps onto rules either.
+
+### Personal playlists
+
+Playlists are private. QueUp answers for them only with the owner's login cookie
+and only when the request comes from queup.net itself, so there is no way to
+fetch somebody's playlists on their behalf: they have to run the export in their
+own browser. `public/queup-export-playlists.js` is that export, served at
+`/queup-export-playlists.js` and linked from the playlists page.
+
+Anyone moving their library:
+
+1. Signs in at queup.net.
+2. Opens the browser console and pastes the snippet in. Chrome asks them to type
+   "allow pasting" first.
+3. Gets `queup-playlists.json`, and chooses it under **Import from QueUp** on
+   `/playlists`.
+
+The import creates each playlist and saves its tracks, reporting anything it
+could not take. A playlist whose name they already have is added to rather than
+duplicated, so importing again after adding tracks on QueUp brings across only
+what is new.
+
+QueUp stored SoundCloud tracks by numeric id, which names nothing on its own, so
+those are resolved through SoundCloud during the import. YouTube tracks cost
+quota, and `videos.list` bills one unit per call for up to fifty ids, so an
+import asks about fifty at a time: a 500-track library costs ten units rather
+than five hundred.
+
 ## Testing
 
 `npm test` runs the unit tests on their own. The integration tests need a real Postgres, so they skip unless `TEST_DATABASE_URL` points at one.
@@ -194,7 +273,7 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 | `/` and `/player` | the room: player, room queue, your own queue, request form |
 | `/admin` | room settings, rules with their order and blocklists, roles, clearing queues |
 | `/stats` | room totals, teams, most played tracks, and top jammers |
-| `/history` | completed and skipped tracks |
+| `/history` | completed and skipped tracks, then the archive imported from QueUp |
 | `/playlists` | your own playlists: create, reorder, and queue saved tracks |
 | `/profile/:username` | one listener's stats and play history |
 | `/embed/player` | control-free synchronized video and audio for an OBS Browser Source |

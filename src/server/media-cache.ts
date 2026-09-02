@@ -1,9 +1,10 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { getDatabase, type Database } from './db/client';
 import { mediaLookups } from './db/schema';
 import { getEnv } from './env';
 import {
   inspectMedia,
+  inspectYouTubeVideos,
   MediaLookupError,
   parseMediaUrl,
   regionPlaybackIssue,
@@ -46,7 +47,8 @@ interface CachedAnswer {
   checkedAt: Date;
 }
 
-function isFresh(cached: CachedAnswer): boolean {
+/** Only the age and whether it recorded a refusal decide this. */
+function isFresh(cached: Pick<CachedAnswer, 'playbackIssueCode' | 'checkedAt'>): boolean {
   const age = Date.now() - cached.checkedAt.getTime();
   return age < (cached.playbackIssueCode ? PLAYBACK_ISSUE_MAX_AGE_MS : PLAYABLE_MAX_AGE_MS);
 }
@@ -152,7 +154,12 @@ export async function inspectMediaCached(
 
   const env = getEnv();
   const inspected = await inspectMedia(url, { youtubeApiKey: env.YOUTUBE_API_KEY });
+  await store(key, inspected, db);
+  return forRegion(inspected, targetCountry);
+}
 
+/** Writes one provider answer over whatever was stored for that track before. */
+async function store(key: string, inspected: MediaInspection, db: Database): Promise<void> {
   const { metadata, playbackIssue, regionRestriction } = inspected;
   const row = {
     provider: metadata.provider,
@@ -166,8 +173,57 @@ export async function inspectMediaCached(
     .insert(mediaLookups)
     .values({ key, ...row })
     .onConflictDoUpdate({ target: mediaLookups.key, set: row });
+}
 
-  return forRegion(inspected, targetCountry);
+/**
+ * Asks YouTube about many videos at once and stores what it says, so the
+ * per-track path that follows is answered from here.
+ *
+ * It exists for quota. `videos.list` costs one unit however many ids it is
+ * given, up to fifty, so an import that warms the cache this way spends one
+ * unit per fifty tracks instead of one per track. Everything else about the
+ * answers is unchanged, including refusals, which are stored exactly as a
+ * single lookup would store them.
+ *
+ * Failures are not thrown: a video this could not read is simply not cached,
+ * and the caller's own lookup asks about it again and reports it properly.
+ */
+export async function warmYouTubeLookups(
+  urls: string[],
+  db: Database = getDatabase(),
+): Promise<void> {
+  const wanted = new Map<string, string>();
+  for (const url of urls) {
+    try {
+      const parsed = parseMediaUrl(url);
+      if (parsed.provider !== 'youtube' || !parsed.providerMediaId) continue;
+      wanted.set(parsed.providerMediaId, cacheKey(parsed));
+    } catch {
+      // Not a link this room can read. The caller's own lookup says so.
+    }
+  }
+  if (wanted.size === 0) return;
+
+  const cached = await db
+    .select({
+      key: mediaLookups.key,
+      playbackIssueCode: mediaLookups.playbackIssueCode,
+      checkedAt: mediaLookups.checkedAt,
+    })
+    .from(mediaLookups)
+    .where(inArray(mediaLookups.key, [...wanted.values()]));
+  const fresh = new Set(cached.filter(isFresh).map((row) => row.key));
+
+  const ids = [...wanted].filter(([, key]) => !fresh.has(key)).map(([id]) => id);
+  if (ids.length === 0) return;
+
+  const env = getEnv();
+  const answers = await inspectYouTubeVideos(ids, { youtubeApiKey: env.YOUTUBE_API_KEY });
+  for (const [id, answer] of answers) {
+    const key = wanted.get(id);
+    if (!key || answer instanceof Error) continue;
+    await store(key, answer, db);
+  }
 }
 
 /** Settles the one question the stored answer deliberately left open. */

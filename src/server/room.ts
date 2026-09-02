@@ -9,12 +9,14 @@ import {
   ne,
   sql,
 } from 'drizzle-orm';
-import type {
-  QueueItem,
-  QueueNotice,
-  RoomMedia,
-  RoomSnapshot,
-  RoomUser,
+import {
+  MAX_PLAYLIST_TRACKS,
+  MAX_QUEUE_IMPORT_TRACKS,
+  type QueueItem,
+  type QueueNotice,
+  type RoomMedia,
+  type RoomSnapshot,
+  type RoomUser,
 } from '../shared/contracts';
 import type { AuthenticatedUser } from './auth';
 import { getDatabase, type Database } from './db/client';
@@ -45,7 +47,6 @@ import {
 
 const ROOM_LOCK_ID = 1_349_922;
 /** A single import is capped so one link cannot bury the room in one person's queue. */
-const MAX_PLAYLIST_TRACKS = 50;
 
 /** How close to the end a track must be before a hidden requester is revealed. */
 const REVEAL_REQUESTER_WITHIN_SECONDS = 15;
@@ -604,7 +605,7 @@ export async function enqueueProviderPlaylist(
   const trackUrls = await listPlaylistTrackUrls(
     parsed,
     { youtubeApiKey: env.YOUTUBE_API_KEY },
-    MAX_PLAYLIST_TRACKS,
+    MAX_QUEUE_IMPORT_TRACKS,
   );
   if (trackUrls.length === 0) {
     throw new RoomError('PLAYLIST_EMPTY', 'That playlist has no playable tracks.');

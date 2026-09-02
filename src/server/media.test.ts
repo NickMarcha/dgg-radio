@@ -19,6 +19,7 @@ vi.mock('soundcloud.ts', () => {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   inspectMedia,
+  inspectYouTubeVideos,
   isYouTubeAvailableInTargetCountry,
   lookupMedia,
   parseMediaUrl,
@@ -282,5 +283,81 @@ describe('lookupMedia against SoundCloud', () => {
 
     expect(inspected.metadata.title).toBe('A Track');
     expect(inspected.playbackIssue).toMatchObject({ code: 'SOUNDCLOUD_NOT_STREAMABLE' });
+  });
+});
+
+describe('inspectYouTubeVideos', () => {
+  const credentials = { youtubeApiKey: 'test-key' };
+
+  const item = (id: string, overrides: Record<string, unknown> = {}) => ({
+    id,
+    snippet: {
+      title: `Track ${id}`,
+      channelId: `channel-${id}`,
+      channelTitle: 'A Channel',
+      thumbnails: { high: { url: `https://i.ytimg.com/vi/${id}/hqdefault.jpg` } },
+      liveBroadcastContent: 'none',
+    },
+    contentDetails: { duration: 'PT3M32S' },
+    status: { embeddable: true },
+    ...overrides,
+  });
+
+  const fetcherFor = (items: unknown[]) => {
+    const calls: URL[] = [];
+    const fetcher = (async (input: URL) => {
+      calls.push(input);
+      const asked = new Set((input.searchParams.get('id') ?? '').split(','));
+      return {
+        ok: true,
+        json: async () => ({
+          items: items.filter((entry) => asked.has((entry as { id: string }).id)),
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+    return { fetcher, calls };
+  };
+
+  it('asks about fifty videos in one call, which is what one unit of quota buys', async () => {
+    const ids = Array.from({ length: 50 }, (_, index) => `video${index.toString().padStart(6, '0')}`);
+    const { fetcher, calls } = fetcherFor(ids.map((id) => item(id)));
+
+    const answers = await inspectYouTubeVideos(ids, credentials, fetcher);
+
+    expect(calls).toHaveLength(1);
+    expect(answers.size).toBe(50);
+    expect(answers.get(ids[0]!)).toMatchObject({
+      metadata: { providerMediaId: ids[0], durationSeconds: 212, artist: 'A Channel' },
+    });
+  });
+
+  it('splits past fifty rather than asking for more than YouTube answers', async () => {
+    const ids = Array.from({ length: 51 }, (_, index) => `video${index.toString().padStart(6, '0')}`);
+    const { fetcher, calls } = fetcherFor(ids.map((id) => item(id)));
+
+    await inspectYouTubeVideos(ids, credentials, fetcher);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.searchParams.get('id')).toBe(ids[50]);
+  });
+
+  it('answers per id, so one missing video does not lose the rest', async () => {
+    const { fetcher } = fetcherFor([item('goodVideo01')]);
+
+    const answers = await inspectYouTubeVideos(['goodVideo01', 'goneVideo01'], credentials, fetcher);
+
+    expect(answers.get('goodVideo01')).toMatchObject({ metadata: { providerMediaId: 'goodVideo01' } });
+    expect(answers.get('goneVideo01')).toMatchObject({ code: 'YOUTUBE_NOT_FOUND' });
+  });
+
+  it('keeps a video the room cannot play, with the reason it cannot', async () => {
+    const { fetcher } = fetcherFor([item('blockedVid1', { status: { embeddable: false } })]);
+
+    const answers = await inspectYouTubeVideos(['blockedVid1'], credentials, fetcher);
+
+    expect(answers.get('blockedVid1')).toMatchObject({
+      metadata: { providerMediaId: 'blockedVid1' },
+      playbackIssue: { code: 'YOUTUBE_NOT_EMBEDDABLE' },
+    });
   });
 });

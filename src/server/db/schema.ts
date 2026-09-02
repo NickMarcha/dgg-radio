@@ -398,3 +398,36 @@ export const moderationActions = pgTable(
   },
   (table) => [index('moderation_actions_created_at_index').on(table.createdAt)],
 );
+
+/**
+ * What the community played on QueUp before this room existed, kept as an
+ * archive of another service's records rather than folded into `queue_items`.
+ *
+ * Nothing in it is a first-class part of the room: the requester is a QueUp
+ * username with no Destiny account behind it, the track is whatever QueUp held
+ * rather than a row in `media`, and the votes were cast somewhere else. So the
+ * room's own machinery — stats, profiles, the DJ rotation, the repeat cooldown
+ * — deliberately ignores this table, and the history page shows it as a
+ * separate, older list.
+ *
+ * Rows are keyed by QueUp's own id for the play, so importing the same export
+ * twice adds whatever is new and rewrites nothing.
+ */
+export const legacyPlays = pgTable(
+  'legacy_plays',
+  {
+    sourceId: text('source_id').primaryKey(),
+    playedAt: timestamp('played_at', { withTimezone: true }).notNull(),
+    requesterName: text('requester_name').notNull(),
+    provider: mediaProvider('provider').notNull(),
+    providerMediaId: text('provider_media_id').notNull(),
+    title: text('title').notNull(),
+    durationSeconds: integer('duration_seconds').notNull(),
+    thumbnailUrl: text('thumbnail_url'),
+    upvotes: integer('upvotes').notNull().default(0),
+    downvotes: integer('downvotes').notNull().default(0),
+    skipped: boolean('skipped').notNull().default(false),
+  },
+  // The history page reads this newest first; a btree scans backwards for that.
+  (table) => [index('legacy_plays_played_at_index').on(table.playedAt)],
+);

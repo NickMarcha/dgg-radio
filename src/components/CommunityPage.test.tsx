@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlaylistLibrary, RoomMedia, RoomUser, UserProfile } from '../shared/contracts';
+import type {
+  HistoryEntry,
+  LegacyHistoryPage,
+  PlaylistLibrary,
+  RoomMedia,
+  RoomUser,
+  UserProfile,
+} from '../shared/contracts';
 import CommunityPage from './CommunityPage';
 
 const API = 'http://api.test';
@@ -72,9 +79,15 @@ const library: PlaylistLibrary = {
 };
 
 let playlistStatus = 200;
+/** What `/api/history/legacy` answers. Empty by default, as an un-imported room is. */
+let legacyPage: LegacyHistoryPage = { entries: [], total: 0, nextCursor: null };
+const roomHistory: HistoryEntry[] = [
+  { ...profile.history[0]!, id: '55555555-5555-4555-8555-555555555555' },
+];
 
 beforeEach(() => {
   playlistStatus = 200;
+  legacyPage = { entries: [], total: 0, nextCursor: null };
   window.history.replaceState({}, '', '/profile/Alice');
   vi.stubGlobal(
     'fetch',
@@ -83,11 +96,15 @@ beforeEach(() => {
       const playlistRequest = url.includes('/api/playlists');
       const body = url.endsWith('/api/me')
         ? { me: listener, listenerCount: 1 }
-        : playlistRequest
-          ? playlistStatus === 200
-            ? library
-            : { error: { code: 'PLAYLIST_LOAD_FAILED', message: 'The playlist library could not be loaded.' } }
-          : profile;
+        : url.includes('/api/history/legacy')
+          ? legacyPage
+          : url.includes('/api/history')
+            ? { history: roomHistory }
+            : playlistRequest
+              ? playlistStatus === 200
+                ? library
+                : { error: { code: 'PLAYLIST_LOAD_FAILED', message: 'The playlist library could not be loaded.' } }
+              : profile;
       return Promise.resolve({
         ok: !playlistRequest || playlistStatus === 200,
         status: playlistRequest ? playlistStatus : 200,
@@ -119,5 +136,56 @@ describe('profile history', () => {
     expect((await screen.findByRole('alert')).textContent).toContain(
       'The playlist library could not be loaded. Saving to a playlist is unavailable.',
     );
+  });
+});
+
+
+describe('the QueUp archive on the history page', () => {
+  const play = (id: string, title: string) => ({
+    id,
+    provider: 'youtube' as const,
+    title,
+    canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
+    durationSeconds: 200,
+    thumbnailUrl: null,
+    requesterName: 'queup-name',
+    playedAt: '2025-06-01T12:00:00.000Z',
+    upvotes: 3,
+    downvotes: 1,
+    skipped: false,
+  });
+
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/history');
+  });
+
+  it('shows the archive below the live history, and says whose names those are', async () => {
+    legacyPage = { entries: [play('archived001', 'An Archived Track')], total: 47_982, nextCursor: null };
+
+    render(<CommunityPage apiUrl={API} view="history" />);
+
+    expect(await screen.findByText('Before DGG Radio')).toBeDefined();
+    expect(screen.getByText(/47,982 plays imported from QueUp/)).toBeDefined();
+    expect(screen.getByText('An Archived Track')).toBeDefined();
+    expect(screen.getByText('queup-name')).toBeDefined();
+  });
+
+  it('says nothing at all when nothing has been imported', async () => {
+    render(<CommunityPage apiUrl={API} view="history" />);
+
+    expect(await screen.findByText('History')).toBeDefined();
+    expect(screen.queryByText('Before DGG Radio')).toBeNull();
+  });
+
+  it('offers older plays only while there are more to read', async () => {
+    legacyPage = {
+      entries: [play('archived001', 'An Archived Track')],
+      total: 2,
+      nextCursor: '2025-06-01T12:00:00.000Z',
+    };
+
+    render(<CommunityPage apiUrl={API} view="history" />);
+
+    expect(await screen.findByRole('button', { name: 'Load older' })).toBeDefined();
   });
 });

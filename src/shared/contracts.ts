@@ -53,15 +53,78 @@ export function isPlaylistUrl(value: string): boolean {
   }
 }
 
+/**
+ * How many tracks one personal playlist holds. It was 50 while nothing had
+ * been tested against real use; importing a library from QueUp is that test,
+ * and a playlist someone has kept for years is routinely longer than 50.
+ */
+export const MAX_PLAYLIST_TRACKS = 500;
+
+/**
+ * How many tracks one request may put in the queue, whether that is a provider
+ * playlist or a saved one. Queueing walks every track through the room's own
+ * checks, so this is really how long one request may run and how many provider
+ * lookups it may spend. Storing a playlist is cheap; playing one is not, and
+ * the two limits are separate for that reason.
+ */
+export const MAX_QUEUE_IMPORT_TRACKS = 50;
+
+/**
+ * How many tracks one import request resolves. A file may hold more; the rest
+ * are reported rather than resolved, because one request that walks thousands
+ * of tracks through the provider stops being a request and becomes a job with
+ * progress to report.
+ */
+export const MAX_IMPORT_TRACKS = 1_000;
+
 export const personalPlaylistSchema = z.object({
   name: z.string().trim().min(1).max(80),
 });
+
+/**
+ * A file written by `public/queup-export-playlists.js`, read leniently on
+ * purpose: a track QueUp recorded oddly should be reported by name in the
+ * result, not turn the whole import into a validation error.
+ */
+export const queupImportSchema = z.object({
+  source: z.literal('queup'),
+  kind: z.literal('playlists'),
+  playlists: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(200),
+        tracks: z
+          .array(
+            z.object({
+              provider: z.string(),
+              providerMediaId: z.string().min(1).max(128),
+              title: z.string().default(''),
+            }),
+          )
+          .max(5_000),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+export interface QueupImportResult {
+  playlists: Array<{
+    name: string;
+    /** False when the tracks went into a playlist of that name you already had. */
+    created: boolean;
+    attempted: number;
+    saved: number;
+    duplicates: number;
+    skipped: { title: string; reason: string }[];
+  }>;
+}
 
 export const playlistOrderSchema = z.object({
   orderedMediaIds: z
     .array(z.uuid())
     .min(1)
-    .max(50)
+    .max(MAX_PLAYLIST_TRACKS)
     .refine((ids) => new Set(ids).size === ids.length, 'Media IDs must be unique.'),
 });
 
@@ -214,6 +277,36 @@ export interface SelectorStats {
   upvotes: number;
   downvotes: number;
   score: number;
+}
+
+/**
+ * One track from the room's QueUp years, imported from an export of that site.
+ * Deliberately not a `HistoryEntry`: there is no media row behind it, no
+ * account behind the name, and the votes were cast somewhere else, so nothing
+ * here can be queued, saved, or voted on.
+ */
+export interface LegacyPlay {
+  id: string;
+  provider: MediaProvider;
+  title: string;
+  /** The track's own page, when the provider's id makes a link on its own. */
+  canonicalUrl: string | null;
+  durationSeconds: number;
+  thumbnailUrl: string | null;
+  /** Their QueUp name. Some of them are somebody's Destiny name too; most are guesses. */
+  requesterName: string;
+  playedAt: string;
+  upvotes: number;
+  downvotes: number;
+  skipped: boolean;
+}
+
+export interface LegacyHistoryPage {
+  entries: LegacyPlay[];
+  /** Every archived play, not just this page, so the page can say how far back it goes. */
+  total: number;
+  /** Pass as `before` to read the next page, or null at the end of the archive. */
+  nextCursor: string | null;
 }
 
 export interface HistoryEntry {

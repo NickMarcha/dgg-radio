@@ -6,6 +6,8 @@ import type {
   ApiErrorBody,
   CommunityStats,
   HistoryEntry,
+  LegacyHistoryPage,
+  LegacyPlay,
   RoomUser,
   UserProfile,
 } from '../shared/contracts';
@@ -366,6 +368,123 @@ function StatsView({ stats }: { stats: CommunityStats }) {
   );
 }
 
+const LEGACY_PAGE = 50;
+
+/**
+ * What the room played on QueUp, before this site existed. It is an archive of
+ * someone else's records, so it reads differently on purpose: the names are
+ * QueUp names with no profile behind them, the votes were cast there, and none
+ * of it counts towards anything here.
+ */
+function LegacyHistory({ apiUrl }: { apiUrl: string }) {
+  const [entries, setEntries] = useState<LegacyPlay[]>([]);
+  const [total, setTotal] = useState(0);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async (before: string | null) => {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams({ limit: String(LEGACY_PAGE) });
+      if (before) query.set('before', before);
+      const response = await fetch(`${apiUrl}/api/history/legacy?${query}`);
+      if (!response.ok) throw new Error('The QueUp archive could not be read.');
+      const page = (await response.json()) as LegacyHistoryPage;
+      setEntries((current) => (before ? [...current, ...page.entries] : page.entries));
+      setTotal(page.total);
+      setCursor(page.nextCursor);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The QueUp archive could not be read.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // The archive never changes, so it is read once and then only extended.
+  useEffect(() => {
+    void load(null);
+  }, [apiUrl]);
+
+  // An empty archive is the normal state for a room nobody has imported into,
+  // so it says nothing at all rather than explaining its own absence.
+  if (!error && total === 0) return null;
+
+  return (
+    <section className="community-section legacy-section">
+      <div className="community-section-heading">
+        <h2>Before DGG Radio</h2>
+        <span>
+          {total.toLocaleString()} plays imported from QueUp · names are QueUp names
+        </span>
+      </div>
+      {error ? (
+        <p className="community-error" role="alert">{error}</p>
+      ) : (
+        <>
+          <div className="community-table-wrap">
+            <table className="community-table history-table legacy-table">
+              <thead>
+                <tr>
+                  <th>Track</th>
+                  <th>Requested by</th>
+                  <th>Played</th>
+                  <th>Votes</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>
+                      <div className="history-track">
+                        {entry.thumbnailUrl ? (
+                          <img src={entry.thumbnailUrl} alt="" loading="lazy" />
+                        ) : (
+                          <span className="history-art-empty"><ListMusic size={16} /></span>
+                        )}
+                        <div>
+                          <span className="history-track-title">
+                            {entry.canonicalUrl ? (
+                              <a href={entry.canonicalUrl} target="_blank" rel="noreferrer">{entry.title}</a>
+                            ) : (
+                              entry.title
+                            )}
+                          </span>
+                          <span>
+                            <span className={`provider-text provider-${entry.provider}`}>
+                              {entry.provider === 'youtube' ? 'YouTube' : 'SoundCloud'}
+                            </span>
+                            {' · '}{formatDuration(entry.durationSeconds)}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    <td data-label="Requested by" className="legacy-requester">{entry.requesterName}</td>
+                    <td data-label="Played"><time dateTime={entry.playedAt}>{formatDate(entry.playedAt)}</time></td>
+                    <td data-label="Votes">
+                      <span className="vote-up">+{entry.upvotes}</span> <span className="vote-down">-{entry.downvotes}</span>
+                    </td>
+                    <td data-label="Result" className={`history-status status-${entry.skipped ? 'skipped' : 'played'}`}>
+                      {entry.skipped ? 'skipped' : 'played'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {cursor && (
+            <button type="button" className="legacy-more" disabled={loading} onClick={() => void load(cursor)}>
+              {loading ? 'Loading...' : 'Load older'}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function HistoryView({ entries, apiUrl }: { entries: HistoryEntry[]; apiUrl: string }) {
   const library = usePlaylistLibrary(apiUrl, entries.map(({ media }) => media.id));
   return (
@@ -382,6 +501,7 @@ function HistoryView({ entries, apiUrl }: { entries: HistoryEntry[]; apiUrl: str
       <section className="community-section history-section">
         <HistoryTable entries={entries} showRequester library={library} />
       </section>
+      <LegacyHistory apiUrl={apiUrl} />
     </>
   );
 }

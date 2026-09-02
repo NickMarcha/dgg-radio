@@ -1,6 +1,12 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import {
   isPlaylistUrl,
+  MAX_IMPORT_TRACKS,
+  MAX_PLAYLIST_TRACKS,
+  MAX_QUEUE_IMPORT_TRACKS,
+  queupImportSchema,
+  type QueupImportResult,
   type PlaylistDetail,
   type PlaylistLibrary,
   type PlaylistQueueResult,
@@ -11,15 +17,14 @@ import {
 import type { AuthenticatedUser } from './auth';
 import { getDatabase, type Database } from './db/client';
 import { media, playlistItems, playlists } from './db/schema';
-import { MediaLookupError } from './media';
+import { MediaLookupError, soundCloudPermalink } from './media';
+import { warmYouTubeLookups } from './media-cache';
 import {
   enqueueMedia,
   resolveMediaForLibrary,
   resolvePlaylistForLibrary,
   RoomError,
 } from './room';
-
-const MAX_PLAYLIST_TRACKS = 50;
 
 function hasDatabaseCode(error: unknown, code: string): boolean {
   let current = error;
@@ -451,6 +456,11 @@ export async function queuePlaylistTrack(
   return enqueueMedia(saved.canonicalUrl, user, db);
 }
 
+/**
+ * Queues a saved playlist. A playlist can hold more tracks than one request may
+ * queue, so anything past that limit is reported rather than attempted: the
+ * caller sees exactly what is still waiting and can ask again.
+ */
 export async function queuePlaylist(
   playlistId: string,
   user: AuthenticatedUser,
@@ -463,7 +473,16 @@ export async function queuePlaylist(
     skipped: [],
   };
 
-  for (const track of playlist.tracks) {
+  for (const track of playlist.tracks.slice(MAX_QUEUE_IMPORT_TRACKS)) {
+    result.skipped.push({
+      mediaId: track.media.id,
+      title: track.media.title,
+      code: 'QUEUE_IMPORT_LIMIT',
+      reason: `Only ${MAX_QUEUE_IMPORT_TRACKS} tracks go in at a time. Add the playlist again for the rest.`,
+    });
+  }
+
+  for (const track of playlist.tracks.slice(0, MAX_QUEUE_IMPORT_TRACKS)) {
     try {
       await enqueueMedia(track.media.canonicalUrl, user, db);
       result.added += 1;
@@ -479,6 +498,151 @@ export async function queuePlaylist(
       }
       throw error;
     }
+  }
+
+  return result;
+}
+
+
+export type QueupExport = z.infer<typeof queupImportSchema>;
+
+/** Resolving each distinct track once, whichever playlists it appears in. */
+type TrackKey = string;
+
+/** What one track resolved to: a row in `media`, or why it could not be read. */
+type ResolvedTrack = { mediaId: string } | { reason: string };
+
+function trackKey(provider: string, providerMediaId: string): TrackKey {
+  return `${provider}:${providerMediaId}`;
+}
+
+/**
+ * The link the room can act on. QueUp stored YouTube tracks by video id, which
+ * makes a URL on its own, and SoundCloud tracks by numeric id, which does not:
+ * SoundCloud has to name the permalink first.
+ */
+async function trackUrl(provider: string, providerMediaId: string): Promise<string> {
+  if (provider === 'youtube') return `https://www.youtube.com/watch?v=${providerMediaId}`;
+  if (provider === 'soundcloud') return soundCloudPermalink(providerMediaId);
+  throw new MediaLookupError('UNSUPPORTED_PROVIDER', `This room cannot play ${provider} tracks.`);
+}
+
+/** Resolves in small parallel groups, the same way a provider playlist import does. */
+async function resolveTracks(
+  tracks: QueupExport['playlists'][number]['tracks'],
+  db: Database,
+): Promise<Map<TrackKey, ResolvedTrack>> {
+  const resolved = new Map<TrackKey, ResolvedTrack>();
+  const concurrency = 5;
+
+  for (let start = 0; start < tracks.length; start += concurrency) {
+    await Promise.all(
+      tracks.slice(start, start + concurrency).map(async (track) => {
+        const key = trackKey(track.provider, track.providerMediaId);
+        try {
+          const url = await trackUrl(track.provider, track.providerMediaId);
+          resolved.set(key, { mediaId: await resolveMediaForLibrary(url, db) });
+        } catch (error) {
+          resolved.set(key, {
+            reason:
+              error instanceof MediaLookupError || error instanceof RoomError
+                ? error.message
+                : 'Could not be read.',
+          });
+        }
+      }),
+    );
+  }
+  return resolved;
+}
+
+/**
+ * Imports playlists exported from QueUp into someone's own library.
+ *
+ * A playlist whose name they already have is added to rather than duplicated,
+ * so re-importing after adding tracks on QueUp brings across what is new and
+ * leaves the rest alone. Tracks are resolved once each across the whole file,
+ * and the YouTube half is asked about fifty at a time, so importing a library
+ * costs a handful of provider calls rather than one per track.
+ */
+export async function importQueupPlaylists(
+  file: QueupExport,
+  ownerId: string,
+  db: Database = getDatabase(),
+): Promise<QueupImportResult> {
+  // One list of every distinct track in the file, trimmed to what a single
+  // request can honestly resolve. Everything past that is reported below.
+  const wanted: QueupExport['playlists'][number]['tracks'] = [];
+  const seen = new Set<TrackKey>();
+  for (const playlist of file.playlists) {
+    for (const track of playlist.tracks.slice(0, MAX_PLAYLIST_TRACKS)) {
+      const key = trackKey(track.provider, track.providerMediaId);
+      if (seen.has(key) || wanted.length >= MAX_IMPORT_TRACKS) continue;
+      seen.add(key);
+      wanted.push(track);
+    }
+  }
+
+  await warmYouTubeLookups(
+    wanted
+      .filter((track) => track.provider === 'youtube')
+      .map((track) => `https://www.youtube.com/watch?v=${track.providerMediaId}`),
+    db,
+  );
+  const resolved = await resolveTracks(wanted, db);
+
+  const existing = await db
+    .select({ id: playlists.id, name: playlists.name })
+    .from(playlists)
+    .where(eq(playlists.ownerUserId, ownerId));
+  const byName = new Map(existing.map((row) => [row.name.toLowerCase(), row.id]));
+
+  const result: QueupImportResult = { playlists: [] };
+  for (const playlist of file.playlists) {
+    const name = playlist.name.slice(0, 80).trim();
+    const known = byName.get(name.toLowerCase());
+    const playlistId = known ?? (await createPlaylist(name, ownerId, db));
+    if (!known) byName.set(name.toLowerCase(), playlistId);
+
+    const outcome = {
+      name,
+      created: !known,
+      attempted: playlist.tracks.length,
+      saved: 0,
+      duplicates: 0,
+      skipped: [] as { title: string; reason: string }[],
+    };
+    let full = false;
+
+    for (const track of playlist.tracks) {
+      const answer = resolved.get(trackKey(track.provider, track.providerMediaId));
+      const title = track.title || track.providerMediaId;
+      if (!answer) {
+        outcome.skipped.push({
+          title,
+          reason: `Only ${MAX_IMPORT_TRACKS} tracks are imported at a time. Import the file again for the rest.`,
+        });
+        continue;
+      }
+      if ('reason' in answer) {
+        outcome.skipped.push({ title, reason: answer.reason });
+        continue;
+      }
+      if (full) {
+        outcome.skipped.push({ title, reason: `A playlist can hold at most ${MAX_PLAYLIST_TRACKS} tracks.` });
+        continue;
+      }
+      try {
+        if ((await addPlaylistTrack(playlistId, answer.mediaId, ownerId, db)) === 'saved') outcome.saved += 1;
+        else outcome.duplicates += 1;
+      } catch (error) {
+        if (!(error instanceof PlaylistError)) throw error;
+        if (error.code === 'PLAYLIST_FULL') full = true;
+        outcome.skipped.push({ title, reason: error.message });
+      }
+    }
+
+    result.playlists.push(outcome);
   }
 
   return result;

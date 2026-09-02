@@ -5,6 +5,7 @@ import {
   ChevronUp,
   ListMusic,
   Pencil,
+  Upload,
   Play,
   Plus,
   Search,
@@ -16,6 +17,7 @@ import type {
   PlaylistDetail,
   PlaylistQueueResult,
   PlaylistSaveResult,
+  QueupImportResult,
   SearchResult,
 } from '../shared/contracts';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
@@ -42,6 +44,7 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [queueResult, setQueueResult] = useState<PlaylistQueueResult | null>(null);
   const [saveResult, setSaveResult] = useState<PlaylistSaveResult | null>(null);
+  const [importResult, setImportResult] = useState<QueupImportResult | null>(null);
   const [trackUrl, setTrackUrl] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -119,6 +122,25 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
       setName('');
       setSelectedId(id);
     }, `Created "${trimmed}".`);
+  }
+
+  /**
+   * Takes the file `queup-export-playlists.js` writes. The server reads it
+   * leniently and reports per playlist, so the whole answer is worth showing.
+   */
+  function importQueup(file: File) {
+    void act(async () => {
+      setImportResult(null);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        throw new Error('That file is not JSON. Use the file the QueUp snippet saved.');
+      }
+      const result = await call<QueupImportResult>('/api/playlists/import', 'POST', parsed);
+      setImportResult(result);
+      await library.refresh();
+    });
   }
 
   function rename() {
@@ -268,6 +290,51 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
                 </button>
               </form>
             </header>
+
+            <section className="playlist-import">
+              <label className="playlist-import-file">
+                <Upload size={16} /> Import from QueUp
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  disabled={busy || library.busy}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    // Cleared so choosing the same file twice still counts as a change.
+                    event.currentTarget.value = '';
+                    if (file) importQueup(file);
+                  }}
+                />
+              </label>
+              <p>
+                Bring your QueUp playlists over: sign in at queup.net, paste{' '}
+                <a href="/queup-export-playlists.js" target="_blank" rel="noreferrer">this snippet</a>{' '}
+                into the browser console, then choose the file it saves. A playlist you already
+                have is added to rather than duplicated.
+              </p>
+            </section>
+
+            {importResult && (
+              <section className="playlist-import-result">
+                {importResult.playlists.map((entry) => (
+                  <div key={entry.name}>
+                    <strong>{entry.name}</strong>
+                    <span>
+                      {entry.saved} added{entry.created ? '' : ' to the playlist you had'}
+                      {entry.duplicates > 0 && `, ${entry.duplicates} already saved`}
+                      {entry.skipped.length > 0 && `, ${entry.skipped.length} skipped`}
+                    </span>
+                    {entry.skipped.length > 0 && (
+                      <ul>
+                        {entry.skipped.map((skip, index) => (
+                          <li key={`${skip.title}-${index}`}>{skip.title}: {skip.reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )}
 
             {(error || library.error) && <p className="playlists-error">{error ?? library.error}</p>}
             {notice && <p className="playlists-notice">{notice}</p>}

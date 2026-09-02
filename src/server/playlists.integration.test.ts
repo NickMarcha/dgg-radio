@@ -51,6 +51,9 @@ vi.mock('./media-cache', () => {
     lookupManyCached: vi.fn((urls: string[], country: string, db: unknown) =>
       many(urls, (url) => lookup(url, country, db)),
     ),
+    // Only a cost saving live: the per-track lookups below answer the same
+    // either way, so the stub does nothing.
+    warmYouTubeLookups: vi.fn(async () => {}),
   };
 });
 
@@ -67,6 +70,7 @@ const {
   createPlaylist,
   deletePlaylist,
   getPlaylist,
+  importQueupPlaylists,
   listPlaylists,
   queuePlaylist,
   queuePlaylistTrack,
@@ -547,5 +551,143 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       eligible.id,
     ]);
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(2);
+  });
+
+  describe('importing a library from QueUp', () => {
+    /** Stands in for the provider: every id resolves to a track of that id. */
+    function resolveEveryTrack(unavailableId?: string) {
+      cachedLookup.mockImplementation(async (url: string) => {
+        const id = new URL(url).searchParams.get('v') ?? 'unknown';
+        if (id === unavailableId) {
+          throw new MediaLookupError('YOUTUBE_NOT_FOUND', 'That YouTube video is unavailable.');
+        }
+        return {
+          provider: 'youtube',
+          providerMediaId: id,
+          providerArtistId: `channel-${id}`,
+          canonicalUrl: `https://www.youtube.com/watch?v=${id}`,
+          title: `Track ${id}`,
+          artist: 'Test Artist',
+          durationSeconds: 120,
+          thumbnailUrl: null,
+        };
+      });
+    }
+
+    const file = (playlists: Array<{ name: string; ids: string[] }>) => ({
+      source: 'queup' as const,
+      kind: 'playlists' as const,
+      playlists: playlists.map(({ name, ids }) => ({
+        name,
+        tracks: ids.map((id) => ({ provider: 'youtube', providerMediaId: id, title: `Track ${id}` })),
+      })),
+    });
+
+    it('creates each playlist and saves its tracks', async () => {
+      const owner = await createUser('owner');
+      resolveEveryTrack();
+
+      const result = await importQueupPlaylists(
+        file([
+          { name: 'Driving', ids: ['aaaaaaaaaaa', 'bbbbbbbbbbb'] },
+          { name: 'Late night', ids: ['ccccccccccc'] },
+        ]),
+        owner.id,
+        db,
+      );
+
+      expect(result.playlists).toMatchObject([
+        { name: 'Driving', created: true, saved: 2, duplicates: 0, skipped: [] },
+        { name: 'Late night', created: true, saved: 1 },
+      ]);
+      const library = await listPlaylists(owner.id, [], db);
+      expect(library.playlists.map(({ name, trackCount }) => ({ name, trackCount }))).toEqual(
+        expect.arrayContaining([
+          { name: 'Driving', trackCount: 2 },
+          { name: 'Late night', trackCount: 1 },
+        ]),
+      );
+    });
+
+    it('adds to a playlist of the same name instead of duplicating it', async () => {
+      const owner = await createUser('owner');
+      const existing = await createPlaylist('Driving', owner.id, db);
+      const already = await createMedia('aaaaaaaaaaa');
+      await addPlaylistTrack(existing, already.id, owner.id, db);
+      resolveEveryTrack();
+
+      const result = await importQueupPlaylists(
+        file([{ name: 'driving', ids: ['aaaaaaaaaaa', 'bbbbbbbbbbb'] }]),
+        owner.id,
+        db,
+      );
+
+      expect(result.playlists[0]).toMatchObject({ created: false, saved: 1, duplicates: 1 });
+      const playlist = await getPlaylist(existing, owner.id, db);
+      expect(playlist.tracks).toHaveLength(2);
+    });
+
+    it('reports the tracks it could not read and keeps the rest', async () => {
+      const owner = await createUser('owner');
+      // Named rather than counted, because the tracks resolve in parallel and
+      // the failing one is not reliably the first to ask.
+      resolveEveryTrack('aaaaaaaaaaa');
+
+      const result = await importQueupPlaylists(
+        file([{ name: 'Driving', ids: ['aaaaaaaaaaa', 'bbbbbbbbbbb'] }]),
+        owner.id,
+        db,
+      );
+
+      expect(result.playlists[0]).toMatchObject({
+        attempted: 2,
+        saved: 1,
+        skipped: [{ title: 'Track aaaaaaaaaaa', reason: 'That YouTube video is unavailable.' }],
+      });
+    });
+
+    it('names a provider it cannot play rather than failing the import', async () => {
+      const owner = await createUser('owner');
+      resolveEveryTrack();
+
+      const result = await importQueupPlaylists(
+        {
+          source: 'queup',
+          kind: 'playlists',
+          playlists: [
+            {
+              name: 'Driving',
+              tracks: [
+                { provider: 'bandcamp', providerMediaId: '12345', title: 'Something else' },
+                { provider: 'youtube', providerMediaId: 'aaaaaaaaaaa', title: 'Track aaaaaaaaaaa' },
+              ],
+            },
+          ],
+        },
+        owner.id,
+        db,
+      );
+
+      expect(result.playlists[0]).toMatchObject({
+        saved: 1,
+        skipped: [{ title: 'Something else', reason: 'This room cannot play bandcamp tracks.' }],
+      });
+    });
+
+    it('resolves a track shared by two playlists only once', async () => {
+      const owner = await createUser('owner');
+      resolveEveryTrack();
+
+      await importQueupPlaylists(
+        file([
+          { name: 'Driving', ids: ['aaaaaaaaaaa'] },
+          { name: 'Late night', ids: ['aaaaaaaaaaa'] },
+        ]),
+        owner.id,
+        db,
+      );
+
+      expect(cachedLookup).toHaveBeenCalledTimes(1);
+    });
   });
 });

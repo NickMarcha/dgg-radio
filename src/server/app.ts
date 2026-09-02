@@ -10,6 +10,7 @@ import {
   personalPlaylistSchema,
   playlistListQuerySchema,
   playlistOrderSchema,
+  queupImportSchema,
   reorderSchema,
   searchSchema,
   removeQueueItemSchema,
@@ -52,6 +53,7 @@ import {
   listHistory,
 } from './community';
 import { getEnv } from './env';
+import { listLegacyHistory } from './legacy';
 import { MediaLookupError, searchMedia } from './media';
 import {
   blockQueueItemMedia,
@@ -76,6 +78,7 @@ import {
   createPlaylist,
   deletePlaylist,
   getPlaylist,
+  importQueupPlaylists,
   listPlaylists,
   PlaylistError,
   queuePlaylist,
@@ -109,6 +112,11 @@ const playlistTrackParamSchema = z.object({ id: z.uuid(), mediaId: z.uuid() });
 const usernameParamSchema = z.object({ username: z.string().trim().min(1).max(64) });
 const historyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+const legacyHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  /** The `playedAt` of the last row already read. Older rows follow it. */
+  before: z.iso.datetime().optional(),
 });
 
 function errorBody(code: string, message: string) {
@@ -239,6 +247,17 @@ export function createApp(dependencies: AppDependencies) {
       zValidator('query', historyQuerySchema),
       async (context) => context.json({ history: await listHistory(context.req.valid('query').limit) }),
     )
+    // The archive from QueUp. Public like the room's own history, and paged by
+    // cursor because it holds every play the room made before this one existed.
+    .get(
+      '/api/history/legacy',
+      limitPerAddress('history', 60),
+      zValidator('query', legacyHistoryQuerySchema),
+      async (context) => {
+        const { limit, before } = context.req.valid('query');
+        return context.json(await listLegacyHistory(limit, before ?? null));
+      },
+    )
     .get('/api/stats', limitPerAddress('stats', 60), async (context) =>
       context.json(await getCommunityStats()),
     )
@@ -262,6 +281,27 @@ export function createApp(dependencies: AppDependencies) {
         context.json(
           await getPlaylist(context.req.valid('param').id, context.get('user').id),
         ),
+    )
+    // A whole library moved over from QueUp, exported by
+    // `public/queup-export-playlists.js` in the owner's own browser. It costs
+    // provider lookups, so it is limited like the other import routes.
+    .post(
+      '/api/playlists/import',
+      requireUser,
+      limitPerUser('playlist-import', 5),
+      zValidator('json', queupImportSchema),
+      async (context) => {
+        const imported = await importQueupPlaylists(
+          context.req.valid('json'),
+          context.get('user').id,
+        );
+        captureServerEvent(context.get('user').id, 'queup_playlists_imported', {
+          playlists: imported.playlists.length,
+          saved: imported.playlists.reduce((total, entry) => total + entry.saved, 0),
+          skipped: imported.playlists.reduce((total, entry) => total + entry.skipped.length, 0),
+        });
+        return context.json(imported);
+      },
     )
     .post(
       '/api/playlists',

@@ -11,6 +11,10 @@ import type { StorageGroup, StorageSnapshot } from '../shared/contracts';
  */
 const GROUPS: { name: string; tables: string[] }[] = [
   { name: 'History and voting', tables: ['queue_items', 'votes'] },
+  // Tens of thousands of rows from a room that ran for two years elsewhere, and
+  // by some distance the largest table here. Measured on its own so the total
+  // it accounts for is obvious rather than hidden inside the room's own history.
+  { name: 'QueUp archive', tables: ['legacy_plays'] },
   { name: 'Personal playlists', tables: ['playlists', 'playlist_items'] },
   {
     name: 'Track catalogue and provider cache',

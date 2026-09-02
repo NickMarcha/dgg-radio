@@ -393,3 +393,73 @@
   border-radius: 5px;
   object-fit: cover;
 }
+
+/*
+ * Moving a library in from QueUp. It sits under the heading because it is a
+ * one-time thing most people do once and then never look at again, so it takes
+ * one row rather than a panel of its own.
+ */
+.playlist-import {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.4rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.playlist-import-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.75rem;
+  white-space: nowrap;
+}
+
+.playlist-import-file:hover {
+  background: var(--line);
+}
+
+.playlist-import-file input {
+  display: none;
+}
+
+.playlist-import p {
+  flex: 1 1 22rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.playlist-import-result {
+  margin-bottom: 1.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.playlist-import-result div {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.playlist-import-result strong {
+  margin-right: 0.6rem;
+}
+
+.playlist-import-result span {
+  color: var(--muted);
+}
+
+.playlist-import-result ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--faint);
+}

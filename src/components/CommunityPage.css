@@ -529,3 +529,43 @@
   text-decoration: underline dotted;
   text-underline-offset: 3px;
 }
+
+/*
+ * The QueUp archive. It sits under the room's own history and is deliberately
+ * quieter than it: the plays are somebody else's records, and a reader should
+ * be able to tell the two lists apart at a glance.
+ */
+.legacy-section {
+  margin-top: 46px;
+}
+
+.legacy-table {
+  opacity: 0.86;
+}
+
+.legacy-requester {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.legacy-more {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  margin-top: 14px;
+  padding: 0.4rem 0.9rem;
+}
+
+.legacy-more:hover:not(:disabled) {
+  background: var(--line);
+}
+
+.legacy-more:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
