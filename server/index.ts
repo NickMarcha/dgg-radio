@@ -66,8 +66,10 @@ try {
   for (const [what, result] of Object.entries(seeded)) {
     if (result) {
       console.log(
-        `Seeded ${what}: added ${result.added.toLocaleString()}, ` +
-          `left ${result.kept.toLocaleString()} already stored`,
+        result.skipped
+          ? `Seed ${what}: unchanged since it was applied, ${result.kept.toLocaleString()} rows left alone`
+          : `Seeded ${what}: added ${result.added.toLocaleString()}, ` +
+            `left ${result.kept.toLocaleString()} already stored`,
       );
     }
   }

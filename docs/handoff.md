@@ -43,13 +43,13 @@ labels both histories. Two sources are kept side by side and never merged.
 
 Against the whole archive:
 
-| | tracks | of 34,003 |
+| | tracks | of 34,248 |
 | --- | --- | --- |
-| Discogs | 10,462 | 30.8% |
-| MusicBrainz | 8,234 | 24.2% |
-| **Either** | **14,492** | **42.6%** |
-| Both, so cross-checkable | 4,207 | 12.4% |
-| About the track rather than its artist | 13,153 | 38.7% |
+| Discogs | 10,480 | 30.6% |
+| MusicBrainz | 8,258 | 24.1% |
+| **Either** | **14,522** | **42.4%** |
+| Both, so cross-checkable | 4,216 | 12.3% |
+| About the track rather than its artist | 13,175 | 38.5% |
 
 Discogs comes from its CC0 monthly dump, joined exactly on the YouTube ids it
 embeds in masters. MusicBrainz comes from its dumps too, and the interesting
@@ -61,10 +61,17 @@ correction it forced.
 
 ### Deploying carries the data
 
-`data/legacy-plays.json.gz` (48,172 plays, 3 MB) and `data/genres.json` (19,272
+`data/legacy-plays.json.gz` (48,182 plays, 3 MB) and `data/genres.json` (19,322
 answers, 5 MB) are committed, and `src/server/seed.ts` applies them at startup
 right after migrations. So a deployment gets two years of history and everything
 known about it without fetching a byte of anyone's data dump.
+
+Each file is read once. `seed_state` (migration `0018`) holds a digest of the
+bytes that were applied, because without it every restart offered 68,000 rows to
+PostgreSQL to be told each one was already there — 3.7 seconds before the room
+could serve, spent to change nothing. Regenerating a file changes its digest and
+it applies again by itself. The log says which happened, so the skip is visible
+rather than merely claimed.
 
 Both seeds **only fill gaps**. A row the database already has is left exactly as
 it is, so anything learned since — a play brought across last week, a genre
@@ -173,11 +180,18 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 
 ## Next
 
-Deploy it. Then the two things the genre picture is still short of: the
-per-track MusicBrainz pass (`scripts/enrich-genres.ts`) can reach tracks the
-dump could not, because the Music card identifies a track better than a parsed
-upload title; and a monthly rerun of both dump imports keeps coverage from
-drifting down as new music arrives.
+Deploy it. Then the one thing that moves 42% upward: the per-track pass in
+`scripts/enrich-genres.ts`, which identifies a track from its YouTube Music card
+rather than a parsed upload title and so reaches what the dumps could not. About
+three requests a track against a one-a-second limit, most played first, safe to
+stop and resume — roughly sixteen hours for what is still unlabelled. It runs
+here, not in production: the output is a regenerated `data/genres.json` that the
+next deploy picks up on its changed digest.
+
+A rerun of the two dump imports is **not** that. Both were rerun on 2026-09-03
+and moved coverage by 30 tracks, because the importers reconsider every track
+every time — the same dumps re-derive the same answers. Rerun them when the
+dumps are newer, not when the archive is.
 
 The prototypes under `scripts/*.prototype.ts` are superseded by the shipped
 modules and can go.

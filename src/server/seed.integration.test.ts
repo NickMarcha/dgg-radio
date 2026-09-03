@@ -68,7 +68,7 @@ describe.skipIf(!connectionString)('what the room ships with', () => {
   it('applies a file it has not seen', async () => {
     const path = await writeArchive([play('a', 'aaa'), play('b', 'bbb')]);
 
-    expect(await applyArchiveSeed(path, db)).toEqual({ added: 2, kept: 0 });
+    expect(await applyArchiveSeed(path, db)).toEqual({ added: 2, kept: 0, skipped: false });
     expect(await db.$count(legacyPlays)).toBe(2);
   });
 
@@ -80,7 +80,7 @@ describe.skipIf(!connectionString)('what the room ships with', () => {
     // unchanged file is not read, so the gap it would have filled stays open.
     await db.execute(sql`delete from ${legacyPlays}`);
 
-    expect(await applyArchiveSeed(path, db)).toEqual({ added: 0, kept: 1 });
+    expect(await applyArchiveSeed(path, db)).toEqual({ added: 0, kept: 1, skipped: true });
     expect(await db.$count(legacyPlays)).toBe(0);
   });
 
@@ -88,7 +88,7 @@ describe.skipIf(!connectionString)('what the room ships with', () => {
     await applyArchiveSeed(await writeArchive([play('a', 'aaa')]), db);
 
     const grown = await writeArchive([play('a', 'aaa'), play('b', 'bbb')]);
-    expect(await applyArchiveSeed(grown, db)).toEqual({ added: 1, kept: 1 });
+    expect(await applyArchiveSeed(grown, db)).toEqual({ added: 1, kept: 1, skipped: false });
     expect(await db.$count(legacyPlays)).toBe(2);
   });
 
@@ -104,7 +104,9 @@ describe.skipIf(!connectionString)('what the room ships with', () => {
       durationSeconds: 210,
     });
 
-    expect(await applyArchiveSeed(path, db)).toEqual({ added: 0, kept: 1 });
+    // Applied, not skipped: the file is new here, and the row it would have
+    // written is simply already better than what it carries.
+    expect(await applyArchiveSeed(path, db)).toEqual({ added: 0, kept: 1, skipped: false });
     const [stored] = await db.select().from(legacyPlays);
     expect(stored?.title).toBe('What the room already called it');
   });
@@ -139,7 +141,7 @@ describe.skipIf(!connectionString)('what the room ships with', () => {
 
     await applyArchiveSeed(archive, db);
     // The archive being applied must not make the genre file look applied too.
-    expect(await applyGenreSeed(genres, db)).toEqual({ added: 1, kept: 0 });
+    expect(await applyGenreSeed(genres, db)).toEqual({ added: 1, kept: 0, skipped: false });
     expect(await db.$count(trackGenres)).toBe(1);
   });
 });

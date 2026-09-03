@@ -34,9 +34,20 @@ import type { StoredGenre } from './genre';
 /** Rows per statement, well inside PostgreSQL's parameter limit. */
 const BATCH = 1_000;
 
+/**
+ * `skipped` is the difference between having read the file and having decided
+ * not to. Both leave the database identical, so without saying which happened
+ * the log cannot show that the skip works at all.
+ */
+export interface SeedResult {
+  added: number;
+  kept: number;
+  skipped: boolean;
+}
+
 export interface SeedReport {
-  archive: { added: number; kept: number } | null;
-  genres: { added: number; kept: number } | null;
+  archive: SeedResult | null;
+  genres: SeedResult | null;
 }
 
 type ArchiveRow = {
@@ -98,11 +109,13 @@ async function markApplied(name: string, digest: string, db: Database): Promise<
 export async function applyArchiveSeed(
   path = 'data/legacy-plays.json.gz',
   db: Database = getDatabase(),
-): Promise<{ added: number; kept: number } | null> {
+): Promise<SeedResult | null> {
   const file = await readJson<ArchiveRow[]>(path);
   if (!file?.data.length) return null;
   const rows = file.data;
-  if (await alreadyApplied('archive', file.digest, db)) return { added: 0, kept: rows.length };
+  if (await alreadyApplied('archive', file.digest, db)) {
+    return { added: 0, kept: rows.length, skipped: true };
+  }
 
   let added = 0;
   for (let start = 0; start < rows.length; start += BATCH) {
@@ -128,24 +141,26 @@ export async function applyArchiveSeed(
     added += written.length;
   }
   await markApplied('archive', file.digest, db);
-  return { added, kept: rows.length - added };
+  return { added, kept: rows.length - added, skipped: false };
 }
 
 export async function applyGenreSeed(
   path = 'data/genres.json',
   db: Database = getDatabase(),
-): Promise<{ added: number; kept: number } | null> {
+): Promise<SeedResult | null> {
   const file = await readJson<{ rows?: StoredGenre[] }>(path);
   const rows = file?.data.rows;
   if (!file || !rows?.length) return null;
-  if (await alreadyApplied('genres', file.digest, db)) return { added: 0, kept: rows.length };
+  if (await alreadyApplied('genres', file.digest, db)) {
+    return { added: 0, kept: rows.length, skipped: true };
+  }
 
   let added = 0;
   for (let start = 0; start < rows.length; start += BATCH) {
     added += await seedGenres(rows.slice(start, start + BATCH), db);
   }
   await markApplied('genres', file.digest, db);
-  return { added, kept: rows.length - added };
+  return { added, kept: rows.length - added, skipped: false };
 }
 
 /** Both of them, in the order that makes the second one worth having. */
