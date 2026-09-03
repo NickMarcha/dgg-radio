@@ -58,11 +58,17 @@ const app = createApp({
 await migrate(getDatabase(), { migrationsFolder: 'drizzle' });
 
 // What the archive has been labelled with, shipped in the repository so that a
-// deploy carries it. Unlike a migration this is allowed to fail: the room works
+// deploy carries it. It only fills gaps, so anything this database already
+// knows survives. Unlike a migration it is allowed to fail: the room works
 // without genre, and a seed file is no reason to refuse to serve.
 try {
   const seeded = await applyGenreSeed();
-  if (seeded) console.log(`Applied ${seeded.applied.toLocaleString()} stored genres`);
+  if (seeded) {
+    console.log(
+      `Genre seed: added ${seeded.added.toLocaleString()}, ` +
+        `left ${seeded.kept.toLocaleString()} already stored`,
+    );
+  }
 } catch (error) {
   console.error('Could not apply the genre seed', error);
 }

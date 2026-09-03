@@ -45,12 +45,14 @@ import { ALL_TIME, periodRange } from './period';
  * deployment gets everything the archive has been labelled with by deploying,
  * without fetching a byte of anyone's data dump.
  *
- * The file is the source of truth. It is re-applied on every start because
- * doing so is idempotent and takes a couple of seconds, which is a smaller
- * thing to reason about than remembering whether it has been applied yet. That
- * does mean a genre worked out directly against a deployed database is
- * overwritten on the next deploy: regenerate the file instead, with
- * `scripts/genre-transfer.ts export`.
+ * It only fills gaps. A track the database already has an answer for is left
+ * exactly as it is, whichever is newer, so anything worked out against a
+ * running room — by `enrich-genres.ts`, or by a later dump applied directly —
+ * survives every subsequent deploy. The seed is a floor, not an authority.
+ *
+ * It runs on every start because that is idempotent and takes a couple of
+ * seconds, which is a smaller thing to reason about than remembering whether it
+ * has been applied yet.
  *
  * Missing or unreadable is not an error. Genre is decoration on top of a room
  * that works without it, so a bad seed file must never be what stops the API
@@ -59,7 +61,7 @@ import { ALL_TIME, periodRange } from './period';
 export async function applyGenreSeed(
   path = 'data/genres.json',
   db: Database = getDatabase(),
-): Promise<{ applied: number } | null> {
+): Promise<{ added: number; kept: number } | null> {
   let rows: StoredGenre[];
   try {
     const file = JSON.parse(await readFile(path, 'utf8')) as { rows?: StoredGenre[] };
@@ -69,10 +71,31 @@ export async function applyGenreSeed(
     return null;
   }
 
+  let added = 0;
   for (let start = 0; start < rows.length; start += 1_000) {
-    await storeGenres(rows.slice(start, start + 1_000), db);
+    added += await seedGenres(rows.slice(start, start + 1_000), db);
   }
-  return { applied: rows.length };
+  return { added, kept: rows.length - added };
+}
+
+/**
+ * Writes only the answers nothing is stored for yet, and reports how many that
+ * turned out to be. Everything already there is left alone.
+ */
+export async function seedGenres(
+  rows: StoredGenre[],
+  db: Database = getDatabase(),
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const checkedAt = new Date();
+  const written = await db
+    .insert(trackGenres)
+    .values(rows.map((row) => ({ ...row, checkedAt })))
+    .onConflictDoNothing({
+      target: [trackGenres.provider, trackGenres.providerMediaId, trackGenres.source],
+    })
+    .returning({ providerMediaId: trackGenres.providerMediaId });
+  return written.length;
 }
 
 /**

@@ -204,9 +204,10 @@ npx tsx scripts/discogs-dump-import.ts discogs_20260901_masters.xml.gz
 npx tsx scripts/genre-transfer.ts export --out data/genres.json
 ```
 
-Then commit `data/genres.json`. That file is the source of truth: it is
-re-applied on every start, so a genre worked out directly against a deployed
-database is overwritten on the next deploy. Regenerate the file instead.
+Then commit `data/genres.json`. The seed only fills gaps — a track the database
+already has an answer for is left alone — so anything worked out against a
+running room survives every later deploy, and re-running the importers there is
+always safe.
 
 A machine that has the dumps but not the room can still do the work —
 `genre-transfer.ts tracks --out tracks.json` writes the 3 MB of track ids and

@@ -17,6 +17,7 @@ const {
   guessTrackIdentity,
   listGenres,
   listUnlabelledTracks,
+  seedGenres,
   storeGenre,
   trackKey,
 } = await import('./genre');
@@ -188,6 +189,49 @@ describe.skipIf(!connectionString)('what a track is', () => {
       })),
     );
   }
+
+  it('seeds only what is missing, and never over an answer already there', async () => {
+    await label('known', { source: 'discogs', level: 'master', genres: ['worked out here'] });
+
+    const seed = [
+      // The room already has this one, from a run against its own database.
+      {
+        ...youtube('known'),
+        source: 'discogs' as const,
+        level: 'master' as const,
+        genres: ['from the file'],
+        styles: [],
+        sourceEntityId: null,
+        sourceUrl: null,
+        ambiguous: false,
+      },
+      // This one it has never seen.
+      {
+        ...youtube('missing'),
+        source: 'discogs' as const,
+        level: 'master' as const,
+        genres: ['from the file'],
+        styles: [],
+        sourceEntityId: null,
+        sourceUrl: null,
+        ambiguous: false,
+      },
+    ];
+
+    const added = await seedGenres(seed, db);
+    // Seeding twice must be as safe as seeding once.
+    const again = await seedGenres(seed, db);
+
+    expect(added).toBe(1);
+    expect(again).toBe(0);
+    const found = await listGenres([youtube('known'), youtube('missing')], db);
+    expect(found.get(trackKey('youtube', 'known'))?.entries[0]?.genres).toEqual([
+      'worked out here',
+    ]);
+    expect(found.get(trackKey('youtube', 'missing'))?.entries[0]?.genres).toEqual([
+      'from the file',
+    ]);
+  });
 
   it('narrows a history to one genre, and counts a style as one', async () => {
     await archive([
