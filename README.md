@@ -188,18 +188,30 @@ covers 4,030 tracks Discogs does not, taking the two together from 30.8% to
 
 It wants 7.6 GB of dumps from [data.metabrainz.org](https://data.metabrainz.org/pub/musicbrainz/data/fullexport/),
 about 17 GB of extracted tables, `bzip2` and `tar` on the path, and
-`--max-old-space-size` at 12 GB or more. None of that belongs on the deployment
-host, and none of it has to be there:
+`--max-old-space-size` at 12 GB or more.
+
+**None of that ever touches a deployment.** The answers are committed to this
+repository as `data/genres.json`, and the API applies them when it starts, right
+after its migrations. A deploy therefore carries every genre the archive has
+been labelled with, and the deployment host downloads nothing.
+
+Refreshing it is a job for a workstation, and the only step that reaches a
+database is the last one:
 
 ```sh
-# where the room is
-npx tsx scripts/genre-transfer.ts tracks --out tracks.json     # about 3 MB
-# where the dumps are
-npx tsx scripts/musicbrainz-dump-import.ts --core ... --derived ... \
-  --tracks tracks.json --out genres.json                        # about 4 MB
-# where the room is
-npx tsx scripts/genre-transfer.ts apply --in genres.json
+npx tsx scripts/musicbrainz-dump-import.ts --core ... --derived ...
+npx tsx scripts/discogs-dump-import.ts discogs_20260901_masters.xml.gz
+npx tsx scripts/genre-transfer.ts export --out data/genres.json
 ```
+
+Then commit `data/genres.json`. That file is the source of truth: it is
+re-applied on every start, so a genre worked out directly against a deployed
+database is overwritten on the next deploy. Regenerate the file instead.
+
+A machine that has the dumps but not the room can still do the work —
+`genre-transfer.ts tracks --out tracks.json` writes the 3 MB of track ids and
+titles the matching needs, and both importers take `--tracks` and `--out` so
+they run against files and no database at all.
 
 **`scripts/enrich-genres.ts`** asks MusicBrainz's API a track at a time instead,
 one request a second. It is now the follow-up rather than the main route: it

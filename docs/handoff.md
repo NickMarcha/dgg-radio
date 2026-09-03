@@ -105,7 +105,9 @@ manufactures both false agreement and false conflict.
 
 1. **Migrations `0016` and `0017` are applied locally and nowhere else.** The API
    applies pending migrations at startup, so production picks them up on its
-   next deploy.
+   next deploy. Genre comes with them: `data/genres.json` is committed, and the
+   API applies it right after migrating, so a deploy carries all 19,272 answers
+   without the deployment host fetching any data dump.
 2. **The real import has never run in production.** Locally it now has: 48,000
    plays, 34,130 tracks, 1,050 people, back to 2024-10-20. The 26 MB export it
    came from is at `%TEMP%/dggradio-queup-dgg-radio-full.json`, which Windows

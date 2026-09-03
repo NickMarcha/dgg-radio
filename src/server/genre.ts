@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { sql, type Column, type SQL } from 'drizzle-orm';
 import type {
   GenreLevel,
@@ -34,6 +35,45 @@ import { ALL_TIME, periodRange } from './period';
  * See `docs/research/discogs-dump-genre-coverage.md` for what each source
  * covers and how that was measured.
  */
+
+/**
+ * The genre the room ships with.
+ *
+ * Working out what a track is takes 8 GB of downloads and half an hour of
+ * scanning, and it produces a few thousand short answers. Those answers are
+ * committed to the repository, and applying them is what this does — so a
+ * deployment gets everything the archive has been labelled with by deploying,
+ * without fetching a byte of anyone's data dump.
+ *
+ * The file is the source of truth. It is re-applied on every start because
+ * doing so is idempotent and takes a couple of seconds, which is a smaller
+ * thing to reason about than remembering whether it has been applied yet. That
+ * does mean a genre worked out directly against a deployed database is
+ * overwritten on the next deploy: regenerate the file instead, with
+ * `scripts/genre-transfer.ts export`.
+ *
+ * Missing or unreadable is not an error. Genre is decoration on top of a room
+ * that works without it, so a bad seed file must never be what stops the API
+ * from serving.
+ */
+export async function applyGenreSeed(
+  path = 'data/genres.json',
+  db: Database = getDatabase(),
+): Promise<{ applied: number } | null> {
+  let rows: StoredGenre[];
+  try {
+    const file = JSON.parse(await readFile(path, 'utf8')) as { rows?: StoredGenre[] };
+    if (!Array.isArray(file.rows) || file.rows.length === 0) return null;
+    rows = file.rows;
+  } catch {
+    return null;
+  }
+
+  for (let start = 0; start < rows.length; start += 1_000) {
+    await storeGenres(rows.slice(start, start + 1_000), db);
+  }
+  return { applied: rows.length };
+}
 
 /**
  * Which database a script is about to write to, without its password.

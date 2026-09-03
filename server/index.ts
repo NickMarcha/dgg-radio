@@ -5,6 +5,7 @@ import { shutdownServerAnalytics } from '../src/server/analytics';
 import { getSessionUserByToken, readSessionTokenFromCookieHeader } from '../src/server/auth';
 import { getDatabase } from '../src/server/db/client';
 import { getEnv } from '../src/server/env';
+import { applyGenreSeed } from '../src/server/genre';
 import { advanceIfExpired, currentRevision, ensureRoomExists } from '../src/server/room';
 import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -55,6 +56,16 @@ const app = createApp({
 // commit that adds a migration would start the API against a stale schema.
 // Failing here is deliberate: a container that cannot migrate should not serve.
 await migrate(getDatabase(), { migrationsFolder: 'drizzle' });
+
+// What the archive has been labelled with, shipped in the repository so that a
+// deploy carries it. Unlike a migration this is allowed to fail: the room works
+// without genre, and a seed file is no reason to refuse to serve.
+try {
+  const seeded = await applyGenreSeed();
+  if (seeded) console.log(`Applied ${seeded.applied.toLocaleString()} stored genres`);
+} catch (error) {
+  console.error('Could not apply the genre seed', error);
+}
 
 await ensureRoomExists();
 
