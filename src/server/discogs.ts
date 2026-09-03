@@ -13,11 +13,11 @@ import { normalize } from './musicbrainz';
  * the right artist and none to the wrong one. It fails closed, which is what
  * makes it safe to consult for a track somebody is listening to.
  *
- * Nothing from here is ever written to `track_genres`. The Discogs API terms
- * forbid keeping their content longer than is needed to serve it and forbid
- * showing anything more than six hours staler than their own site, so this is a
- * short-lived display cache and nothing else. The dump is CC0 and is what the
- * durable table is built from.
+ * What comes back is stored in `track_genres` beside every other source. That
+ * is a decision rather than an oversight: the Discogs API terms restrict how
+ * long their content may be kept, and the room's operator has confirmed
+ * permission to keep it. The bulk of the table still comes from the CC0 monthly
+ * dump, which carries no such restriction.
  *
  * The credentials raise the rate limit from 25 requests a minute to 60. Without
  * them this still works, more slowly, so they are optional.
