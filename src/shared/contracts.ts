@@ -542,78 +542,13 @@ export interface LegacyStats {
   };
 }
 
-/** One play of a track, in either history. */
-export interface TrackPlay {
-  /** The account that requested it, or null for an archived QueUp name. */
-  requester: RoomUser | null;
-  requesterName: string;
-  playedAt: string;
-  upvotes: number;
-  downvotes: number;
-  status: 'played' | 'skipped';
-}
-
-/** Enough of a track to offer it in a list of other things to hear. */
-export interface TrackSummary {
-  provider: MediaProvider;
-  providerMediaId: string;
-  title: string;
-  thumbnailUrl: string | null;
-  /** Across both histories. */
-  plays: number;
-}
-
-/** Everything the room knows about one track. */
-export interface TrackDetail {
-  provider: MediaProvider;
-  providerMediaId: string;
-  title: string;
-  /** Null for a track only the archive remembers: QueUp never stored one. */
-  artist: string | null;
-  providerArtistId: string | null;
-  canonicalUrl: string | null;
-  thumbnailUrl: string | null;
-  durationSeconds: number | null;
-  /** The room's own row, when it has played here. */
-  mediaId: string | null;
-  genres: TrackGenres | null;
-  totals: {
-    roomPlays: number;
-    archivePlays: number;
-    upvotes: number;
-    downvotes: number;
-    firstPlayed: string | null;
-    lastPlayed: string | null;
-  };
-  /** The most recent plays of it, newest first, each history on its own. */
-  roomPlays: TrackPlay[];
-  archivePlays: TrackPlay[];
-  related: {
-    /** Others from the same channel or account. Empty without a media row. */
-    byArtist: TrackSummary[];
-    /** Others sharing a genre, from either history. */
-    byGenre: TrackSummary[];
-  };
-}
-
-export interface ArtistTrack extends TrackSummary {
-  roomPlays: number;
-  archivePlays: number;
-}
-
-/** Everything the room has by one channel or account. */
-export interface ArtistDetail {
-  provider: MediaProvider;
-  providerArtistId: string;
-  name: string;
-  totals: {
-    tracks: number;
-    roomPlays: number;
-    archivePlays: number;
-  };
-  /** What their tracks are, by how many of them carry each name. */
-  genres: { name: string; tracks: number }[];
-  tracks: ArtistTrack[];
+/** What topping the archive up from QueUp turned out to find. */
+export interface ArchiveRefresh {
+  added: number;
+  pagesRead: number;
+  /** It stopped at the page cap rather than where the two histories meet. */
+  reachedLimit: boolean;
+  newestPlayedAt: string | null;
 }
 
 /** One play of a track, in either history. */
@@ -689,6 +624,7 @@ export interface ArtistDetail {
   genres: { name: string; tracks: number }[];
   tracks: ArtistTrack[];
 }
+
 
 export interface CommunityStats {
   totals: {

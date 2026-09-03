@@ -92,6 +92,7 @@ import {
   reorderPlaylist,
 } from './playlists';
 import { getModerationLog } from './moderation';
+import { QueupError, refreshArchive } from './queup';
 import { limitPerAddress, limitPerUser } from './rate-limit';
 import { exportCsv, exportFilename, EXPORTS } from './export';
 import { getStorageSnapshot } from './storage';
@@ -119,6 +120,11 @@ const legacySourceId = z.string().trim().min(1).max(64);
 const legacyTrackParamSchema = z.object({ id: z.uuid(), sourceId: legacySourceId });
 const legacySourceParamSchema = z.object({ sourceId: legacySourceId });
 const usernameParamSchema = z.object({ username: z.string().trim().min(1).max(64) });
+/** The slug out of a QueUp room's URL, as in `queup.net/join/dgg-radio`. */
+const archiveRefreshSchema = z.object({
+  room: z.string().trim().min(1).max(80).regex(/^[a-z0-9-]+$/i, 'That is not a QueUp room name.'),
+});
+
 /** A provider id, as the provider spells it rather than as a UUID. */
 const providerId = z.string().trim().min(1).max(120);
 const trackParamSchema = z.object({
@@ -222,6 +228,7 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof RuleError ||
       error instanceof AdminError ||
       error instanceof CatalogueError ||
+      error instanceof QueupError ||
       error instanceof CommunityError ||
       error instanceof RegionLookupError ||
       error instanceof ChatLookupError ||
@@ -752,6 +759,24 @@ export function createApp(dependencies: AppDependencies) {
     // Taking the room's data out of it. A browser downloads these by navigating
     // to them, so they are a plain GET with the session cookie rather than a
     // fetch, and the whole answer is one response.
+    // Topping the archive up from the room QueUp still runs. It reads a handful
+    // of pages and stops where the archive and the live room meet, so it is
+    // quick, and it is limited because it reaches somebody else's API.
+    .post(
+      '/api/archive/refresh',
+      requireAdmin,
+      limitPerUser('archive-refresh', 4),
+      zValidator('json', archiveRefreshSchema),
+      async (context) => {
+        const refreshed = await refreshArchive(context.req.valid('json').room);
+        captureServerEvent(context.get('user').id, 'archive_refreshed', {
+          added: refreshed.added,
+          pages_read: refreshed.pagesRead,
+        });
+        dependencies.onRoomChanged();
+        return context.json(refreshed);
+      },
+    )
     .get('/api/exports', requireAdmin, (context) => context.json({ exports: EXPORTS }))
     .get(
       '/api/exports/:dataset',

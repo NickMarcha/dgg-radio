@@ -9,6 +9,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  History,
   ListMusic,
   Loader2,
   MonitorPlay,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
 import type {
+  ArchiveRefresh,
   RoomMember,
   RoomSnapshot,
   RuleEntrySummary,
@@ -342,12 +344,80 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
             busy={operationsBusy}
             onRefresh={() => void refreshOperations()}
           />
+          <ArchiveSection busy={busy} act={act} call={call} />
           <ExportsSection apiUrl={apiUrl} />
         </>
       )}
 
       {tab === 'obs' && <ObsSources />}
     </main>
+  );
+}
+
+/**
+ * Pulling in whatever the room has played on QueUp since the last time.
+ *
+ * The two years of history the archive starts with ship with the room and are
+ * applied when the API starts. This is the other end of it: QueUp is still
+ * running, still playing, and this reads the newest pages and stores what is
+ * new. It stops where the two histories meet, so it is quick and safe to press
+ * twice.
+ */
+function ArchiveSection({ busy, act, call }: SectionProps) {
+  const [room, setRoom] = useState('dgg-radio');
+  const [result, setResult] = useState<ArchiveRefresh | null>(null);
+
+  function refresh() {
+    const slug = room.trim();
+    if (!slug) return;
+    void act(async () => {
+      setResult(null);
+      setResult(await call('/api/archive/refresh', 'POST', { room: slug }));
+    }, `Read ${slug} on QueUp.`);
+  }
+
+  return (
+    <section className="admin-card">
+      <div className="admin-section-heading">
+        <h2>
+          <History size={18} /> QueUp archive
+        </h2>
+      </div>
+      <p className="admin-export-note">
+        The room's QueUp years arrive with the deployment. This brings across whatever has
+        played there since, newest first, and stops where the archive and the live room meet.
+        Pressing it twice in a row finds nothing the second time.
+      </p>
+      <div className="admin-block">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            refresh();
+          }}
+        >
+          <input
+            value={room}
+            maxLength={80}
+            placeholder="QueUp room name"
+            aria-label="QueUp room name"
+            onChange={(event) => setRoom(event.currentTarget.value)}
+          />
+          <button type="submit" disabled={busy || !room.trim()}>
+            <RefreshCw className={busy ? 'spin' : undefined} size={14} /> Bring across new plays
+          </button>
+        </form>
+      </div>
+      {result && (
+        <p className="admin-export-note">
+          {result.added === 0
+            ? 'Nothing new — the archive is already up to date.'
+            : `Brought across ${result.added.toLocaleString()} ${result.added === 1 ? 'play' : 'plays'} from ${result.pagesRead} ${result.pagesRead === 1 ? 'page' : 'pages'}.`}
+          {result.newestPlayedAt && ` The newest play is now ${new Date(result.newestPlayedAt).toLocaleString()}.`}
+          {result.reachedLimit &&
+            ' It stopped at the page limit, so there may be more — press it again.'}
+        </p>
+      )}
+    </section>
   );
 }
 

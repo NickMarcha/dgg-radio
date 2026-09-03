@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { sql, type Column, type SQL } from 'drizzle-orm';
 import type {
   GenreLevel,
@@ -35,48 +34,6 @@ import { ALL_TIME, periodRange } from './period';
  * See `docs/research/discogs-dump-genre-coverage.md` for what each source
  * covers and how that was measured.
  */
-
-/**
- * The genre the room ships with.
- *
- * Working out what a track is takes 8 GB of downloads and half an hour of
- * scanning, and it produces a few thousand short answers. Those answers are
- * committed to the repository, and applying them is what this does — so a
- * deployment gets everything the archive has been labelled with by deploying,
- * without fetching a byte of anyone's data dump.
- *
- * It only fills gaps. A track the database already has an answer for is left
- * exactly as it is, whichever is newer, so anything worked out against a
- * running room — by `enrich-genres.ts`, or by a later dump applied directly —
- * survives every subsequent deploy. The seed is a floor, not an authority.
- *
- * It runs on every start because that is idempotent and takes a couple of
- * seconds, which is a smaller thing to reason about than remembering whether it
- * has been applied yet.
- *
- * Missing or unreadable is not an error. Genre is decoration on top of a room
- * that works without it, so a bad seed file must never be what stops the API
- * from serving.
- */
-export async function applyGenreSeed(
-  path = 'data/genres.json',
-  db: Database = getDatabase(),
-): Promise<{ added: number; kept: number } | null> {
-  let rows: StoredGenre[];
-  try {
-    const file = JSON.parse(await readFile(path, 'utf8')) as { rows?: StoredGenre[] };
-    if (!Array.isArray(file.rows) || file.rows.length === 0) return null;
-    rows = file.rows;
-  } catch {
-    return null;
-  }
-
-  let added = 0;
-  for (let start = 0; start < rows.length; start += 1_000) {
-    added += await seedGenres(rows.slice(start, start + 1_000), db);
-  }
-  return { added, kept: rows.length - added };
-}
 
 /**
  * Writes only the answers nothing is stored for yet, and reports how many that

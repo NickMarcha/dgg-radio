@@ -5,7 +5,7 @@ import { shutdownServerAnalytics } from '../src/server/analytics';
 import { getSessionUserByToken, readSessionTokenFromCookieHeader } from '../src/server/auth';
 import { getDatabase } from '../src/server/db/client';
 import { getEnv } from '../src/server/env';
-import { applyGenreSeed } from '../src/server/genre';
+import { applySeeds } from '../src/server/seed';
 import { advanceIfExpired, currentRevision, ensureRoomExists } from '../src/server/room';
 import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -57,20 +57,22 @@ const app = createApp({
 // Failing here is deliberate: a container that cannot migrate should not serve.
 await migrate(getDatabase(), { migrationsFolder: 'drizzle' });
 
-// What the archive has been labelled with, shipped in the repository so that a
-// deploy carries it. It only fills gaps, so anything this database already
-// knows survives. Unlike a migration it is allowed to fail: the room works
-// without genre, and a seed file is no reason to refuse to serve.
+// The QueUp years and what every track is, shipped in the repository so that a
+// deploy carries them. They only fill gaps, so anything this database has
+// learned since survives. Unlike a migration this is allowed to fail: a room
+// with less in it still works, and a seed file is no reason to refuse to serve.
 try {
-  const seeded = await applyGenreSeed();
-  if (seeded) {
-    console.log(
-      `Genre seed: added ${seeded.added.toLocaleString()}, ` +
-        `left ${seeded.kept.toLocaleString()} already stored`,
-    );
+  const seeded = await applySeeds();
+  for (const [what, result] of Object.entries(seeded)) {
+    if (result) {
+      console.log(
+        `Seeded ${what}: added ${result.added.toLocaleString()}, ` +
+          `left ${result.kept.toLocaleString()} already stored`,
+      );
+    }
   }
 } catch (error) {
-  console.error('Could not apply the genre seed', error);
+  console.error('Could not apply the seeds', error);
 }
 
 await ensureRoomExists();

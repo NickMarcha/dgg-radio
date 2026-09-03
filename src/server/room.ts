@@ -32,6 +32,7 @@ import {
 } from './db/schema';
 import { getEnv } from './env';
 import { listJammers } from './community';
+import { enrichTrack } from './enrichment';
 import { nowPlayingGenres } from './genre';
 import {
   inspectManyCached,
@@ -444,6 +445,17 @@ async function storeMedia(metadata: MediaMetadata, db: Database): Promise<string
     })
     .returning({ id: media.id });
   if (!stored) throw new RoomError('QUEUE_FAILED', 'The track could not be saved.', 500);
+
+  // The first time the room sees a track, go and find out what it is. This
+  // returns at once and the answer lands whenever the services get round to
+  // it; nothing about queueing or playing waits on it.
+  enrichTrack(
+    metadata.provider,
+    metadata.providerMediaId,
+    metadata.title,
+    metadata.artist,
+    db,
+  );
   return stored.id;
 }
 
