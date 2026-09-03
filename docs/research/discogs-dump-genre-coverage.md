@@ -237,33 +237,93 @@ The first real run of the dump import, against 1,929 distinct YouTube tracks in
 a partial archive, labelled 668 of them (34.6%), 92 from masters that disagree.
 That is close to the 30.8% measured here, on a different sample.
 
-## The MusicBrainz dumps, which were not used
+## The MusicBrainz dumps, measured
 
-MusicBrainz publishes database dumps too, and for the same reason the Discogs
-dump won — no per-track requests — they are worth measuring before another long
-enrichment run. This has **not** been done. What is known so far is only what
-their [download documentation](https://musicbrainz.org/doc/MusicBrainz_Database/Download)
-says:
+Measured 2026-09-02, against the September 2026 export (`20260902-002507`) and
+the room's own archive. The question was whether MusicBrainz can be joined the
+way Discogs is, because that exact join on an embedded YouTube id is the entire
+reason Discogs is worth having.
 
-- `mbdump.tar.bz2` is the core database, CC0, and holds the URL relationships.
-- `mbdump-derived.tar.bz2` holds tags, and genre association is done through
-  tags, so it is the file the genres are in. It is CC BY-NC-SA 3.0, which
-  matches what the room already attributes.
+**It cannot.** `scripts/musicbrainz-youtube-relations.prototype.ts` asked
+`/ws/2/url?resource=...` about the room's 100 most played YouTube tracks, trying
+both the `youtube.com/watch?v=` and `youtu.be/` spellings:
 
-Three things would decide it, and none of them is answered yet:
+| | of 100 |
+| --- | --- |
+| MusicBrainz knows the URL at all | 19 |
+| Linked to a recording | **18** |
+| Linked to a release | 2 |
+| Linked to an artist | 0 |
 
-1. **How many recordings carry a YouTube URL relation.** If that number is
-   anything like Discogs' 5.76 million embedded ids, the same exact join works
-   and the Music card scrape stops being needed at all. If it is small, it does
-   not.
-2. **Whether a local title-and-artist index is workable** for the room's few
-   thousand tracks. It would replace the search request but not the Music card,
-   so it turns three requests a track into one.
-3. **Streaming cost.** The dumps are bzip2 tarballs of PostgreSQL `COPY` output.
-   Node has no bzip2 in `zlib`, so this needs a dependency the room does not
-   have, and the core dump is several times the size of the Discogs one.
+18% against Discogs' 30.8%, and this is the friendliest possible sample: the
+most played tracks are the best known ones, so the long tail is worse. Discogs'
+30.8% was across the whole archive, not its head.
 
-Nothing here is guesswork about the numbers: they have not been looked at.
+The sizes make the trade worse. From the export index:
+
+- `mbdump.tar.bz2` — **7 GB**. Holds the URL relationships, and also the
+  `recording` and `artist_credit` tables, so *every* dump route needs it.
+- `mbdump-derived.tar.bz2` — 491 MB. Tags, and therefore genres, CC BY-NC-SA.
+
+### It was built anyway, and the pessimism was wrong
+
+`scripts/musicbrainz-dump-import.ts`, run against the whole archive on
+2026-09-03. The exact-join half of the argument held; the conclusion drawn from
+it did not.
+
+**The URL join is worse than the sample suggested.** Across all 34,003 tracks it
+matched 2,257 — 6.6%, against the 18% measured on the hundred most played. That
+gap is the point: the head of a play-count distribution is the best known music
+in the room, and coverage measured there does not survive contact with the tail.
+
+**What rescued it was the fuzzy match, which only a dump can afford.** With the
+tables open locally, matching on an artist and title parsed out of the upload
+title costs nothing per track, so it can be tried on everything. Of 34,003
+tracks, 17,626 have a readable `Artist - Title`; 10,638 of those titles exist in
+MusicBrainz; 6,779 of them agree on the credited artist as well.
+
+| | tracks | of 34,003 |
+| --- | --- | --- |
+| Identified — by URL | 2,257 | 6.6% |
+| Identified — by artist and title | 6,779 | 19.9% |
+| **Labelled with a genre** | **8,234** | **24.2%** |
+| of those, about the track rather than the artist | 5,489 | 16.1% |
+| recording level | 2,184 | |
+| release group level | 3,305 | |
+| artist level | 2,745 | |
+| identified but genuinely unlabelled | 572 | |
+
+**Together with Discogs it is a different picture entirely**, which is the claim
+this whole document opened with and the first time it has been checked at full
+scale rather than on a hundred videos:
+
+| | tracks | of 34,003 |
+| --- | --- | --- |
+| Discogs alone | 10,462 | 30.8% |
+| MusicBrainz alone | 8,234 | 24.2% |
+| **Either** | **14,492** | **42.6%** |
+| Both, so cross-checkable | 4,207 | 12.4% |
+| Only MusicBrainz has it | 4,030 | 11.9% |
+| Only Discogs has it | 6,255 | 18.4% |
+| Genre about the track rather than the artist | 13,153 | 38.7% |
+
+So the dump added **4,030 tracks nothing else covers** and took the archive from
+30.8% to 42.6%. The earlier conclusion — that a dump would not pay for itself —
+was drawn from the URL join alone and was wrong, because the thing worth having
+was never the join. It was being able to try a fuzzy match 34,000 times for
+free.
+
+**What it costs.** 7.6 GB downloaded, about 17 GB extracted, and roughly 25
+minutes of scanning after that. It needs more than Node's default 4 GB heap:
+`--max-old-space-size` at 12 GB or more, since the `track` scan alone peaks
+around 14 GB. All of it is temporary, and none of it has to happen on the
+machine that runs the room — `--tracks` and `--out` take a 3 MB list of tracks
+in and hand back a 4 MB file of answers.
+
+The per-track pass in `scripts/enrich-genres.ts` still has a use: it reads the
+YouTube Music card, which is a better identity than a parsed upload title, so it
+can reach tracks the dump could not. It is now the follow-up rather than the
+main route.
 
 ## Scripts
 

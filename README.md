@@ -173,12 +173,39 @@ cheaper way to get this data, it is the only way. Get the file from
 [data.discogs.com](https://data.discogs.com/) and run the import again each
 month.
 
-**MusicBrainz** is asked per track, and is slow on purpose: one request a
-second, three requests a track. Tracks are taken most played first, so a run
-that is stopped after an hour has still labelled the music people actually hear,
-and every answer is written as it arrives so the next run continues rather than
-restarts. Identity comes from the video's own YouTube Music card, since neither
-an upload title nor a channel name is what a catalogue holds.
+**MusicBrainz** comes from its database dumps, matched offline:
+
+```sh
+npx tsx scripts/musicbrainz-dump-import.ts --core mbdump.tar.bz2 --derived mbdump-derived.tar.bz2
+```
+
+It takes the 2,257 tracks MusicBrainz happens to link to YouTube by URL, then
+matches the rest on an artist and title parsed out of the upload title — which
+is fuzzy, and only affordable because a local dump can be asked 34,000 times for
+nothing. That reaches 24.2% of the archive on its own and, more to the point,
+covers 4,030 tracks Discogs does not, taking the two together from 30.8% to
+42.6%.
+
+It wants 7.6 GB of dumps from [data.metabrainz.org](https://data.metabrainz.org/pub/musicbrainz/data/fullexport/),
+about 17 GB of extracted tables, `bzip2` and `tar` on the path, and
+`--max-old-space-size` at 12 GB or more. None of that belongs on the deployment
+host, and none of it has to be there:
+
+```sh
+# where the room is
+npx tsx scripts/genre-transfer.ts tracks --out tracks.json     # about 3 MB
+# where the dumps are
+npx tsx scripts/musicbrainz-dump-import.ts --core ... --derived ... \
+  --tracks tracks.json --out genres.json                        # about 4 MB
+# where the room is
+npx tsx scripts/genre-transfer.ts apply --in genres.json
+```
+
+**`scripts/enrich-genres.ts`** asks MusicBrainz's API a track at a time instead,
+one request a second. It is now the follow-up rather than the main route: it
+reads the video's own YouTube Music card, which identifies a track better than a
+parsed upload title, so it can reach what the dump could not. It takes the most
+played first and is safe to stop.
 
 A genre that MusicBrainz only knows for the artist is stored and shown as an
 artist genre, never as a description of the track: every Boards of Canada track
@@ -243,7 +270,9 @@ Two scripts fill in what tracks are, both described under [Genre](#genre):
 
 ```text
 npx tsx scripts/discogs-dump-import.ts <masters.xml.gz>   label from the monthly Discogs dump
-npx tsx scripts/enrich-genres.ts --limit 500              label from MusicBrainz, most played first
+npx tsx scripts/musicbrainz-dump-import.ts --core ...     label from the MusicBrainz dumps
+npx tsx scripts/enrich-genres.ts --limit 500              label from the MusicBrainz API, most played first
+npx tsx scripts/genre-transfer.ts tracks --out ...        carry genre between machines
 ```
 
 `scripts/clear-beta-history.sql` deletes every queue item, every vote, and the

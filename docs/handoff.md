@@ -63,12 +63,17 @@ bans would mean inventing both a feature and a mapping.
 `discogs.ts`, `youtube-music.ts`, two scripts, and `TrackGenres.tsx`. The
 research doc carries a table of what lives where.
 
-Against the full archive the dump reproduces the research almost exactly:
-10,449 of 33,942 distinct tracks (30.8%, predicted 30.8%) and 16,597 of 47,614
-plays (34.9%, predicted 34.9% — the same absolute number). 1,430 tracks remain
-ambiguous after both tie-breaks, against a predicted 1,429. The MusicBrainz pass
-has been run on six tracks as a proof: four labelled, two of those at track
-level, which is also the shape the research predicted.
+Against the full archive the Discogs dump reproduces the research almost
+exactly: 30.8% of distinct tracks and 34.9% of plays, with 1,430 still ambiguous
+after both tie-breaks against a predicted 1,429.
+
+MusicBrainz now comes from its dumps too, and the two together label **14,492 of
+34,003 tracks (42.6%)** — 4,030 of them tracks only MusicBrainz has, 4,207
+carrying both sources and so cross-checkable, and 13,153 (38.7%) described at
+track level rather than by their artist. The research doc has the full table and
+the correction it forced: the earlier conclusion that a MusicBrainz dump would
+not pay for itself was drawn from the URL join alone, and the URL join was never
+the part worth having.
 
 Track-level genre across a deterministic 100-video sample:
 

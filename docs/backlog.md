@@ -22,22 +22,17 @@ the strings are spelled `ADMIN` and `MODERATOR`. Turning it back on is a small
 change to `radioRole` in `src/server/auth.ts`; `git log` has the version that
 did it.
 
-## The MusicBrainz dumps have never been measured
+## The MusicBrainz dump import is memory hungry
 
-Genre from MusicBrainz is fetched a track at a time against a one-request-a-
-second limit, three requests each. Labelling 34,114 tracks that way is days of
-running, which is why `enrich-genres.ts` takes the most played first and is safe
-to stop.
+`scripts/musicbrainz-dump-import.ts` needs `--max-old-space-size` at 12 GB or
+more; Node's default 4 GB dies partway through the `track` scan, which peaks
+around 14 GB. The heap grows with rows scanned rather than with rows kept, so
+it is the scanning that costs, not the filtering.
 
-MusicBrainz publishes database dumps, and the whole reason the Discogs dump beat
-the Discogs API was that a dump needs no per-track request. The same argument
-may apply here and nobody has checked. `docs/research/discogs-dump-genre-coverage.md`
-records what is known — which file holds genres, which holds URL relationships,
-and the three questions that would decide it — and, deliberately, no estimates
-of the numbers, because none have been measured.
-
-Worth doing before anyone leaves the per-track pass running for days. Not worth
-doing on the assumption that it will win.
+Nothing depends on fixing it — the run takes 25 minutes on a workstation and
+happens perhaps monthly — but it is the reason the script cannot simply be run
+without thinking about it, and the reason `--tracks`/`--out` exist so it never
+has to run anywhere near the deployment host.
 
 ## The PostHog event set has never been judged against real data
 
