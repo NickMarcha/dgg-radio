@@ -18,6 +18,28 @@ const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36';
 const ACCEPT_LANGUAGE = 'en-US,en;q=0.9';
 
+/**
+ * A page that would not answer, with what it said about coming back.
+ *
+ * YouTube sends no rate-limit headers on a good response, so there is nothing
+ * to pace against in advance — the only signal is the refusal itself. Keeping
+ * `Retry-After` off it means a caller has to guess how long to wait, and a
+ * guess that is too short is what earns the next refusal.
+ */
+export class WatchPageError extends Error {
+  readonly status: number;
+  /** What the response asked for, in milliseconds, or null if it said nothing. */
+  readonly retryAfterMs: number | null;
+
+  constructor(response: Response) {
+    super(`The watch page answered ${response.status}`);
+    this.name = 'WatchPageError';
+    this.status = response.status;
+    const header = Number(response.headers.get('retry-after'));
+    this.retryAfterMs = Number.isFinite(header) && header > 0 ? header * 1_000 : null;
+  }
+}
+
 export interface MusicCard {
   title: string;
   artist: string;
@@ -133,6 +155,6 @@ export async function findMusicCard(videoId: string): Promise<MusicCard | null> 
     headers: { 'User-Agent': USER_AGENT, 'Accept-Language': ACCEPT_LANGUAGE },
     signal: AbortSignal.timeout(20_000),
   });
-  if (!response.ok) throw new Error(`The watch page answered ${response.status}`);
+  if (!response.ok) throw new WatchPageError(response);
   return firstCard(initialData(await response.text()));
 }

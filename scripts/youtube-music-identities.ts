@@ -43,7 +43,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import * as schema from '../src/server/db/schema';
 import { describeDatabase } from '../src/server/genre';
-import { findMusicCard } from '../src/server/youtube-music';
+import { findMusicCard, WatchPageError } from '../src/server/youtube-music';
 
 /**
  * YouTube rate limits this, and finding out costs the whole run: eight at a
@@ -81,6 +81,10 @@ function waitForSlot(): Promise<void> {
 /**
  * A refusal is worth waiting out rather than skipping past: the video is fine,
  * and coming back to it later costs one more page load than getting it now.
+ *
+ * How long to wait is the page's to say. YouTube sends no rate-limit headers
+ * while it is answering, so `Retry-After` on the refusal is the only number it
+ * ever offers, and a guess shorter than it is what earns the next refusal.
  */
 async function fetchCard(videoId: string): Promise<Answer> {
   for (let attempt = 0; ; attempt += 1) {
@@ -89,9 +93,10 @@ async function fetchCard(videoId: string): Promise<Answer> {
       const card = await findMusicCard(videoId);
       return card ? { artist: card.artist, title: card.title } : null;
     } catch (error) {
-      const refused = error instanceof Error && error.message.includes('429');
+      const refused = error instanceof WatchPageError && (error.status === 429 || error.status >= 500);
       if (!refused || attempt === 3) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 30_000 * 2 ** attempt));
+      const asked = error.retryAfterMs;
+      await new Promise((resolve) => setTimeout(resolve, asked ?? 30_000 * 2 ** attempt));
     }
   }
 }

@@ -28,12 +28,48 @@ const USER_AGENT = 'DggRadio/0.1.0 (https://github.com/NickMarcha/dgg-radio)';
 /** Comfortably inside 60 a minute, and inside 25 a minute if unauthenticated. */
 const REQUEST_SPACING_MS = 2_500;
 
+/** Attempts before a refusal is treated as the answer. */
+const MAX_ATTEMPTS = 4;
+
 let nextSlot = Promise.resolve();
 
 function waitForSlot(): Promise<void> {
   const waited = nextSlot;
   nextSlot = waited.then(() => new Promise((resolve) => setTimeout(resolve, REQUEST_SPACING_MS)));
   return waited;
+}
+
+export class DiscogsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DiscogsError';
+  }
+}
+
+/** Discogs says how long to wait when it refuses; believe it over a guess. */
+function retryDelay(response: Response, attempt: number): number {
+  const header = Number(response.headers.get('retry-after'));
+  if (Number.isFinite(header) && header > 0) return Math.max(header * 1_000, 2_000);
+  return 2_000 * 2 ** attempt + Math.floor(Math.random() * 500);
+}
+
+/**
+ * A refusal is not an answer. Returning null for one would be stored as "this
+ * track has no genre", and because a stored row counts as asked, the track
+ * would never be looked at again — a minute of rate limiting turned into a
+ * permanent gap. So a refusal is waited out, and then thrown.
+ */
+async function request(endpoint: URL, headers: Record<string, string>): Promise<Response> {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    await waitForSlot();
+    const response = await fetch(endpoint, { headers, signal: AbortSignal.timeout(15_000) });
+    if (response.ok) return response;
+    if (response.status !== 429 && response.status < 500) {
+      throw new DiscogsError(`Discogs answered ${response.status}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, retryDelay(response, attempt)));
+  }
+  throw new DiscogsError('Discogs kept refusing the search');
 }
 
 interface SearchResult {
@@ -77,9 +113,7 @@ export async function searchGenre(artist: string, title: string): Promise<TrackG
     headers.Authorization = `Discogs key=${env.DISCOGS_CONSUMER_KEY}, secret=${env.DISCOGS_CONSUMER_SECRET}`;
   }
 
-  await waitForSlot();
-  const response = await fetch(endpoint, { headers, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) return null;
+  const response = await request(endpoint, headers);
 
   const answer = (await response.json()) as { results?: SearchResult[] };
   const top = answer.results?.[0];
