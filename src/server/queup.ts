@@ -1,6 +1,7 @@
 import { desc, inArray } from 'drizzle-orm';
 import { getDatabase, type Database } from './db/client';
 import { legacyPlays } from './db/schema';
+import { enrichTrack } from './enrichment';
 
 /**
  * Topping the archive up from the room QueUp still runs.
@@ -13,6 +14,11 @@ import { legacyPlays } from './db/schema';
  *
  * Rows are keyed by QueUp's own id for the play, so running it twice in a row
  * adds nothing the second time and nothing can be duplicated.
+ *
+ * Whatever is new is then handed to the same enrichment the room uses, so a
+ * track that first played on QueUp is asked about exactly like one queued
+ * here. The dumps labelled the years up to this point; from here both
+ * histories are kept current by the APIs.
  */
 
 const API = 'https://api.queup.net';
@@ -153,8 +159,20 @@ export async function refreshArchive(
       .insert(legacyPlays)
       .values(rows)
       .onConflictDoNothing()
-      .returning({ sourceId: legacyPlays.sourceId });
+      .returning({
+        provider: legacyPlays.provider,
+        providerMediaId: legacyPlays.providerMediaId,
+        title: legacyPlays.title,
+      });
     added += written.length;
+
+    // A play that arrives here is as new to the room as one somebody queues,
+    // so it gets the same two lookups. QueUp stores no channel, which costs
+    // precision only where the title carries no artist and YouTube has no
+    // card for the video.
+    for (const play of written) {
+      enrichTrack(play.provider, play.providerMediaId, play.title, '', db);
+    }
   }
 
   // How current the archive is now, which is the useful thing to report back.
