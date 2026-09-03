@@ -2,6 +2,7 @@
  * Moving genre between a machine that can afford the dumps and one that cannot.
  *
  *   npx tsx scripts/genre-transfer.ts tracks --out tracks.json
+ *   npx tsx scripts/genre-transfer.ts export --out genres.json
  *   npx tsx scripts/genre-transfer.ts apply  --in  genres.json
  *
  * The MusicBrainz backfill needs 7.6 GB of dumps and about 17 GB of extracted
@@ -15,6 +16,10 @@
  *   3. `apply` writes the answers into `track_genres`. About 4 MB.
  *
  * The Discogs import is the same shape and can be pointed at the same files.
+ *
+ * `export` is the shortcut past all of it: a machine that has already done the
+ * work hands over what it found, and the other end applies it. Nothing has to
+ * be recomputed to move genre from a workstation to the room.
  *
  * Only DATABASE_URL is needed, from the environment or `.env`, and only for the
  * two ends.
@@ -84,6 +89,34 @@ async function writeTracks(out: string): Promise<void> {
   console.log(`Wrote ${file.tracks.length.toLocaleString()} tracks to ${out}`);
 }
 
+/** Everything already worked out here, ready to be applied somewhere else. */
+async function exportGenres(out: string): Promise<void> {
+  const db = database();
+  const rows = await db.select().from(schema.trackGenres);
+
+  const file: GenreFile = {
+    generatedAt: new Date().toISOString(),
+    rows: rows.map((row) => ({
+      provider: row.provider,
+      providerMediaId: row.providerMediaId,
+      source: row.source,
+      level: row.level,
+      genres: row.genres,
+      styles: row.styles,
+      sourceEntityId: row.sourceEntityId,
+      sourceUrl: row.sourceUrl,
+      ambiguous: row.ambiguous,
+    })),
+  };
+  await writeFile(out, JSON.stringify(file), 'utf8');
+
+  const labelled = file.rows.filter((row) => row.genres.length > 0).length;
+  console.log(
+    `Wrote ${file.rows.length.toLocaleString()} answers to ${out}, ` +
+      `${labelled.toLocaleString()} of them carrying a genre.`,
+  );
+}
+
 /** Writes answers back, overwriting whatever that source said before. */
 async function applyGenres(input: string): Promise<void> {
   const file = JSON.parse(await readFile(input, 'utf8')) as GenreFile;
@@ -117,6 +150,13 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     await writeTracks(out);
+  } else if (command === 'export') {
+    const out = flag('out');
+    if (!out) {
+      console.error('Usage: npx tsx scripts/genre-transfer.ts export --out genres.json');
+      process.exit(1);
+    }
+    await exportGenres(out);
   } else if (command === 'apply') {
     const input = flag('in');
     if (!input) {
@@ -128,6 +168,7 @@ async function main(): Promise<void> {
     console.error(
       'Usage:\n' +
         '  npx tsx scripts/genre-transfer.ts tracks --out tracks.json\n' +
+        '  npx tsx scripts/genre-transfer.ts export --out genres.json\n' +
         '  npx tsx scripts/genre-transfer.ts apply  --in  genres.json',
     );
     process.exit(1);

@@ -19,11 +19,17 @@
  * whether or not a track was answered last month, so there is nothing to gain
  * from remembering which ones missed.
  *
- * Only DATABASE_URL is needed, from the environment or `.env`.
+ * By default it reads the room's tracks from the database and writes the
+ * answers back to it. With `--tracks` and `--out` it does neither and works
+ * entirely from files, so the dump never has to sit on the machine that runs
+ * the room. `genre-transfer.ts` makes the one file and applies the other.
+ *
+ * DATABASE_URL is needed unless both of those are given.
  */
 
 import 'dotenv/config';
 import { createReadStream } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import { createGunzip } from 'node:zlib';
@@ -31,6 +37,12 @@ import { createInterface } from 'node:readline';
 import * as schema from '../src/server/db/schema';
 import type { StoredGenre } from '../src/server/genre';
 import { storeGenres } from '../src/server/genre';
+import type { GenreFile, TrackList } from './genre-transfer';
+
+function flag(name: string): string | null {
+  const at = process.argv.indexOf(`--${name}`);
+  return at < 0 ? null : process.argv[at + 1] ?? null;
+}
 
 /** Rows per insert, well inside PostgreSQL's parameter limit at nine columns. */
 const BATCH = 1_000;
@@ -209,26 +221,39 @@ async function main(): Promise<void> {
     console.error('Usage: npx tsx scripts/discogs-dump-import.ts <discogs_YYYYMM01_masters.xml.gz>');
     process.exit(1);
   }
+  // Handed its tracks and asked for a file, this needs no database at all,
+  // which is how the deployment host gets these genres without the dump.
+  const tracksFile = flag('tracks');
+  const outFile = flag('out');
   const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.error('DATABASE_URL is required. Set it in the environment or in .env.');
+  if ((!tracksFile || !outFile) && !url) {
+    console.error(
+      'DATABASE_URL is required unless both --tracks and --out are given. ' +
+        'See scripts/genre-transfer.ts for making the one and applying the other.',
+    );
     process.exit(1);
   }
 
-  const db = drizzle({ connection: url, schema });
+  const db = url ? drizzle({ connection: url, schema }) : null;
 
   // Both histories, because the archive is most of what there is to label and
   // its tracks have no `media` row to hang anything off.
-  const known = await db.execute<{ provider_media_id: string; title: string }>(sql`
-    select provider_media_id, min(title) as title
-    from (
-      select provider, provider_media_id, title from media
-      union all
-      select provider, provider_media_id, title from legacy_plays
-    ) as played
-    where provider = 'youtube'
-    group by provider_media_id
-  `);
+  const known = tracksFile
+    ? {
+        rows: (JSON.parse(await readFile(tracksFile, 'utf8')) as TrackList).tracks
+          .filter((track) => track.provider === 'youtube')
+          .map((track) => ({ provider_media_id: track.providerMediaId, title: track.title })),
+      }
+    : await db!.execute<{ provider_media_id: string; title: string }>(sql`
+        select provider_media_id, min(title) as title
+        from (
+          select provider, provider_media_id, title from media
+          union all
+          select provider, provider_media_id, title from legacy_plays
+        ) as played
+        where provider = 'youtube'
+        group by provider_media_id
+      `);
   const tracks = new Map<string, Track>(
     known.rows.map((row) => [
       row.provider_media_id,
@@ -266,11 +291,20 @@ async function main(): Promise<void> {
     });
   }
 
-  for (let start = 0; start < rows.length; start += BATCH) {
-    await storeGenres(rows.slice(start, start + BATCH), db);
-    process.stdout.write(`\r  stored ${Math.min(start + BATCH, rows.length)} / ${rows.length}   `);
+  if (outFile) {
+    await writeFile(
+      outFile,
+      JSON.stringify({ generatedAt: new Date().toISOString(), rows } satisfies GenreFile),
+      'utf8',
+    );
+    console.log(`  wrote ${rows.length.toLocaleString()} answers to ${outFile}`);
+  } else {
+    for (let start = 0; start < rows.length; start += BATCH) {
+      await storeGenres(rows.slice(start, start + BATCH), db!);
+      process.stdout.write(`\r  stored ${Math.min(start + BATCH, rows.length)} / ${rows.length}   `);
+    }
+    process.stdout.write('\n');
   }
-  process.stdout.write('\n');
 
   const percent = ((rows.length / tracks.size) * 100).toFixed(1);
   console.log(
