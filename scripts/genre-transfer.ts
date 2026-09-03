@@ -30,7 +30,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import * as schema from '../src/server/db/schema';
-import { storeGenres, type StoredGenre } from '../src/server/genre';
+import { describeDatabase, storeGenres, type StoredGenre } from '../src/server/genre';
 
 /** Rows per insert, well inside PostgreSQL's parameter limit. */
 const BATCH = 1_000;
@@ -56,6 +56,7 @@ function database() {
     console.error('DATABASE_URL is required. Set it in the environment or in .env.');
     process.exit(1);
   }
+  console.log(`Database: ${describeDatabase(url)}`);
   return drizzle({ connection: url, schema });
 }
 

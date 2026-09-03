@@ -35,6 +35,23 @@ import { ALL_TIME, periodRange } from './period';
  * covers and how that was measured.
  */
 
+/**
+ * Which database a script is about to write to, without its password.
+ *
+ * These imports are run by hand, often with DATABASE_URL overridden to point
+ * somewhere other than the `.env` default, and writing the archive or a genre
+ * backfill into the wrong one is silent. Saying which one out loud turns that
+ * into something a person notices before it happens.
+ */
+export function describeDatabase(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.username}@${parsed.hostname}:${parsed.port || '5432'}${parsed.pathname}`;
+  } catch {
+    return 'an unreadable DATABASE_URL';
+  }
+}
+
 export interface TrackKey {
   provider: MediaProvider;
   providerMediaId: string;

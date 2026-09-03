@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { sql } from 'drizzle-orm';
 import { legacyPlays } from '../src/server/db/schema';
+import { describeDatabase } from '../src/server/genre';
 import type { RoomExport } from './queup-export-room';
 
 /** Rows per insert. Eleven columns each, well inside PostgreSQL's parameter limit. */
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
   console.log(`${exported.room.name} (${exported.room.slug}): ${rows.length} plays to import`);
   if (dropped > 0) console.log(`  ${dropped} skipped: no play time, no provider id, or a provider this room cannot play`);
 
+  console.log(`Database: ${describeDatabase(url)}`);
   const db = drizzle({ connection: url });
   const [before] = await db
     .select({ count: sql<number>`count(*)::int`.mapWith(Number) })
