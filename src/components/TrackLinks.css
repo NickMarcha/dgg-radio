@@ -8,6 +8,20 @@
   text-decoration: none;
 }
 
+/*
+ * Named twice over, because a page that colours its own links — `.history-track
+ * a` does — outranks a single class and the badge quietly goes the colour of
+ * every other link on the row. Two classes puts it back above them without
+ * reaching for `!important`.
+ */
+.provider-badge.provider-youtube {
+  color: var(--youtube);
+}
+
+.provider-badge.provider-soundcloud {
+  color: var(--soundcloud);
+}
+
 a.provider-badge:hover {
   text-decoration: underline;
 }

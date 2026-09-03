@@ -891,11 +891,11 @@
 }
 
 .search-copy .search-provider-youtube {
-  color: #ff4057;
+  color: var(--youtube);
 }
 
 .search-copy .search-provider-soundcloud {
-  color: #ff6a21;
+  color: var(--soundcloud);
 }
 
 .import-report {

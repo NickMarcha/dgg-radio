@@ -559,14 +559,6 @@
   white-space: nowrap;
 }
 
-.provider-youtube {
-  color: #ff4057;
-}
-
-.provider-soundcloud {
-  color: #ff6a21;
-}
-
 .profile-link {
   color: var(--text);
   text-decoration: none;

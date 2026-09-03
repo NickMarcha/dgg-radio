@@ -26,6 +26,10 @@
   --success-bg: #0f2e22;
   --success-line: #1b5745;
 
+  /* Each provider's own red, so a badge says where a track lives. */
+  --youtube: #ff4057;
+  --soundcloud: #ff6a21;
+
   /*
    * VT323 is a terminal face with a small x-height, so it reads a size or two
    * smaller than a normal sans at the same px value. Share Tech Mono is the
