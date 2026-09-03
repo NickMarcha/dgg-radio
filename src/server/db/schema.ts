@@ -493,3 +493,21 @@ export const legacyPlays = pgTable(
   // The history page reads this newest first; a btree scans backwards for that.
   (table) => [index('legacy_plays_played_at_index').on(table.playedAt)],
 );
+
+/**
+ * Which shipped data file has already been applied.
+ *
+ * The archive and the genre answers are committed to the repository and applied
+ * when the API starts. Left alone, that is 68,000 rows re-offered to PostgreSQL
+ * on every restart to be told each one is already there — about four seconds
+ * before the room can serve, spent to change nothing.
+ *
+ * So each file records the digest of what was applied. An unchanged file is
+ * skipped; regenerating one changes its digest and it applies again by itself.
+ * Nothing here is the room's data, only a note about what has been read.
+ */
+export const seedState = pgTable('seed_state', {
+  name: text('name').primaryKey(),
+  digest: text('digest').notNull(),
+  appliedAt: timestamp('applied_at', { withTimezone: true }).notNull().defaultNow(),
+});

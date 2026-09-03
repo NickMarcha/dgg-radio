@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
+import { eq } from 'drizzle-orm';
 import { getDatabase, type Database } from './db/client';
-import { legacyPlays } from './db/schema';
+import { legacyPlays, seedState } from './db/schema';
 import { seedGenres } from './genre';
 import type { StoredGenre } from './genre';
 
@@ -18,6 +20,11 @@ import type { StoredGenre } from './genre';
  * exactly as it is, so anything the room has learned since — a play imported
  * last week, a genre worked out against the running database — survives every
  * later deploy. These files are a floor, not an authority.
+ *
+ * Each file is applied once. Its digest is recorded in `seed_state`, and an
+ * unchanged file is skipped on every later start rather than offering 68,000
+ * rows to be told each one is already there. Regenerating a file changes its
+ * digest, so it applies again without anyone remembering to say so.
  *
  * None of it may stop the API serving. A room with no archive and no genre is
  * a working room with less in it, so a missing or unreadable file is a log line
@@ -46,15 +53,41 @@ type ArchiveRow = {
   skipped: boolean;
 };
 
-/** Gzipped because it is 16 MB of JSON and 3 MB is a kinder thing to commit. */
-async function readJson<T>(path: string): Promise<T | null> {
+/**
+ * The file, and a digest of exactly the bytes on disk. Hashing the file rather
+ * than what it parses to means a regenerated file always re-applies, even if
+ * the change is one row's spelling.
+ *
+ * Gzipped because it is 16 MB of JSON and 3 MB is a kinder thing to commit.
+ */
+async function readJson<T>(path: string): Promise<{ data: T; digest: string } | null> {
   try {
     const raw = await readFile(path);
     const text = path.endsWith('.gz') ? gunzipSync(raw).toString('utf8') : raw.toString('utf8');
-    return JSON.parse(text) as T;
+    return { data: JSON.parse(text) as T, digest: createHash('sha256').update(raw).digest('hex') };
   } catch {
     return null;
   }
+}
+
+/** Whether this exact file has been applied before. */
+async function alreadyApplied(name: string, digest: string, db: Database): Promise<boolean> {
+  const [seen] = await db
+    .select({ digest: seedState.digest })
+    .from(seedState)
+    .where(eq(seedState.name, name));
+  return seen?.digest === digest;
+}
+
+/**
+ * Recorded only after the rows are in. A crash midway leaves no note, so the
+ * next start reads the file again and fills whatever did not land.
+ */
+async function markApplied(name: string, digest: string, db: Database): Promise<void> {
+  await db
+    .insert(seedState)
+    .values({ name, digest })
+    .onConflictDoUpdate({ target: seedState.name, set: { digest, appliedAt: new Date() } });
 }
 
 /**
@@ -66,8 +99,10 @@ export async function applyArchiveSeed(
   path = 'data/legacy-plays.json.gz',
   db: Database = getDatabase(),
 ): Promise<{ added: number; kept: number } | null> {
-  const rows = await readJson<ArchiveRow[]>(path);
-  if (!rows?.length) return null;
+  const file = await readJson<ArchiveRow[]>(path);
+  if (!file?.data.length) return null;
+  const rows = file.data;
+  if (await alreadyApplied('archive', file.digest, db)) return { added: 0, kept: rows.length };
 
   let added = 0;
   for (let start = 0; start < rows.length; start += BATCH) {
@@ -92,6 +127,7 @@ export async function applyArchiveSeed(
       .returning({ sourceId: legacyPlays.sourceId });
     added += written.length;
   }
+  await markApplied('archive', file.digest, db);
   return { added, kept: rows.length - added };
 }
 
@@ -100,13 +136,16 @@ export async function applyGenreSeed(
   db: Database = getDatabase(),
 ): Promise<{ added: number; kept: number } | null> {
   const file = await readJson<{ rows?: StoredGenre[] }>(path);
-  if (!file?.rows?.length) return null;
+  const rows = file?.data.rows;
+  if (!file || !rows?.length) return null;
+  if (await alreadyApplied('genres', file.digest, db)) return { added: 0, kept: rows.length };
 
   let added = 0;
-  for (let start = 0; start < file.rows.length; start += BATCH) {
-    added += await seedGenres(file.rows.slice(start, start + BATCH), db);
+  for (let start = 0; start < rows.length; start += BATCH) {
+    added += await seedGenres(rows.slice(start, start + BATCH), db);
   }
-  return { added, kept: file.rows.length - added };
+  await markApplied('genres', file.digest, db);
+  return { added, kept: rows.length - added };
 }
 
 /** Both of them, in the order that makes the second one worth having. */
