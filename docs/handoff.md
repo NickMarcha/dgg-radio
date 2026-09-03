@@ -61,7 +61,7 @@ correction it forced.
 
 ### Deploying carries the data
 
-`data/legacy-plays.json.gz` (48,169 plays, 3 MB) and `data/genres.json` (19,272
+`data/legacy-plays.json.gz` (48,172 plays, 3 MB) and `data/genres.json` (19,272
 answers, 5 MB) are committed, and `src/server/seed.ts` applies them at startup
 right after migrations. So a deployment gets two years of history and everything
 known about it without fetching a byte of anyone's data dump.
@@ -92,10 +92,9 @@ across 5 pages, then 0 across 1.
    applies both seeds. No new environment variables are required.
 2. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
    therefore still disposable data by the rule in `AGENTS.md`.
-3. **The admin archive button has not been seen working in a browser.** The
-   endpoint is admin-gated and its logic was verified directly against QueUp;
-   the panel around it was not, because the browser tooling stopped responding
-   at the end of the session.
+3. **Nothing here is unverified any more.** The admin archive button was
+   driven in a browser against the running stack: three plays across two pages,
+   then "Nothing new" on the second press.
 4. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
    video is re-fetched against the metered quota on every playlist import
    containing it. Still a real bug, still unrelated to everything above.
