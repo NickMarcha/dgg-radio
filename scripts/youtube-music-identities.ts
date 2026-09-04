@@ -37,6 +37,7 @@
 
 import 'dotenv/config';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -66,7 +67,7 @@ const CONCURRENCY = 1;
  * doubles the spacing, which walks the rate down towards whatever is actually
  * sustainable instead of tripping the same limit sixty times.
  */
-const STARTING_SPACING_MS = 1_000;
+const STARTING_SPACING_MS = 2_000;
 const MAX_SPACING_MS = 8_000;
 /** Consecutive refusals taken as "the window is shut" rather than a bad page. */
 const GIVE_UP_AFTER = 20;
@@ -75,10 +76,52 @@ const COOLDOWN_MS = 20 * 60 * 1_000;
 /** Cooldowns before it stops for good, so a broken run cannot spin forever. */
 const MAX_COOLDOWNS = 80;
 const CACHE = join(tmpdir(), 'dggradio-youtube-music-identities');
+const LOCK = join(tmpdir(), 'dggradio-youtube-music-identities.lock');
 
 function flag(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   return index === -1 ? undefined : process.argv[index + 1];
+}
+
+/**
+ * One of these at a time, ever.
+ *
+ * Two instances do not share a rate limiter, so running four of them by
+ * accident is four requests a second at a service that permits one — which is
+ * how this earned a `google.com/sorry` challenge on the whole address rather
+ * than a 429 it could wait out. The instance that starts second is the one that
+ * causes it and the one that cannot see it, because each only reads its own
+ * log. So the check belongs here, where it is not a matter of remembering.
+ */
+async function claimTheLock(): Promise<void> {
+  try {
+    const held = Number(await readFile(LOCK, 'utf8'));
+    // Signal 0 asks whether the process exists without sending anything.
+    process.kill(held, 0);
+    console.error(
+      `Already running as process ${held}. Stop that one first, or delete
+${LOCK} if it is gone.`,
+    );
+    process.exit(1);
+  } catch (error) {
+    // ESRCH means the recorded process is gone and the lock is stale. Anything
+    // else means there was no lock to read.
+    if (error instanceof Error && 'code' in error && error.code === 'EPERM') {
+      console.error(`Already running as another user's process. Stop it first.`);
+      process.exit(1);
+    }
+  }
+  await writeFile(LOCK, String(process.pid), 'utf8');
+  const release = () => {
+    try {
+      unlinkSync(LOCK);
+    } catch {
+      // Losing the lock file on the way out is not worth a failure.
+    }
+  };
+  process.on('exit', release);
+  process.on('SIGINT', () => process.exit(130));
+  process.on('SIGTERM', () => process.exit(143));
 }
 
 /** Null means asked and told no; undefined means not asked yet. */
@@ -179,6 +222,7 @@ async function main(): Promise<void> {
   const limit = Number(flag('limit') ?? 200_000);
 
   console.log(`Database: ${describeDatabase(url)}`);
+  await claimTheLock();
   await mkdir(CACHE, { recursive: true });
   const db = drizzle({ connection: url, schema });
 
