@@ -46,19 +46,34 @@ import { describeDatabase } from '../src/server/genre';
 import { findMusicCard, WatchPageError } from '../src/server/youtube-music';
 
 /**
- * YouTube rate limits this, and finding out costs the whole run: eight at a
- * time answered about 600 of 1,000 pages with 429 and then refused single
- * sequential requests for a while afterwards. One request at a time, a second
- * apart, is what the earlier sampling used without ever being refused.
+ * YouTube rate limits this by volume, not by rate, and that took two goes to
+ * learn. Eight at a time answered about 600 of 1,000 pages with 429. One a
+ * second — which an earlier hundred-page sample had suggested was safe — lasted
+ * about 400 pages before the same thing happened. So the window is a few
+ * hundred pages wide however politely they are spaced, and it reopens after
+ * roughly twenty minutes.
  *
- * So this is deliberately slow -- about seven hours for a whole archive -- and
- * built to be stopped. Every answer is cached as it arrives, so the cost of
- * stopping is nothing and the cost of a bad guess about the rate is a wait.
+ * A run over the whole archive is therefore a cycle rather than a stream, and
+ * it is built to survive one: every answer is cached as it arrives, a shut
+ * window is waited out rather than treated as an error, and the spacing widens
+ * each time so the rate walks down towards whatever is sustainable.
  */
 const CONCURRENCY = 1;
-const REQUEST_SPACING_MS = 1_000;
-/** Consecutive refusals before this gives up rather than burning the list. */
+/**
+ * A second apart is where this starts, not where it stays. YouTube allows a few
+ * hundred pages and then closes the window, so a run this long is a cycle:
+ * fetch until refused, wait the window out, come back slower. Each refusal
+ * doubles the spacing, which walks the rate down towards whatever is actually
+ * sustainable instead of tripping the same limit sixty times.
+ */
+const STARTING_SPACING_MS = 1_000;
+const MAX_SPACING_MS = 8_000;
+/** Consecutive refusals taken as "the window is shut" rather than a bad page. */
 const GIVE_UP_AFTER = 20;
+/** How long to sit out a shut window. Measured at about twenty minutes. */
+const COOLDOWN_MS = 20 * 60 * 1_000;
+/** Cooldowns before it stops for good, so a broken run cannot spin forever. */
+const MAX_COOLDOWNS = 80;
 const CACHE = join(tmpdir(), 'dggradio-youtube-music-identities');
 
 function flag(name: string): string | undefined {
@@ -70,11 +85,12 @@ function flag(name: string): string | undefined {
 type Answer = { artist: string; title: string } | null;
 
 let nextSlot = Promise.resolve();
+let spacingMs = STARTING_SPACING_MS;
 
 /** One request at a time, spaced, however many workers are asking. */
 function waitForSlot(): Promise<void> {
   const waited = nextSlot;
-  nextSlot = waited.then(() => new Promise((resolve) => setTimeout(resolve, REQUEST_SPACING_MS)));
+  nextSlot = waited.then(() => new Promise((resolve) => setTimeout(resolve, spacingMs)));
   return waited;
 }
 
@@ -177,6 +193,7 @@ async function main(): Promise<void> {
 
   let next = 0;
   let refusals = 0;
+  let cooldowns = 0;
   let stopped: string | null = null;
   async function worker(): Promise<void> {
     while (next < tracks.length && !stopped) {
@@ -196,7 +213,20 @@ async function main(): Promise<void> {
           failed += 1;
           refusals += 1;
           if (refusals >= GIVE_UP_AFTER) {
-            stopped = error instanceof Error ? error.message : String(error);
+            if (cooldowns >= MAX_COOLDOWNS) {
+              stopped = error instanceof Error ? error.message : String(error);
+              continue;
+            }
+            // Put the track back: it was refused, not answered.
+            next -= 1;
+            cooldowns += 1;
+            spacingMs = Math.min(spacingMs * 2, MAX_SPACING_MS);
+            process.stdout.write(
+              `\n  refused — waiting ${COOLDOWN_MS / 60_000} minutes, ` +
+                `then ${spacingMs / 1_000}s apart (cooldown ${cooldowns})\n`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, COOLDOWN_MS));
+            refusals = 0;
           }
           continue;
         }
@@ -214,7 +244,9 @@ async function main(): Promise<void> {
       }
       const done = asked + fromCache + failed;
       if (done % 250 === 0) {
-        const rate = asked / ((Date.now() - started) / 1000);
+        // Fetches per second of fetching, not of elapsed time: cached hits and
+        // cooldowns are not the rate, and averaging them in hides it.
+        const rate = asked / Math.max((Date.now() - started) / 1000 - cooldowns * (COOLDOWN_MS / 1000), 1);
         process.stdout.write(
           `\r  ${done.toLocaleString()} / ${tracks.length.toLocaleString()}, ` +
             `${found.length.toLocaleString()} named, ${rate.toFixed(1)} fetched/s   `,
