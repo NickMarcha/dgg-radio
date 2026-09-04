@@ -46,10 +46,17 @@ Against the whole archive:
 | | tracks | of 34,248 |
 | --- | --- | --- |
 | Discogs | 10,480 | 30.6% |
-| MusicBrainz | 8,258 | 24.1% |
-| **Either** | **14,522** | **42.4%** |
-| Both, so cross-checkable | 4,216 | 12.3% |
-| About the track rather than its artist | 13,175 | 38.5% |
+| MusicBrainz | 17,952 | 52.4% |
+| **Either** | **21,175** | **61.8%** |
+| Both, so cross-checkable | 7,257 | 21.2% |
+| About the track rather than its artist | 17,903 | 52.3% |
+
+MusicBrainz doubled on 2026-09-04, and not because the catalogue got better.
+The dumps match on an artist and a title read out of the upload title, and only
+17,652 of 34,058 uploads are named `Artist - Title` at all. The ceiling was the
+question, not the answer. `scripts/youtube-music-identities.ts` reads the Music
+card off each video's watch page — 20,093 of 25,220, 79.7% — and hands the dump
+importer those names instead. 10,764 matched, 9,694 carried a genre.
 
 Discogs comes from its CC0 monthly dump, joined exactly on the YouTube ids it
 embeds in masters. MusicBrainz comes from its dumps too, and the interesting
@@ -61,8 +68,8 @@ correction it forced.
 
 ### Deploying carries the data
 
-`data/legacy-plays.json.gz` (48,182 plays, 3 MB) and `data/genres.json` (19,322
-answers, 5 MB) are committed, and `src/server/seed.ts` applies them at startup
+`data/legacy-plays.json.gz` (48,182 plays, 3 MB) and `data/genres.json` (30,086
+answers, 8 MB) are committed, and `src/server/seed.ts` applies them at startup
 right after migrations. So a deployment gets two years of history and everything
 known about it without fetching a byte of anyone's data dump.
 
