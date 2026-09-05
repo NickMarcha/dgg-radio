@@ -285,19 +285,26 @@ export async function getGenreStats(
     // answer a different and much less useful question.
     db.execute<{ labelled_tracks: number; tracks: number }>(sql`
       with known as (
-        select distinct provider, provider_media_id from media
+        -- A union already removes duplicates; asking each side to be distinct
+        -- first only sorts the same rows twice.
+        select provider, provider_media_id from media
         union
-        select distinct provider, provider_media_id from legacy_plays
+        select provider, provider_media_id from legacy_plays
+      ),
+      -- Joined rather than asked once per track: a correlated exists here is
+      -- one index probe for every track the room knows.
+      labelled as (
+        select distinct provider, provider_media_id
+        from track_genres
+        where cardinality(genres) > 0
       )
       select
-        count(*) filter (where exists (
-          select 1 from track_genres
-          where track_genres.provider = known.provider
-            and track_genres.provider_media_id = known.provider_media_id
-            and cardinality(track_genres.genres) > 0
-        ))::int as labelled_tracks,
+        count(labelled.provider)::int as labelled_tracks,
         count(*)::int as tracks
       from known
+      left join labelled
+        on labelled.provider = known.provider
+       and labelled.provider_media_id = known.provider_media_id
     `).then((result) => result.rows),
   ]);
 
@@ -332,49 +339,61 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
     : sql``;
 
   return sql`
-      with plays as (
-        -- Each play carries its own id, or two plays of one track would look
-        -- like one and be counted once.
+      with play_counts as (
+        -- Genre is a property of the track, so the labelling below is done once
+        -- per track and then weighted by how often it played. Doing it per play
+        -- instead means joining every one of the archive's plays to its genres
+        -- and deduplicating the result back down, which is the same answer for
+        -- several times the work.
         select
-          queue_items.id::text as play_id,
-          media.provider,
-          media.provider_media_id,
-          1 as room,
-          0 as archive
-        from queue_items
-        join media on media.id = queue_items.media_id
-        where queue_items.status in ('played', 'skipped') ${room}
-        union all
-        select source_id, provider, provider_media_id, 0, 1 from legacy_plays ${archive}
+          provider,
+          provider_media_id,
+          sum(room)::int as room_plays,
+          sum(archive)::int as archive_plays
+        from (
+          select media.provider, media.provider_media_id, 1 as room, 0 as archive
+          from queue_items
+          join media on media.id = queue_items.media_id
+          where queue_items.status in ('played', 'skipped') ${room}
+          union all
+          select provider, provider_media_id, 0, 1 from legacy_plays ${archive}
+        ) as plays
+        group by provider, provider_media_id
       ),
       labelled as (
         select
-          plays.play_id,
-          plays.room,
-          plays.archive,
+          play_counts.provider,
+          play_counts.provider_media_id,
+          play_counts.room_plays,
+          play_counts.archive_plays,
           track_genres.source,
           lower(label.name) as key,
           label.name
-        from plays
+        from play_counts
         join track_genres
-          on track_genres.provider = plays.provider
-         and track_genres.provider_media_id = plays.provider_media_id
+          on track_genres.provider = play_counts.provider
+         and track_genres.provider_media_id = play_counts.provider_media_id
          and track_genres.level is distinct from 'artist'
         cross join lateral unnest(track_genres.genres || track_genres.styles) as label(name)
       ),
-      -- One row per play per genre, so a track both sources agree on is still
-      -- one play of that genre.
-      per_play as (
-        select distinct on (play_id, key) play_id, room, archive, key
+      -- One row per track per genre, so a track both sources agree on is still
+      -- counted once. Grouped rather than distinct on, because grouping can be
+      -- hashed and distinct on obliges Postgres to sort the whole set.
+      per_track as (
+        select provider, provider_media_id, key, room_plays, archive_plays
         from labelled
-        order by play_id, key
+        group by provider, provider_media_id, key, room_plays, archive_plays
       ),
       counted as (
-        select key, sum(room)::int as room_plays, sum(archive)::int as archive_plays, count(*) as plays
-        from per_play
+        select
+          key,
+          sum(room_plays)::int as room_plays,
+          sum(archive_plays)::int as archive_plays,
+          sum(room_plays + archive_plays) as plays
+        from per_track
         group by key
       ),
-      -- Which spelling to show: the most used, then a capitalised one over a
+      -- Which spelling to show: the most played, then a capitalised one over a
       -- lowercase one, so the answer is the same every time it is asked.
       naming as (
         select
@@ -382,7 +401,7 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
           name,
           row_number() over (
             partition by key
-            order by count(*) desc, (left(name, 1) = upper(left(name, 1))) desc, name
+            order by sum(room_plays + archive_plays) desc, (left(name, 1) = upper(left(name, 1))) desc, name
           ) as rank
         from labelled
         group by key, name
