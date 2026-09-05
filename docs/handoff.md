@@ -5,23 +5,28 @@ Session narrative belongs in git history; what belongs here is the state of the
 room, what is waiting on a person, and the things that are true but not visible
 in the code.
 
-Last updated 2026-09-05.
+Last updated 2026-09-06.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 384 Vitest pass across 40 files,
+`astro check` and `tsc --noEmit` are both clean. 414 Vitest pass across 42 files,
 run against the local Postgres:
 
 ```
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-The bigscreen watchers work is committed as `ce37d8c`, migrations `0019`
-through `0021`, and is **not pushed and not deployed**. Everything before it is
-on `main` and deployed, as far as `687c90b` on 2026-09-05. `npm run build`
-succeeds. Both halves of the build are worth running before a push: neither
-`astro build` nor `tsup` type-checks, so a build failure is a different failure
-from a failing `check`.
+Everything is on `main` and pushed, through `952619a` on 2026-09-06.
+`npm run build` succeeds. Both halves of the build are worth running before a
+push: neither `astro build` nor `tsup` type-checks, so a build failure is a
+different failure from a failing `check`.
+
+**A push deploys half of the room.** Netlify builds the frontend from `main` by
+itself; the API, its Postgres and the tunnel are a Docker stack on a self-hosted
+machine, and nothing about a push touches them. Until `npm run stack:up` is run
+there, the deployed site calls an API that does not have the routes it is
+calling — which reads exactly like a broken page and is not one. Migrations
+`0019` through `0024` apply on that container's startup.
 
 Run the two halves of `npm run check` separately, or at least do not truncate
 their output: it is `astro check && tsc --noEmit`, and piping the pair through
@@ -36,24 +41,35 @@ overlay.
 
 `docs/plans/bigscreen-watchers.md` is the plan and the record of every decision;
 `docs/research/dgg-embed-watchers-websockets.md` is the measured behaviour of
-both destiny.gg sockets. All five slices are built: the tracker and its admin
-section, the overlay, the emote somebody last used, the history graph, and a
-source that keeps its settings.
+both destiny.gg sockets. Eight slices: the tracker and its admin section, the
+overlay, the emote somebody last used, the history graph, a source that keeps
+its settings, the motion options, every embed rather than one, and one chart
+with all of them on it.
 
-That last one is why there are two ways to configure the overlay and both are
-meant. A query string configures a source that will then be left alone.
-`?profile=<the admin's own uuid>` reads `watcher_embed_settings` instead, so the
-look can be changed from `/admin#obs` without reaching the machine OBS runs on:
-the overlay polls that row once a second, both ends send `no-store`, and a save
-lands in a running browser source without a reload. `?profile=` wins where both
-are given.
+**Two ways to configure the overlay, both meant.** A query string configures a
+source that will then be left alone. `?profile=<the admin's own uuid>` reads
+`watcher_embed_settings` instead, so the look can be changed from `/admin#obs`
+without reaching the machine OBS runs on: the overlay polls that row once a
+second, both ends send `no-store`, and a save lands in a running browser source
+without a reload. `?profile=` wins where both are given. Under that link the
+admin page also prints the frozen twin — the same settings written into a query
+string, for a source that should never change again.
 
-`stream_watch_samples` stores the site count and chat roster count once a
-minute. Every row also stores the selected platform and channel. The composite
-key is the minute plus that target, so changing the target inside a minute keeps
-both readings. `/api/watchers/history` returns up to a week, and `/admin#obs`
-draws each target separately. Missing source counts and missing minutes break a
-line instead of being drawn as measured zeroes.
+The options are `show`, `window`, `max`, `layout`, `names`, `color`, `enter`,
+`motion`, `speed`, `size`, `roam` and `inset`. Seven layouts, and `bump` is the
+odd one: bumper cars, everybody bouncing off the frame and off each other. It is
+the only layout with a `requestAnimationFrame` loop behind it, because where
+somebody goes next depends on where everybody else is; `src/components/bumperMotion.ts`
+is the step, pure and tested without a browser.
+
+`stream_watch_samples` stores a row a minute for **every embed destiny.gg
+listed**, not only the one the room follows. The followed channel is the row
+that also carries a chat count, because the roster is read for one channel.
+`/api/watchers/history` groups a period into buckets — a minute up to six hours,
+then 5, 15, 30 and 120 — draws the eight busiest channels on one axis, and sums
+everything else into one line that says how many channels it covers. Missing
+source counts and missing minutes break a line instead of being drawn as
+measured zeroes.
 
 Try it without the room at all:
 
@@ -65,8 +81,10 @@ npx tsx scripts/dgg-watch-probe.ts kick destiny
 of the time and a dark channel correctly shows nothing at all.
 
 `stream_watch` is **switched on** in the local database for testing, pointed at
-`kick/destiny`. Both sockets, the overlay and the minute sampler were live on
-2026-09-05. The switch at the top of `/admin#obs` turns it off again.
+`kick/dariusirl`. Both sockets, the overlay, the minute sampler and the embed
+history were live on 2026-09-06. The switch at the top of `/admin#obs` turns it
+off again, and nothing connects to destiny.gg while it is off — which is also
+how a fresh deployment arrives.
 
 ### The archive is part of the room now
 
@@ -199,30 +217,37 @@ include development data unless each remembered to filter.
 
 ## Waiting on a person
 
-1. **The watchers feature has never been deployed.** It is committed, tested,
-   and green through `check`, the suite and `build`, and the diff has been read
-   as far as the integration points, the contracts, the schema, the tracker and
-   the admin page. The four destiny.gg socket clients and the overlay's CSS have
-   had one pair of eyes only. The visual side — how the overlay reads over a
-   real stream — has been judged through one browser window and one operator's
-   eye. It is not pushed: deploying it turns nothing on by itself, since
-   `stream_watch` arrives disabled, but production has never held either socket.
-2. **The slow-request alert has never seen real data.** `api_request_slow` has
+1. **The API host has to be rebuilt before the deployed site works.** The push
+   deploys the frontend and nothing else. `npm run stack:up` on the machine that
+   runs the API is what applies `0019`–`0024` and adds every route the new pages
+   call. Until then `/admin#obs` and `/embed/watchers` are pages calling routes
+   that answer 404. That exact failure already happened once locally, against a
+   container two hours older than the code.
+2. **Nobody has watched the bumper layout move.** Its physics is unit-tested and
+   its wiring is tested in a real DOM with hand-driven frames, but a hidden
+   browser tab runs no animation at all — no `requestAnimationFrame`, no CSS
+   timeline — and the tab this session can open is always hidden. An OBS source
+   is not hidden in that sense, so it should simply work; it has still never been
+   seen working.
+3. **The overlay has been judged by one pair of eyes.** How it reads over a real
+   stream, at a real size, is one operator's opinion so far. The four destiny.gg
+   socket clients likewise have had one reviewer.
+4. **The slow-request alert has never seen real data.** `api_request_slow` has
    not been emitted anywhere, so `qz51WBuF` reads zero and the alert reads
    "Not firing" because there is nothing to fire on, not because it was
    checked. Its threshold was chosen against local timings and production adds
    the tunnel hop; if it nags on ordinary traffic the number to move is
    `SLOW_REQUEST_MS` in `src/server/analytics.ts`. The alert itself needs no
    edit, because it fires on any count above zero.
-3. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
+5. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
    therefore still disposable data by the rule in `AGENTS.md`.
-4. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
+6. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
    video is re-fetched against the metered quota on every playlist import
    containing it. Still a real bug, still unrelated to everything above.
-5. **The seed files drift.** They are a snapshot: regenerate with
+7. **The seed files drift.** They are a snapshot: regenerate with
    `scripts/seed-export.ts` after topping up the archive or running a dump
    import, then commit what changed.
-6. **The README says the Chrome extension cannot open a localhost page.** It
+8. **The README says the Chrome extension cannot open a localhost page.** It
    can: `http://localhost:4321/embed/watchers` opened, screenshotted and
    scripted fine on 2026-09-05. `TEST_HOST` still earns its place for OBS on
    another machine, but that sentence is wrong and cost three rounds of blind
@@ -252,6 +277,39 @@ include development data unless each remembered to filter.
 - **`zoom` is how an emote grows, not `scale`.** `scale` is painted, so the
   layout box stays 28 pixels and a row of them overlaps itself. `emotes.md` has
   the detail.
+- **The overlay draws inside a `text` span because chat-gui does.** Parts of the
+  CDN stylesheet are written against the container a chat message puts its
+  emotes in: Chatting declares its whole 320px sprite sheet as its width and is
+  cut back to one 32px frame only by `.text > .emote.Chatting`. The span takes no
+  box of its own — `display: contents` — so it exists for the selectors and not
+  for the layout.
+- **A copied base rule has to weigh nothing.** chat-gui's `.emote` rule was
+  copied in as `.watcher .emote`, which ties with every `.emote.<prefix>` rule
+  the CDN declares, and our stylesheet is the one the browser reads second — so
+  it won all 24 ties over `background-position` and CuckCrab played 22 frames of
+  somebody else's cat followed by 22 of nothing. It is scoped with `:where()`
+  now, which is where chat-gui's own sits.
+- **Only what upstream repeats is looped.** destiny.gg declares 44 emotes with an
+  iteration count above one and 42 to run exactly once; looping all of them
+  turned OBJECTION's slam and GIGACHAD's arrival into a twitch that never
+  stopped. `scripts/dgg-emote-loops.ts` prints both lists from the CDN
+  stylesheet when the catalogue moves.
+- **A hidden browser tab runs no animation.** Not `requestAnimationFrame`, and
+  not the CSS timeline either — a background tab reports zero frames in 600ms
+  and `Animation.currentTime` frozen at 0. Every visual check of motion through
+  the Chrome extension is therefore a check of a still frame; drive the
+  animation by hand (`getAnimations()[0].currentTime = …`) or test it with
+  hand-driven frames instead.
+- **A chart's colour follows the channel, not its rank.** The period selector is
+  a filter, and picking hues by this period's ranking would repaint every
+  surviving line whenever it changed. The colour comes from the channel's name,
+  with collisions taking the next free hue — the same probe that seats watchers
+  on the overlay.
+- **A bound parameter is not the same expression twice.** The history query
+  buckets time with `floor(extract(epoch from …) / n)`, and binding `n` made the
+  copy in `group by` a different expression from the one in `select`: Postgres
+  answered by demanding the raw column be grouped, which reads as a broken query
+  rather than a badly built one. The width is written into the statement.
 - **`@distube/ytsr` reads videos and playlists and nothing else.** Its
   `parseItem` returns null for a `channelRenderer`, which then throws, so there
   is no channel search however the options are written. Blocking a channel goes
@@ -341,6 +399,20 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 - **Re-running a patch to see why it failed applies the parts that worked
   again.** That silently duplicated seventy lines of `contracts.ts`, which
   TypeScript accepted because identical interfaces merge.
+- **A missing option is not zero.** `roam` and `inset` were the first overlay
+  options whose valid range includes 0, and `Number(null)` is 0, so every source
+  that had never named them would have been read as holding perfectly still
+  against the frame edge. The test that caught it is the dull one asserting a
+  default for every option.
+- **A regex that reads "the selector" reads the first of them.** The emote loop
+  generator tested each rule's whole selector string, so every alternative after
+  a comma was invisible to it — which is how Chatting was classified as
+  unanimated while a rule two commas along said otherwise.
+- **The API container is not rebuilt by editing code.** `astro dev` reloads the
+  frontend on save and the Docker API does not, so a route added in this session
+  answers 404 until `docker compose … up -d --build api`. It cost a round of
+  puzzled staring at a settings panel that sat on "Loading…" for good, because
+  the panel swallowed the 404 rather than saying it.
 
 ## Suggested skills
 
@@ -355,15 +427,25 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   keeps that kind of finding.
 - **`claude-in-chrome`** before changing anything visual. It opens a localhost
   page despite what the README says, and three rounds of overlay fixes were
-  spent reasoning about CSS that a single screenshot disproved.
+  spent reasoning about CSS that a single screenshot disproved. It cannot show
+  motion — see the hidden-tab note above — but computed styles read from the
+  live page settle CSS arguments outright.
+- **`dataviz`** before drawing anything. Its palette validator is what decided
+  the eight chart hues against this room's own dark surface, rather than eight
+  colours somebody liked.
 - **`unslop`** on anything written for a person to read, this file included.
 
 ## Next
 
-Push the watchers work and watch it in production: whether both sockets stay up
-for longer than a development session, and whether the minute sampler and the
-graph agree with what the site says. Nothing switches on until an admin sets a
-channel at `/admin#obs`.
+Bring the API host up on this code, then watch the watchers in production:
+whether both sockets stay up for longer than a development session, whether the
+minute sampler keeps pace once it is writing a row per embed rather than one,
+and how the embed history reads after a week of real data rather than a night of
+it. Nothing connects to destiny.gg until an admin switches it on at
+`/admin#obs`.
+
+The overlay itself wants one honest look over a real stream at real size — the
+bumper layout especially, which no one has seen move.
 
 After that, the genre work below is still the larger prize.
 
