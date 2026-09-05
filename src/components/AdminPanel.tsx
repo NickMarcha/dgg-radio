@@ -43,8 +43,12 @@ import type {
   WatcherLayout,
 } from '../shared/contracts';
 import {
+  WATCHER_INSET_RANGE,
+  WATCHER_ROAM_RANGE,
+  WATCHER_SPEED_RANGE,
   watcherEntrances,
   watcherLayouts,
+  watcherMotions,
   watcherNames,
   watcherShows,
   watchPlatforms,
@@ -1298,6 +1302,7 @@ const WATCHER_LAYOUT_LABELS: Record<WatcherLayout, string> = {
   column: 'Side climb',
   sides: 'Twin sides',
   climb: 'Twin-side climb',
+  bump: 'Bumper cars',
 };
 
 const WATCHER_SHOW_LABELS: Record<string, string> = {
@@ -1312,12 +1317,102 @@ const WATCHER_NAME_LABELS: Record<string, string> = {
   off: 'Hidden',
 };
 
+const WATCHER_MOTION_LABELS: Record<string, string> = {
+  drift: 'Wander',
+  bob: 'Bob up and down',
+  orbit: 'Small circles',
+  sway: 'Sway side to side',
+};
+
 const WATCHER_ENTRANCE_LABELS: Record<string, string> = {
   fade: 'Fade',
   spin: 'Spin',
   slide: 'Slide',
   random: 'Mixed',
 };
+
+/**
+ * Every option the watchers overlay reads from a URL. One list, because the
+ * fixed browser source is built from it and so is the frozen copy of a saved
+ * source's settings — two lists would drift the moment an option was added.
+ */
+const WATCHER_SOURCE_OPTIONS: SourceOption[] = [
+  {
+    kind: 'choice',
+    name: 'show',
+    label: 'Draw',
+    values: watcherShows,
+    fallback: 'speakers',
+    labels: WATCHER_SHOW_LABELS,
+  },
+  {
+    kind: 'number',
+    name: 'window',
+    label: 'Minutes',
+    fallback: 10,
+    hint: 'How recently somebody must have spoken, for “speakers”.',
+  },
+  {
+    kind: 'number',
+    name: 'max',
+    label: 'At most',
+    fallback: 12,
+    hint: 'Twelve is a useful starting point for a 1920 × 1080 source.',
+  },
+  {
+    kind: 'choice',
+    name: 'layout',
+    label: 'Arrange',
+    values: watcherLayouts,
+    fallback: 'float',
+    labels: WATCHER_LAYOUT_LABELS,
+  },
+  {
+    kind: 'choice',
+    name: 'names',
+    label: 'Names',
+    values: watcherNames,
+    fallback: 'under',
+    labels: WATCHER_NAME_LABELS,
+  },
+  {
+    kind: 'choice',
+    name: 'enter',
+    label: 'Arrive',
+    values: watcherEntrances,
+    fallback: 'fade',
+    labels: WATCHER_ENTRANCE_LABELS,
+  },
+  {
+    kind: 'choice',
+    name: 'motion',
+    label: 'Move',
+    values: watcherMotions,
+    fallback: 'drift',
+    labels: WATCHER_MOTION_LABELS,
+  },
+  {
+    kind: 'number',
+    name: 'speed',
+    label: 'Speed',
+    fallback: 100,
+    hint: 'Percent of the standard pace. 200 is twice as quick, 25 a crawl.',
+  },
+  {
+    kind: 'number',
+    name: 'roam',
+    label: 'Roam',
+    fallback: 100,
+    hint: 'Percent of the standard distance travelled. 0 holds everybody still.',
+  },
+  {
+    kind: 'number',
+    name: 'inset',
+    label: 'Edge inset',
+    fallback: 4,
+    hint: 'Percent of the frame kept clear at every edge, so nothing is cropped.',
+  },
+];
 
 function PersonalWatcherSource({
   origin,
@@ -1350,6 +1445,22 @@ function PersonalWatcherSource({
 
   const sourcePath = `/embed/watchers?profile=${saved.ownerId}`;
   const url = `${origin}${sourcePath}`;
+  // The same settings written out rather than looked up: a source that will not
+  // change again until somebody edits the URL, and the thing to paste into an
+  // OBS on another machine that must keep working if this room is unreachable.
+  const fixedPath = buildSourcePath('/embed/watchers', WATCHER_SOURCE_OPTIONS, {
+    show: saved.show,
+    window: String(saved.window),
+    max: String(saved.max),
+    layout: saved.layout,
+    names: saved.names,
+    enter: saved.enter,
+    motion: saved.motion,
+    speed: String(saved.speed),
+    roam: String(saved.roam),
+    inset: String(saved.inset),
+  });
+  const fixedUrl = `${origin}${fixedPath}`;
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -1363,6 +1474,10 @@ function PersonalWatcherSource({
         layout: current.layout,
         names: current.names,
         enter: current.enter,
+        motion: current.motion,
+        speed: current.speed,
+        roam: current.roam,
+        inset: current.inset,
       });
       setSaved(next);
       setDraft(next);
@@ -1455,6 +1570,51 @@ function PersonalWatcherSource({
             ))}
           </select>
         </label>
+        <label>
+          Move
+          <select
+            value={draft.motion}
+            disabled={draft.layout === 'bump'}
+            onChange={(event) =>
+              setDraft({ ...draft, motion: event.currentTarget.value as typeof draft.motion })
+            }
+          >
+            {watcherMotions.map((value) => (
+              <option key={value} value={value}>{WATCHER_MOTION_LABELS[value]}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Speed %
+          <input
+            type="number"
+            min={WATCHER_SPEED_RANGE.min}
+            max={WATCHER_SPEED_RANGE.max}
+            value={draft.speed}
+            onChange={(event) => setDraft({ ...draft, speed: Number(event.currentTarget.value) })}
+          />
+        </label>
+        <label>
+          Roam %
+          <input
+            type="number"
+            min={WATCHER_ROAM_RANGE.min}
+            max={WATCHER_ROAM_RANGE.max}
+            disabled={draft.layout === 'bump'}
+            value={draft.roam}
+            onChange={(event) => setDraft({ ...draft, roam: Number(event.currentTarget.value) })}
+          />
+        </label>
+        <label>
+          Edge inset %
+          <input
+            type="number"
+            min={WATCHER_INSET_RANGE.min}
+            max={WATCHER_INSET_RANGE.max}
+            value={draft.inset}
+            onChange={(event) => setDraft({ ...draft, inset: Number(event.currentTarget.value) })}
+          />
+        </label>
         <button type="submit" disabled={busy}>
           <Check size={16} /> Save watcher source
         </button>
@@ -1463,6 +1623,15 @@ function PersonalWatcherSource({
       <div className="admin-embed-url">
         <code>{url}</code>
         <CopyButton value={url} label="personal watcher source" />
+      </div>
+
+      <p className="admin-help">
+        Or the same settings frozen into the URL. This one never changes on its own, so a
+        saved change here does not reach it.
+      </p>
+      <div className="admin-embed-url">
+        <code>{fixedUrl}</code>
+        <CopyButton value={fixedUrl} label="fixed watcher source" />
       </div>
     </div>
   );
@@ -1517,54 +1686,7 @@ function ObsSources({ busy, act, call }: SectionProps) {
           name="Who is watching"
           size="1920 × 1080"
           note="Needs the stream watch above to be on. Transparent, so lay it over the stream. Fixed seats do not shift when somebody leaves."
-          options={[
-            {
-              kind: 'choice',
-              name: 'show',
-              label: 'Draw',
-              values: watcherShows,
-              fallback: 'speakers',
-              labels: WATCHER_SHOW_LABELS,
-            },
-            {
-              kind: 'number',
-              name: 'window',
-              label: 'Minutes',
-              fallback: 10,
-              hint: 'How recently somebody must have spoken, for “speakers”.',
-            },
-            {
-              kind: 'number',
-              name: 'max',
-              label: 'At most',
-              fallback: 12,
-              hint: 'Twelve is a useful starting point for a 1920 × 1080 source.',
-            },
-            {
-              kind: 'choice',
-              name: 'layout',
-              label: 'Arrange',
-              values: watcherLayouts,
-              fallback: 'float',
-              labels: WATCHER_LAYOUT_LABELS,
-            },
-            {
-              kind: 'choice',
-              name: 'names',
-              label: 'Names',
-              values: watcherNames,
-              fallback: 'under',
-              labels: WATCHER_NAME_LABELS,
-            },
-            {
-              kind: 'choice',
-              name: 'enter',
-              label: 'Arrive',
-              values: watcherEntrances,
-              fallback: 'fade',
-              labels: WATCHER_ENTRANCE_LABELS,
-            },
-          ]}
+          options={WATCHER_SOURCE_OPTIONS}
         />
       </ul>
 

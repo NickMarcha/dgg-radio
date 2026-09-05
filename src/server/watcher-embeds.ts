@@ -16,6 +16,10 @@ function toSettings(
     layout: row.layout,
     names: row.names,
     enter: row.entrance,
+    motion: row.motion,
+    speed: row.speedPercent,
+    roam: row.roamPercent,
+    inset: row.insetPercent,
     updatedAt: row.updatedAt.toISOString(),
   };
 }
@@ -61,6 +65,10 @@ export async function updateWatcherEmbedSettings(
       ...(update.layout === undefined ? {} : { layout: update.layout }),
       ...(update.names === undefined ? {} : { names: update.names }),
       ...(update.enter === undefined ? {} : { entrance: update.enter }),
+      ...(update.motion === undefined ? {} : { motion: update.motion }),
+      ...(update.speed === undefined ? {} : { speedPercent: update.speed }),
+      ...(update.roam === undefined ? {} : { roamPercent: update.roam }),
+      ...(update.inset === undefined ? {} : { insetPercent: update.inset }),
       updatedAt: new Date(),
     })
     .where(eq(watcherEmbedSettings.ownerUserId, ownerUserId));

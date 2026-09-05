@@ -101,6 +101,10 @@ const watcherEmbedSettings = {
   layout: 'float' as const,
   names: 'under' as const,
   enter: 'fade' as const,
+  motion: 'drift' as const,
+  speed: 100,
+  roam: 100,
+  inset: 4,
   updatedAt: '2026-09-05T21:00:00.000Z',
 };
 

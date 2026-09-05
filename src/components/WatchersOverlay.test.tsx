@@ -42,6 +42,10 @@ function options(overrides: Partial<WatcherEmbedOptions> = {}): WatcherEmbedOpti
     layout: 'float',
     names: 'under',
     enter: 'fade',
+    motion: 'drift',
+    speed: 100,
+    roam: 100,
+    inset: 4,
     ...overrides,
   };
 }
@@ -58,9 +62,23 @@ describe('readWatchersOptions', () => {
 
   it('reads what the browser source was given', () => {
     expect(
-      readWatchersOptions('?show=all&window=30&max=8&layout=climb&names=off&enter=spin'),
+      readWatchersOptions(
+        '?show=all&window=30&max=8&layout=climb&names=off&enter=spin' +
+          '&motion=orbit&speed=180&roam=0&inset=12',
+      ),
     ).toEqual(
-      options({ show: 'all', window: 30, max: 8, layout: 'climb', names: 'off', enter: 'spin' }),
+      options({
+        show: 'all',
+        window: 30,
+        max: 8,
+        layout: 'climb',
+        names: 'off',
+        enter: 'spin',
+        motion: 'orbit',
+        speed: 180,
+        roam: 0,
+        inset: 12,
+      }),
     );
   });
 
@@ -68,7 +86,8 @@ describe('readWatchersOptions', () => {
     // An overlay showing the wrong arrangement can be fixed on air. One that
     // renders nothing cannot.
     const parsed = readWatchersOptions(
-      '?show=everyone&max=0&window=abc&layout=grid&names=inside&enter=explode',
+      '?show=everyone&max=0&window=abc&layout=grid&names=inside&enter=explode' +
+        '&motion=wiggle&speed=9000&roam=-5&inset=90',
     );
     expect(parsed).toEqual(options());
   });
@@ -93,7 +112,7 @@ describe('fixed layout seats', () => {
   it('gives each occupied seat a different position around the safe frame', () => {
     const positions = new Set(
       Array.from({ length: 12 }, (_, slot) => {
-        const style = safeDriftStyle(`watcher-${slot}`, slot, 12);
+        const style = safeDriftStyle(`watcher-${slot}`, slot, 12, options());
         return `${style['--left']}/${style['--top']}`;
       }),
     );
@@ -178,19 +197,54 @@ describe('entranceFor', () => {
 
 describe('driftStyle', () => {
   it('puts somebody in the same place every time, so nobody jumps', () => {
-    expect(driftStyle('Vlad_the_Impaler')).toEqual(driftStyle('Vlad_the_Impaler'));
+    expect(driftStyle('Vlad_the_Impaler', options())).toEqual(
+      driftStyle('Vlad_the_Impaler', options()),
+    );
   });
 
   it('does not stack everybody in one spot', () => {
-    expect(driftStyle('anpan')).not.toEqual(driftStyle('Strumpling'));
+    expect(driftStyle('anpan', options())).not.toEqual(driftStyle('Strumpling', options()));
   });
 
   it('keeps everybody inside the frame', () => {
     for (const nick of ['a', 'anpan', 'Vlad_the_Impaler', 'x35', 'INCELDEMONGODPRINCE']) {
-      const style = driftStyle(nick);
+      const style = driftStyle(nick, options());
       expect(Number.parseFloat(style['--left'])).toBeLessThan(90);
       expect(Number.parseFloat(style['--top'])).toBeLessThan(82);
     }
+  });
+});
+
+describe('speed and edge inset', () => {
+  const milliseconds = (style: Record<string, string>) =>
+    Number.parseFloat(style['--duration']);
+
+  it('takes half as long at twice the speed', () => {
+    const normal = milliseconds(driftStyle('anpan', options()));
+    const quick = milliseconds(driftStyle('anpan', options({ speed: 200 })));
+    expect(quick).toBeCloseTo(normal / 2, 0);
+  });
+
+  it('scales every layout the same way', () => {
+    const normal = milliseconds(safeDriftStyle('anpan', 0, 12, options()));
+    const slow = milliseconds(safeDriftStyle('anpan', 0, 12, options({ speed: 50 })));
+    expect(slow).toBeCloseTo(normal * 2, 0);
+  });
+
+  it('keeps a floating watcher out of the margin it was told to leave', () => {
+    for (const nick of ['a', 'anpan', 'Vlad_the_Impaler', 'x35', 'INCELDEMONGODPRINCE']) {
+      const style = driftStyle(nick, options({ inset: 20 }));
+      expect(Number.parseFloat(style['--left'])).toBeGreaterThanOrEqual(20);
+      expect(Number.parseFloat(style['--top'])).toBeGreaterThanOrEqual(20);
+      expect(Number.parseFloat(style['--left'])).toBeLessThanOrEqual(80);
+      expect(Number.parseFloat(style['--top'])).toBeLessThanOrEqual(80);
+    }
+  });
+
+  it('moves the seats of the safe frame in with the inset', () => {
+    const near = safeDriftStyle('anpan', 2, 12, options({ inset: 2 }));
+    const far = safeDriftStyle('anpan', 2, 12, options({ inset: 15 }));
+    expect(Number.parseFloat(near['--left'])).toBeLessThan(Number.parseFloat(far['--left']));
   });
 });
 
@@ -286,6 +340,9 @@ describe('WatchersOverlay', () => {
   });
 
   it('renders an empty frame while nothing is being watched', () => {
-    expect(render()).toBe('<div class="watchers watchers-float watchers-names-under"></div>');
+    expect(render()).toBe(
+      '<div class="watchers watchers-float watchers-names-under watchers-motion-drift"' +
+        ' style="--roam:1"></div>',
+    );
   });
 });

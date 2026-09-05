@@ -836,8 +836,23 @@ export type WatchPlatform = (typeof watchPlatforms)[number];
 export const watcherShows = ['speakers', 'all', 'members'] as const;
 export type WatcherShow = (typeof watcherShows)[number];
 
-export const watcherLayouts = ['float', 'safe', 'rail', 'column', 'sides', 'climb'] as const;
+export const watcherLayouts = [
+  'float',
+  'safe',
+  'rail',
+  'column',
+  'sides',
+  'climb',
+  'bump',
+] as const;
 export type WatcherLayout = (typeof watcherLayouts)[number];
+
+/**
+ * The path a watcher traces around wherever their layout put them. `bump` is
+ * the exception: it is a simulation rather than a path, so it ignores this.
+ */
+export const watcherMotions = ['drift', 'bob', 'orbit', 'sway'] as const;
+export type WatcherMotion = (typeof watcherMotions)[number];
 
 export const watcherNames = ['under', 'beside', 'off'] as const;
 export type WatcherNames = (typeof watcherNames)[number];
@@ -853,7 +868,18 @@ export interface WatcherEmbedOptions {
   layout: WatcherLayout;
   names: WatcherNames;
   enter: WatcherEntrance;
+  motion: WatcherMotion;
+  /** Percent of the standard pace. 200 is twice as fast, 25 a crawl. */
+  speed: number;
+  /** Percent of the standard distance travelled. 0 holds a watcher still. */
+  roam: number;
+  /** Percent of the frame kept clear at every edge, so nothing is cropped. */
+  inset: number;
 }
+
+export const WATCHER_SPEED_RANGE = { min: 10, max: 400 } as const;
+export const WATCHER_ROAM_RANGE = { min: 0, max: 300 } as const;
+export const WATCHER_INSET_RANGE = { min: 0, max: 25 } as const;
 
 export const DEFAULT_WATCHER_EMBED_OPTIONS: WatcherEmbedOptions = {
   show: 'speakers',
@@ -862,6 +888,10 @@ export const DEFAULT_WATCHER_EMBED_OPTIONS: WatcherEmbedOptions = {
   layout: 'float',
   names: 'under',
   enter: 'fade',
+  motion: 'drift',
+  speed: 100,
+  roam: 100,
+  inset: 4,
 };
 
 export const watcherEmbedSchema = z.object({
@@ -871,6 +901,10 @@ export const watcherEmbedSchema = z.object({
   layout: z.enum(watcherLayouts).optional(),
   names: z.enum(watcherNames).optional(),
   enter: z.enum(watcherEntrances).optional(),
+  motion: z.enum(watcherMotions).optional(),
+  speed: z.number().int().min(WATCHER_SPEED_RANGE.min).max(WATCHER_SPEED_RANGE.max).optional(),
+  roam: z.number().int().min(WATCHER_ROAM_RANGE.min).max(WATCHER_ROAM_RANGE.max).optional(),
+  inset: z.number().int().min(WATCHER_INSET_RANGE.min).max(WATCHER_INSET_RANGE.max).optional(),
 });
 
 /** One admin's stable OBS source settings. */

@@ -251,48 +251,121 @@
     0 0 8px rgb(0 0 0 / 0.9);
 }
 
-/* Floating: each watcher sits where their own name puts them and drifts from
+/*
+ * Motion: one set of paths shared by every layout that moves, scaled by the
+ * source's `roam` and by how much room the layout has to wander in. They
+ * animate margins rather than `translate` or `transform`, because a layout may
+ * already be using both to seat a watcher, and the emote underneath may be
+ * animating a transform of its own.
+ */
+.watcher {
+  --roam-scale: 1;
+  --amp-x: calc(var(--roam, 1) * var(--roam-scale) * 1.5rem);
+  --amp-y: calc(var(--roam, 1) * var(--roam-scale) * 1.25rem);
+}
+
+.watchers-float .watcher,
+.watchers-safe .watcher,
+.watchers-rail .watcher,
+.watchers-column .watcher,
+.watchers-climb .watcher {
+  animation-duration: var(--duration);
+  animation-delay: var(--delay);
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+.watchers-motion-drift .watcher {
+  animation-name: watcher-drift;
+}
+
+.watchers-motion-bob .watcher {
+  animation-name: watcher-bob;
+}
+
+.watchers-motion-orbit .watcher {
+  animation-name: watcher-orbit;
+}
+
+.watchers-motion-sway .watcher {
+  animation-name: watcher-sway;
+}
+
+/* A wander with no symmetry to it, so a screen full of them never falls in step. */
+@keyframes watcher-drift {
+  0%,
+  100% {
+    margin: 0;
+  }
+  25% {
+    margin-left: var(--amp-x);
+    margin-top: calc(var(--amp-y) * -0.8);
+  }
+  50% {
+    margin-left: calc(var(--amp-x) * -0.33);
+    margin-top: var(--amp-y);
+  }
+  75% {
+    margin-left: calc(var(--amp-x) * -1.17);
+    margin-top: calc(var(--amp-y) * -0.4);
+  }
+}
+
+@keyframes watcher-bob {
+  0%,
+  100% {
+    margin-top: calc(var(--amp-y) * -1);
+  }
+  50% {
+    margin-top: var(--amp-y);
+  }
+}
+
+@keyframes watcher-orbit {
+  0%,
+  100% {
+    margin-left: var(--amp-x);
+    margin-top: 0;
+  }
+  25% {
+    margin-left: 0;
+    margin-top: var(--amp-y);
+  }
+  50% {
+    margin-left: calc(var(--amp-x) * -1);
+    margin-top: 0;
+  }
+  75% {
+    margin-left: 0;
+    margin-top: calc(var(--amp-y) * -1);
+  }
+}
+
+@keyframes watcher-sway {
+  0%,
+  100% {
+    margin-left: calc(var(--amp-x) * -1);
+  }
+  50% {
+    margin-left: var(--amp-x);
+  }
+}
+
+/* Floating: each watcher sits where their own name puts them and moves from
    there, so nobody jumps when somebody else speaks. */
 .watchers-float .watcher {
   position: absolute;
   left: var(--left);
   top: var(--top);
-  animation: watcher-drift var(--duration) var(--delay) ease-in-out infinite;
-}
-
-@keyframes watcher-drift {
-  0%,
-  100% {
-    translate: 0 0;
-  }
-  25% {
-    translate: 1.5rem -1rem;
-  }
-  50% {
-    translate: -0.5rem 1.25rem;
-  }
-  75% {
-    translate: -1.75rem -0.5rem;
-  }
 }
 
 /* Fixed seats around the frame keep its middle clear. */
 .watchers-safe .watcher {
+  --roam-scale: 0.7;
   position: absolute;
   left: var(--left);
   top: var(--top);
   transform: translateX(var(--edge-shift));
-  animation: watcher-edge-drift var(--duration) var(--delay) ease-in-out infinite;
-}
-
-@keyframes watcher-edge-drift {
-  0%,
-  100% {
-    translate: 0 0;
-  }
-  50% {
-    translate: 1rem -0.6rem;
-  }
 }
 
 .watchers-rail {
@@ -300,25 +373,15 @@
 }
 
 .watchers-rail .watcher {
+  --roam-scale: 0.75;
   position: absolute;
   left: var(--slot-left);
-  bottom: 2rem;
+  bottom: var(--edge, 4%);
   translate: -50% 0;
-  animation: watcher-rail-wander var(--duration) var(--delay) ease-in-out infinite;
 }
 
 .watchers-rail .watcher-name {
   max-width: 10ch;
-}
-
-@keyframes watcher-rail-wander {
-  0%,
-  100% {
-    margin-left: -1.1rem;
-  }
-  50% {
-    margin-left: 1.1rem;
-  }
 }
 
 .watchers-column {
@@ -326,11 +389,11 @@
 }
 
 .watchers-column .watcher {
+  --roam-scale: 0.6;
   position: absolute;
-  right: 2rem;
+  right: var(--edge, 4%);
   top: var(--slot-top);
   translate: 0 -50%;
-  animation: watcher-column-climb var(--duration) var(--delay) ease-in-out infinite;
 }
 
 .watchers-column .watcher-body {
@@ -344,21 +407,13 @@
   max-width: 9ch;
 }
 
-@keyframes watcher-column-climb {
-  0%,
-  100% {
-    margin-top: -0.7rem;
-  }
-  50% {
-    margin-top: 0.7rem;
-  }
-}
-
 .watchers-sides,
 .watchers-climb {
   --watcher-scale: 1.35;
 }
 
+/* Two columns, one down each side. `sides` holds still and `climb` is the same
+   seats with the motion on, which is the only thing that separates them. */
 .watchers-sides .watcher,
 .watchers-climb .watcher {
   position: absolute;
@@ -368,15 +423,23 @@
 }
 
 .watchers-climb .watcher {
-  animation: watcher-column-climb var(--duration) var(--delay) ease-in-out infinite;
+  --roam-scale: 0.6;
+}
+
+/*
+ * Bumper cars. Every position here is written by the loop in the component, so
+ * the only thing CSS contributes is the corner it counts from — and making sure
+ * no shared motion is also trying to move them.
+ */
+.watchers-bump .watcher {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation-name: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .watchers-float .watcher,
-  .watchers-safe .watcher,
-  .watchers-rail .watcher,
-  .watchers-column .watcher,
-  .watchers-climb .watcher {
+  .watchers .watcher {
     animation: none;
   }
 }

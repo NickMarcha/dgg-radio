@@ -59,7 +59,9 @@ export const watcherLayout = pgEnum('watcher_layout', [
   'column',
   'sides',
   'climb',
+  'bump',
 ]);
+export const watcherMotion = pgEnum('watcher_motion', ['drift', 'bob', 'orbit', 'sway']);
 export const watcherNames = pgEnum('watcher_names', ['under', 'beside', 'off']);
 export const watcherEntrance = pgEnum('watcher_entrance', [
   'fade',
@@ -451,6 +453,11 @@ export const watcherEmbedSettings = pgTable(
     layout: watcherLayout('layout').notNull().default('float'),
     names: watcherNames('names').notNull().default('under'),
     entrance: watcherEntrance('entrance').notNull().default('fade'),
+    motion: watcherMotion('motion').notNull().default('drift'),
+    /** Percent of the standard pace, distance and edge margin. */
+    speedPercent: integer('speed_percent').notNull().default(100),
+    roamPercent: integer('roam_percent').notNull().default(100),
+    insetPercent: integer('inset_percent').notNull().default(4),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -462,6 +469,12 @@ export const watcherEmbedSettings = pgTable(
       'watcher_embed_settings_max_range',
       sql`${table.maxWatchers} between 1 and 100`,
     ),
+    check(
+      'watcher_embed_settings_speed_range',
+      sql`${table.speedPercent} between 10 and 400`,
+    ),
+    check('watcher_embed_settings_roam_range', sql`${table.roamPercent} between 0 and 300`),
+    check('watcher_embed_settings_inset_range', sql`${table.insetPercent} between 0 and 25`),
   ],
 );
 

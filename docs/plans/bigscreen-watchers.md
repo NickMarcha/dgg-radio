@@ -1,6 +1,6 @@
 # Bigscreen watchers plan
 
-Status: all five slices are built and committed.
+Status: all six slices are built and committed.
 
 ## Outcome
 
@@ -197,9 +197,13 @@ overlays. Options in the query string:
 | `show` | `speakers`, `all`, `members` | `speakers` |
 | `window` | minutes, for `show=speakers` | `10` |
 | `max` | how many to draw | `12` |
-| `layout` | `float`, `row` | `float` |
+| `layout` | `float`, `safe`, `rail`, `column`, `sides`, `climb`, `bump` | `float` |
 | `names` | `under`, `beside`, `off` | `under` |
 | `enter` | `fade`, `spin`, `slide`, `random` | `fade` |
+| `motion` | `drift`, `bob`, `orbit`, `sway` | `drift` |
+| `speed` | percent of the standard pace, 10 to 400 | `100` |
+| `roam` | percent of the standard distance, 0 to 300 | `100` |
+| `inset` | percent of the frame kept clear at every edge, 0 to 25 | `4` |
 
 `show=speakers` draws people who have spoken inside the window, which is also
 the set whose watching state is known to be current. `show=all` draws the
@@ -215,9 +219,23 @@ against the manifest prefixes — and gated on `minimumSubTier` against the
 `subscription.tier` in the same payload, so the overlay never renders an emote
 its author could not have used.
 
-`layout=float` gives each watcher a slow drift with its own phase; `layout=row`
-spaces them along the bottom. Both are CSS animation over an absolutely
-positioned list, so neither needs a frame loop.
+A layout decides where somebody sits; `motion`, `speed` and `roam` decide how
+they move once they are there, and `inset` how much of the frame is left alone.
+
+`float` scatters them and lets each wander from their own spot. `safe` seats
+them around the edges and keeps the middle clear. `rail` is a line along the
+bottom, `column` a line down the right, `sides` two lines down both — and
+`climb` is `sides` with the motion switched on, which is the only difference
+between them. Every one of these is CSS animation over an absolutely positioned
+list, so none of them needs a frame loop.
+
+The four motions are one set of keyframes shared by every layout, scaled by
+`roam` and by how much room the layout has to spare — a rail has less than a
+free float, so it wanders less for the same setting. They animate margins
+rather than `translate` or `transform`, because a layout may be using both to
+seat somebody, and the emote underneath may be animating a transform of its own.
+
+`bump` is the exception to all of it, and the one layout with a loop behind it.
 
 Three things only using it revealed:
 
@@ -286,7 +304,9 @@ target in that period.
 
 `Your watcher source` is the admin's own saved source: the same options as
 form controls, one URL that never changes, and a save that a running browser
-source picks up within about a second.
+source picks up within about a second. Under it is the same settings written
+out as a query string — the frozen twin of that link, for a source that should
+keep working exactly as it is however the saved row changes later.
 
 The overlay also joins the browser sources further down the same tab, as one row
 with its options as toggles above a URL that updates with them. The existing
@@ -464,3 +484,49 @@ overlay, and a per-source payload does not belong on it.
 The query-string form is unchanged and still the way to configure a source that
 will then be left alone. `?profile=` wins where both are given, because a saved
 source quietly obeying a stale query string is the harder of the two to explain.
+
+### Slice 6: motion worth choosing, and bumper cars — done
+
+Every layout moved at one pace, along one path, inside one margin, all three
+of them decided here rather than by whoever was running the overlay. Four
+options now say otherwise: `motion` picks the path, `speed` the pace, `roam`
+the distance, and `inset` how much of the frame is kept clear at every edge.
+
+They are worth having as numbers rather than as a few named presets because the
+frame they are being fitted to is not ours: a 1920 × 1080 source with a webcam
+in one corner wants a different inset from a full-bleed one, and neither is a
+preset anybody could have guessed. `roam=0` also falls out of it for free,
+which is the only way to ask for an overlay that holds perfectly still.
+
+The motions are one set of keyframes shared by every layout, so a layout added
+later gets all four without writing any. They animate margins because
+`translate` and `transform` are both spoken for — `translate` seats the slotted
+layouts, `transform` shifts the safe frame's edges, and the emote inside may be
+animating a transform of its own.
+
+`bump` is the bumper cars: everybody drifts at a steady pace, bounces off the
+frame, and bounces off each other. It is the one layout that cannot be a
+keyframe, because where somebody goes next depends on where everybody else is,
+so it is the one with a `requestAnimationFrame` loop behind it. The step is a
+pure function in `bumperMotion.ts` and tested without a browser; the loop writes
+positions straight onto the elements, because putting them through React would
+re-render the overlay sixty times a second to move six things.
+
+Bodies are boxes rather than circles, because that is the shape of an emote with
+a name under it, and two circles drawn around those would stop short of touching
+by a visible margin. Where they meet, they trade the velocity along whichever
+axis they overlap least and are pushed apart by that overlap, so the next frame
+does not read as a second collision.
+
+Two things the build settled.
+
+A missing option is not zero. `roam` and `inset` are the first options whose
+range includes it, and `Number(null)` is 0, so every source that had never
+named them would have been read as holding still against the frame edge. The
+test that caught it is the one that asserts a default for every option.
+
+A hidden browser tab runs no animation at all — no `requestAnimationFrame`, and
+no CSS timeline either. That is why the bumper layout is covered by a test
+driving its own frames rather than by a screenshot: a tab this session can open
+is a tab the browser has already stopped animating. An OBS source is never
+hidden in that sense.

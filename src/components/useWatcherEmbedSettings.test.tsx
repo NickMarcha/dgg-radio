@@ -19,6 +19,10 @@ function settings(
     layout,
     names: 'under',
     enter: 'fade',
+    motion: 'drift',
+    speed: 100,
+    roam: 100,
+    inset: 4,
     updatedAt,
   };
 }
