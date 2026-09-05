@@ -1,5 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ApiErrorBody, PlaylistLibrary } from '../shared/contracts';
+import type { ApiErrorBody, LegacySaveResult, PlaylistLibrary } from '../shared/contracts';
+
+/**
+ * What a save is pointed at. Nearly everything the room shows is a row in
+ * `media` and can be saved by its id. A play in the QueUp archive is a provider
+ * id and nothing else until somebody wants it, so it is saved by the archive's
+ * own id and the server resolves the track then.
+ */
+export type PlaylistSaveTarget =
+  | { kind: 'media'; mediaId: string; title: string }
+  | { kind: 'legacy'; sourceId: string; title: string };
+
+export interface SaveOutcome {
+  playlistId: string;
+  /**
+   * The media row the target resolved to, so a caller holding an unresolved
+   * archive row can stop treating it as one.
+   */
+  mediaId: string | null;
+}
 
 export interface PlaylistLibraryController extends PlaylistLibrary {
   signedIn: boolean | null;
@@ -7,8 +26,12 @@ export interface PlaylistLibraryController extends PlaylistLibrary {
   busy: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  create: (name: string, mediaId?: string) => Promise<string>;
-  setMembership: (playlistId: string, mediaId: string, saved: boolean) => Promise<void>;
+  create: (name: string, target?: PlaylistSaveTarget) => Promise<SaveOutcome>;
+  setMembership: (
+    playlistId: string,
+    target: PlaylistSaveTarget,
+    saved: boolean,
+  ) => Promise<SaveOutcome>;
 }
 
 export function usePlaylistLibrary(
@@ -71,17 +94,31 @@ export function usePlaylistLibrary(
     void refresh();
   }, [refresh]);
 
+  /** The one request that puts a track in a playlist, whichever kind it is. */
+  const store = useCallback(
+    async (playlistId: string, target: PlaylistSaveTarget): Promise<string> => {
+      if (target.kind === 'media') {
+        await request(`/api/playlists/${playlistId}/tracks/${target.mediaId}`, 'PUT');
+        return target.mediaId;
+      }
+      const resolved = await request(
+        `/api/playlists/${playlistId}/legacy/${encodeURIComponent(target.sourceId)}`,
+        'PUT',
+      ) as LegacySaveResult;
+      return resolved.mediaId;
+    },
+    [request],
+  );
+
   const create = useCallback(
-    async (name: string, mediaId?: string) => {
+    async (name: string, target?: PlaylistSaveTarget): Promise<SaveOutcome> => {
       setBusy(true);
       setError(null);
       try {
         const created = await request('/api/playlists', 'POST', { name }) as { id: string };
-        if (mediaId) {
-          await request(`/api/playlists/${created.id}/tracks/${mediaId}`, 'PUT');
-        }
+        const mediaId = target ? await store(created.id, target) : null;
         await refresh();
-        return created.id;
+        return { playlistId: created.id, mediaId };
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : 'The playlist could not be created.';
         setError(message);
@@ -90,19 +127,31 @@ export function usePlaylistLibrary(
         setBusy(false);
       }
     },
-    [refresh, request],
+    [refresh, request, store],
   );
 
   const setMembership = useCallback(
-    async (playlistId: string, mediaId: string, saved: boolean) => {
+    async (
+      playlistId: string,
+      target: PlaylistSaveTarget,
+      saved: boolean,
+    ): Promise<SaveOutcome> => {
       setBusy(true);
       setError(null);
       try {
-        await request(
-          `/api/playlists/${playlistId}/tracks/${mediaId}`,
-          saved ? 'PUT' : 'DELETE',
-        );
+        if (!saved) {
+          // Removal is by media id, and an archive row only has one once it has
+          // been saved. So nothing can arrive here asking to remove one.
+          if (target.kind === 'legacy') {
+            throw new Error('That track has to be saved before it can be taken out again.');
+          }
+          await request(`/api/playlists/${playlistId}/tracks/${target.mediaId}`, 'DELETE');
+          await refresh();
+          return { playlistId, mediaId: target.mediaId };
+        }
+        const mediaId = await store(playlistId, target);
         await refresh();
+        return { playlistId, mediaId };
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : 'The track could not be saved.';
         setError(message);
@@ -111,7 +160,7 @@ export function usePlaylistLibrary(
         setBusy(false);
       }
     },
-    [refresh, request],
+    [refresh, request, store],
   );
 
   return { ...library, signedIn, loading, busy, error, refresh, create, setMembership };

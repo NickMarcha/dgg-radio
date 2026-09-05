@@ -1,33 +1,41 @@
 import { Heart, Plus, X } from 'lucide-react';
 import { useId, useState, type SubmitEvent } from 'react';
-import type { RoomMedia } from '../shared/contracts';
-import type { PlaylistLibraryController } from './usePlaylistLibrary';
+import type { PlaylistLibraryController, PlaylistSaveTarget } from './usePlaylistLibrary';
 import './SaveToPlaylistButton.css';
 
 interface SaveToPlaylistButtonProps {
-  media: RoomMedia;
+  target: PlaylistSaveTarget;
   library: PlaylistLibraryController;
   compact?: boolean;
   onChanged?: () => void | Promise<void>;
+  /**
+   * Told which media row an archive track turned out to be, the first time
+   * anyone saves it. Until then the room has no row for it and cannot say which
+   * playlists it is in.
+   */
+  onResolved?: (mediaId: string) => void;
 }
 
 export default function SaveToPlaylistButton({
-  media,
+  target,
   library,
   compact = false,
   onChanged,
+  onResolved,
 }: SaveToPlaylistButtonProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const newPlaylistId = useId();
-  const memberships = library.memberships[media.id] ?? [];
+  const memberships =
+    target.kind === 'media' ? library.memberships[target.mediaId] ?? [] : [];
   const saved = memberships.length > 0;
 
   async function toggle(playlistId: string, checked: boolean) {
     setNotice(null);
     try {
-      await library.setMembership(playlistId, media.id, checked);
+      const outcome = await library.setMembership(playlistId, target, checked);
+      if (outcome.mediaId && target.kind === 'legacy') onResolved?.(outcome.mediaId);
       await onChanged?.();
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : 'The track could not be saved.');
@@ -40,7 +48,8 @@ export default function SaveToPlaylistButton({
     if (!trimmed) return;
     setNotice(null);
     try {
-      await library.create(trimmed, media.id);
+      const outcome = await library.create(trimmed, target);
+      if (outcome.mediaId && target.kind === 'legacy') onResolved?.(outcome.mediaId);
       await onChanged?.();
       setName('');
     } catch (cause) {
@@ -53,7 +62,7 @@ export default function SaveToPlaylistButton({
       <button
         type="button"
         className={`save-playlist-button${saved ? ' is-saved' : ''}${compact ? ' is-compact' : ''}`}
-        aria-label={`Save ${media.title} to a playlist`}
+        aria-label={`Save ${target.title} to a playlist`}
         title="Save to playlist"
         onClick={() => setOpen(true)}
       >
@@ -67,13 +76,13 @@ export default function SaveToPlaylistButton({
             className="playlist-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label={`Save ${media.title} to a playlist`}
+            aria-label={`Save ${target.title} to a playlist`}
             onClick={(event) => event.stopPropagation()}
           >
             <header>
               <div>
                 <h2>Save to playlist</h2>
-                <p>{media.title}</p>
+                <p>{target.title}</p>
               </div>
               <button type="button" aria-label="Close" onClick={() => setOpen(false)}>
                 <X size={17} />

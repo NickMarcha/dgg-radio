@@ -242,19 +242,27 @@ function bestYouTubeThumbnail(
   return thumbnails?.maxres?.url ?? thumbnails?.high?.url ?? thumbnails?.medium?.url ?? null;
 }
 
-async function lookupYouTube(
-  parsed: ParsedMediaUrl,
+/**
+ * YouTube bills one unit per `videos.list` call whatever it asks about, and it
+ * takes up to fifty ids at once. So the ids are the argument here rather than
+ * one URL: a fifty-track import costs the same one unit as a single request,
+ * and the callers that only have one video pass a list of one.
+ */
+export const YOUTUBE_BATCH_LIMIT = 50;
+
+async function fetchYouTubeVideos(
+  ids: string[],
   apiKey: string,
   fetcher: typeof fetch,
-): Promise<MediaInspection> {
-  const id = parsed.providerMediaId;
-  if (!id) {
-    throw new MediaLookupError('INVALID_YOUTUBE_URL', 'Link directly to a YouTube video.');
+): Promise<Map<string, YouTubeVideo>> {
+  if (ids.length === 0) return new Map();
+  if (ids.length > YOUTUBE_BATCH_LIMIT) {
+    throw new Error(`YouTube takes at most ${YOUTUBE_BATCH_LIMIT} ids per lookup.`);
   }
 
   const endpoint = new URL('https://www.googleapis.com/youtube/v3/videos');
   endpoint.searchParams.set('part', 'snippet,contentDetails,status');
-  endpoint.searchParams.set('id', id);
+  endpoint.searchParams.set('id', ids.join(','));
   endpoint.searchParams.set('key', apiKey);
 
   const response = await fetcher(endpoint, { signal: AbortSignal.timeout(8_000) });
@@ -270,8 +278,17 @@ async function lookupYouTube(
   if (!result.success) {
     throw new MediaLookupError('YOUTUBE_LOOKUP_FAILED', 'YouTube returned an unexpected response.', 502);
   }
+  // YouTube answers only for the ids it recognises, so a missing one is a
+  // video that is gone rather than an error about the request.
+  return new Map(result.data.items.map((video) => [video.id, video]));
+}
 
-  const video = result.data.items[0];
+/**
+ * Reads one video's answer. Separate from fetching so a batch and a single
+ * lookup describe a video the same way, including which of them the room
+ * refuses to play.
+ */
+export function describeYouTubeVideo(id: string, video: YouTubeVideo | undefined): MediaInspection {
   if (!video) {
     throw new MediaLookupError('YOUTUBE_NOT_FOUND', 'That YouTube video is unavailable.');
   }
@@ -298,6 +315,45 @@ async function lookupYouTube(
     playbackIssue: youTubePlaybackIssue(video),
     regionRestriction: video.contentDetails.regionRestriction ?? null,
   };
+}
+
+async function lookupYouTube(
+  parsed: ParsedMediaUrl,
+  apiKey: string,
+  fetcher: typeof fetch,
+): Promise<MediaInspection> {
+  const id = parsed.providerMediaId;
+  if (!id) {
+    throw new MediaLookupError('INVALID_YOUTUBE_URL', 'Link directly to a YouTube video.');
+  }
+  const videos = await fetchYouTubeVideos([id], apiKey, fetcher);
+  return describeYouTubeVideo(id, videos.get(id));
+}
+
+/**
+ * Inspects up to fifty videos for one unit of quota. Each id gets its own
+ * answer, an unreadable one included, so a caller importing a playlist can
+ * report the tracks it could not take alongside the ones it did.
+ */
+export async function inspectYouTubeVideos(
+  ids: string[],
+  credentials: MediaLookupCredentials,
+  fetcher: typeof fetch = fetch,
+): Promise<Map<string, MediaInspection | MediaLookupError>> {
+  const answers = new Map<string, MediaInspection | MediaLookupError>();
+  for (let start = 0; start < ids.length; start += YOUTUBE_BATCH_LIMIT) {
+    const chunk = ids.slice(start, start + YOUTUBE_BATCH_LIMIT);
+    const videos = await fetchYouTubeVideos(chunk, credentials.youtubeApiKey, fetcher);
+    for (const id of chunk) {
+      try {
+        answers.set(id, describeYouTubeVideo(id, videos.get(id)));
+      } catch (error) {
+        if (!(error instanceof MediaLookupError)) throw error;
+        answers.set(id, error);
+      }
+    }
+  }
+  return answers;
 }
 
 /**
@@ -375,6 +431,44 @@ async function resolveSoundCloudTrack(url: string): Promise<unknown> {
     await soundCloudClient.api.getClientId(true);
     return soundCloudClient.resolve.get(url, true);
   }
+}
+
+/**
+ * The permalink for a track known only by its numeric id, which is how QueUp
+ * recorded every SoundCloud track it played. Nothing in the room can act on a
+ * bare id — the parser, the cache and `media` all key off the permalink — so an
+ * import turns ids back into links here before going anywhere near them.
+ */
+export async function soundCloudPermalink(trackId: string): Promise<string> {
+  soundCloudClient ??= new Soundcloud();
+  const numeric = Number(trackId);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    throw new MediaLookupError('SOUNDCLOUD_TRACK_REQUIRED', 'That is not a SoundCloud track id.');
+  }
+
+  let resolved: unknown;
+  try {
+    resolved = await soundCloudClient.tracks.get(numeric);
+  } catch (error) {
+    if (statusOf(error) === 401) {
+      await soundCloudClient.api.getClientId(true);
+      resolved = await soundCloudClient.tracks.get(numeric);
+    } else if (statusOf(error) === 404) {
+      throw new MediaLookupError('SOUNDCLOUD_NOT_FOUND', 'That SoundCloud track is unavailable.');
+    } else {
+      throw new MediaLookupError(
+        'SOUNDCLOUD_LOOKUP_FAILED',
+        'SoundCloud could not be reached. Try again in a moment.',
+        502,
+      );
+    }
+  }
+
+  const result = soundCloudTrackSchema.safeParse(resolved);
+  if (!result.success) {
+    throw new MediaLookupError('SOUNDCLOUD_NOT_FOUND', 'That SoundCloud track is unavailable.');
+  }
+  return result.data.permalink_url;
 }
 
 async function lookupSoundCloud(parsed: ParsedMediaUrl): Promise<MediaInspection> {

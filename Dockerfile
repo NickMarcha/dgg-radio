@@ -17,5 +17,7 @@ COPY --from=build /app/dist-server ./dist-server
 # runtime image. drizzle-orm's migrator is a runtime dependency; drizzle-kit
 # (a devDependency) is only needed to *generate* migrations, not to apply them.
 COPY drizzle ./drizzle
+# The genre the room ships with, applied at startup. See src/server/genre.ts.
+COPY data ./data
 EXPOSE 8787
 CMD ["node", "dist-server/index.js"]

@@ -5,17 +5,19 @@ import {
   ChevronUp,
   ListMusic,
   Pencil,
+  Upload,
   Play,
   Plus,
   Search,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
+import { useCallback, useEffect, useState, type DragEvent, type SubmitEvent } from 'react';
 import type {
   ApiErrorBody,
   PlaylistDetail,
   PlaylistQueueResult,
   PlaylistSaveResult,
+  QueupImportResult,
   SearchResult,
 } from '../shared/contracts';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
@@ -42,10 +44,12 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [queueResult, setQueueResult] = useState<PlaylistQueueResult | null>(null);
   const [saveResult, setSaveResult] = useState<PlaylistSaveResult | null>(null);
+  const [importResult, setImportResult] = useState<QueupImportResult | null>(null);
   const [trackUrl, setTrackUrl] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const library = usePlaylistLibrary(
     apiUrl,
     detail?.tracks.map(({ media }) => media.id) ?? [],
@@ -115,10 +119,41 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
     const trimmed = name.trim();
     if (!trimmed) return;
     void act(async () => {
-      const id = await library.create(trimmed);
+      const { playlistId } = await library.create(trimmed);
       setName('');
-      setSelectedId(id);
+      setSelectedId(playlistId);
     }, `Created "${trimmed}".`);
+  }
+
+  /**
+   * Takes the file `queup-export-playlists.js` writes. The server reads it
+   * leniently and reports per playlist, so the whole answer is worth showing.
+   */
+  function importQueup(file: File) {
+    void act(async () => {
+      setImportResult(null);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        throw new Error('That file is not JSON. Use the file the QueUp snippet saved.');
+      }
+      const result = await call<QueupImportResult>('/api/playlists/import', 'POST', parsed);
+      setImportResult(result);
+      await library.refresh();
+    });
+  }
+
+  /**
+   * The export lands in the downloads folder, so dragging it onto the panel is
+   * the shorter route to it than the file picker. The panel is the drop target
+   * rather than the button, because a file dropped near a small button misses.
+   */
+  function dropQueup(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setDragging(false);
+    const [file] = event.dataTransfer.files;
+    if (file) importQueup(file);
   }
 
   function rename() {
@@ -268,6 +303,66 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
                 </button>
               </form>
             </header>
+
+            <section
+              className={`playlist-import${dragging ? ' is-dragging' : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={(event) => {
+                // Moving between the panel's own children fires a leave for the
+                // one being left, which is not a leave of the panel.
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  setDragging(false);
+                }
+              }}
+              onDrop={dropQueup}
+            >
+              <label className="playlist-import-file">
+                <Upload size={16} /> Import from QueUp
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  disabled={busy || library.busy}
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    // Cleared so choosing the same file twice still counts as a change.
+                    event.currentTarget.value = '';
+                    if (file) importQueup(file);
+                  }}
+                />
+              </label>
+              <p>
+                Bring your QueUp playlists over: sign in at queup.net, paste{' '}
+                <a href="/queup-export-playlists.js" target="_blank" rel="noreferrer">this snippet</a>{' '}
+                into the browser console, then drop the file it saves here, or choose it above.
+                A playlist you already have is added to rather than duplicated.
+              </p>
+              {dragging && <p className="playlist-import-drop">Drop the QueUp file to import it</p>}
+            </section>
+
+            {importResult && (
+              <section className="playlist-import-result">
+                {importResult.playlists.map((entry) => (
+                  <div key={entry.name}>
+                    <strong>{entry.name}</strong>
+                    <span>
+                      {entry.saved} added{entry.created ? '' : ' to the playlist you had'}
+                      {entry.duplicates > 0 && `, ${entry.duplicates} already saved`}
+                      {entry.skipped.length > 0 && `, ${entry.skipped.length} skipped`}
+                    </span>
+                    {entry.skipped.length > 0 && (
+                      <ul>
+                        {entry.skipped.map((skip, index) => (
+                          <li key={`${skip.title}-${index}`}>{skip.title}: {skip.reason}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )}
 
             {(error || library.error) && <p className="playlists-error">{error ?? library.error}</p>}
             {notice && <p className="playlists-notice">{notice}</p>}
@@ -425,7 +520,12 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
                               </div>
                               <div className="playlist-track-actions">
                                 <button type="button" disabled={busy} onClick={() => queueTrack(track.media.id)} title="Add to queue"><Play size={15} /></button>
-                                <SaveToPlaylistButton media={track.media} library={library} compact onChanged={refreshDetail} />
+                                <SaveToPlaylistButton
+                                  target={{ kind: 'media', mediaId: track.media.id, title: track.media.title }}
+                                  library={library}
+                                  compact
+                                  onChanged={refreshDetail}
+                                />
                                 <button type="button" disabled={busy} onClick={() => removeTrack(track.media.id)} title="Remove from playlist"><Trash2 size={15} /></button>
                               </div>
                             </li>

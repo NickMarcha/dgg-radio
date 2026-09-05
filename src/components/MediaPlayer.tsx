@@ -1,6 +1,7 @@
 import { AlertTriangle, Pause, Play, Volume2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MediaProvider, QueueItem } from '../shared/contracts';
+import type { MediaProvider, QueueItem, TrackGenres } from '../shared/contracts';
+import GenreTags from './TrackGenres';
 
 interface YouTubePlayer {
   playVideo(): void;
@@ -92,6 +93,8 @@ function formatTime(seconds: number): string {
 
 interface MediaPlayerProps {
   current: QueueItem | null;
+  /** What the track is, where anyone knows. The overlays deliberately omit it. */
+  genres?: TrackGenres | null;
   serverTime: string | null;
   embedded?: boolean;
   /** Leave YouTube's own caption preference alone. Off hides them outright. */
@@ -142,6 +145,7 @@ function writePlayerState(state: StoredPlayerState): void {
 
 export default function MediaPlayer({
   current,
+  genres,
   serverTime,
   embedded = false,
   captions = true,
@@ -437,6 +441,11 @@ export default function MediaPlayer({
               ? `${current.media.artist} · ${current.requestedBy ? `requested by ${current.requestedBy.username}` : 'requester hidden until the track ends'}`
               : 'Queue a YouTube or SoundCloud link'}
           </span>
+          {current && genres && (
+            <span className="track-genre-line">
+              <GenreTags genres={genres} />
+            </span>
+          )}
         </div>
         <div className="playback-controls">
           {current && (

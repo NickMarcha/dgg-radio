@@ -1,0 +1,322 @@
+/**
+ * Works out what the room's tracks are actually called, for the dump importers.
+ *
+ *   npx tsx scripts/youtube-music-identities.ts --out tracks.json
+ *   npx tsx scripts/youtube-music-identities.ts --out tracks.json --limit 200
+ *   npx tsx scripts/youtube-music-identities.ts --out tracks.json --source discogs
+ *
+ * The dump importers match on an artist and a title read out of the upload
+ * title, which only works when somebody typed `Artist - Title` into YouTube.
+ * Just over half of the archive did. The rest — `Sunshine`, `FULLY GASSED`,
+ * anything with the artist only in the channel name — cannot be matched at all,
+ * however good the catalogue is.
+ *
+ * YouTube already knows the answer for most of them. Its watch pages carry a
+ * Music card naming the recording and the artist a catalogue would recognise,
+ * on about 78% of the room's videos, and reading it costs one page load and no
+ * API quota. So this fetches those cards and writes a track list whose titles
+ * are `Artist - Title` exactly as the importers want to read them.
+ *
+ * Then:
+ *
+ *   npx tsx scripts/musicbrainz-dump-import.ts --core ... --derived ... \
+ *     --tracks tracks.json --out genres.json
+ *   npx tsx scripts/genre-transfer.ts apply --in genres.json
+ *
+ * which is the same route `genre-transfer.ts` documents, with better names
+ * going in. Nothing here asks MusicBrainz or Discogs anything: the whole point
+ * is that the dumps can answer if the question is phrased properly, and their
+ * APIs are one request a second and therefore a day of running for an archive
+ * this size.
+ *
+ * Answers are cached per video, so a run that is interrupted resumes where it
+ * stopped rather than fetching everything again.
+ *
+ * Only DATABASE_URL is needed, from the environment or `.env`.
+ */
+
+import 'dotenv/config';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { sql } from 'drizzle-orm';
+import * as schema from '../src/server/db/schema';
+import { describeDatabase } from '../src/server/genre';
+import { findMusicCard, WatchPageError } from '../src/server/youtube-music';
+
+/**
+ * YouTube rate limits this by volume, not by rate, and that took two goes to
+ * learn. Eight at a time answered about 600 of 1,000 pages with 429. One a
+ * second — which an earlier hundred-page sample had suggested was safe — lasted
+ * about 400 pages before the same thing happened. So the window is a few
+ * hundred pages wide however politely they are spaced, and it reopens after
+ * roughly twenty minutes.
+ *
+ * A run over the whole archive is therefore a cycle rather than a stream, and
+ * it is built to survive one: every answer is cached as it arrives, a shut
+ * window is waited out rather than treated as an error, and the spacing widens
+ * each time so the rate walks down towards whatever is sustainable.
+ */
+const CONCURRENCY = 1;
+/**
+ * A second apart is where this starts, not where it stays. YouTube allows a few
+ * hundred pages and then closes the window, so a run this long is a cycle:
+ * fetch until refused, wait the window out, come back slower. Each refusal
+ * doubles the spacing, which walks the rate down towards whatever is actually
+ * sustainable instead of tripping the same limit sixty times.
+ */
+/** On top of the two seconds `findMusicCard` already enforces. */
+const MAX_EXTRA_WAIT_MS = 8_000;
+/** Consecutive refusals taken as "the window is shut" rather than a bad page. */
+const GIVE_UP_AFTER = 20;
+/** How long to sit out a shut window. Measured at about twenty minutes. */
+const COOLDOWN_MS = 20 * 60 * 1_000;
+/** Cooldowns before it stops for good, so a broken run cannot spin forever. */
+const MAX_COOLDOWNS = 80;
+const CACHE = join(tmpdir(), 'dggradio-youtube-music-identities');
+const LOCK = join(tmpdir(), 'dggradio-youtube-music-identities.lock');
+
+function flag(name: string): string | undefined {
+  const index = process.argv.indexOf(`--${name}`);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+/**
+ * One of these at a time, ever.
+ *
+ * Two instances do not share a rate limiter, so running four of them by
+ * accident is four requests a second at a service that permits one — which is
+ * how this earned a `google.com/sorry` challenge on the whole address rather
+ * than a 429 it could wait out. The instance that starts second is the one that
+ * causes it and the one that cannot see it, because each only reads its own
+ * log. So the check belongs here, where it is not a matter of remembering.
+ */
+async function claimTheLock(): Promise<void> {
+  try {
+    const held = Number(await readFile(LOCK, 'utf8'));
+    // Signal 0 asks whether the process exists without sending anything.
+    process.kill(held, 0);
+    console.error(
+      `Already running as process ${held}. Stop that one first, or delete
+${LOCK} if it is gone.`,
+    );
+    process.exit(1);
+  } catch (error) {
+    // ESRCH means the recorded process is gone and the lock is stale. Anything
+    // else means there was no lock to read.
+    if (error instanceof Error && 'code' in error && error.code === 'EPERM') {
+      console.error(`Already running as another user's process. Stop it first.`);
+      process.exit(1);
+    }
+  }
+  await writeFile(LOCK, String(process.pid), 'utf8');
+  const release = () => {
+    try {
+      unlinkSync(LOCK);
+    } catch {
+      // Losing the lock file on the way out is not worth a failure.
+    }
+  };
+  process.on('exit', release);
+  process.on('SIGINT', () => process.exit(130));
+  process.on('SIGTERM', () => process.exit(143));
+}
+
+/** Null means asked and told no; undefined means not asked yet. */
+type Answer = { artist: string; title: string } | null;
+
+/**
+ * The spacing lives in `findMusicCard` now, so that the room is protected by it
+ * too rather than only this script. What is left here is the extra wait after a
+ * refusal, which is this script's business: it is the only caller that makes
+ * enough requests in a row to be refused.
+ */
+let extraWaitMs = 0;
+
+/**
+ * A refusal is worth waiting out rather than skipping past: the video is fine,
+ * and coming back to it later costs one more page load than getting it now.
+ *
+ * How long to wait is the page's to say. YouTube sends no rate-limit headers
+ * while it is answering, so `Retry-After` on the refusal is the only number it
+ * ever offers, and a guess shorter than it is what earns the next refusal.
+ */
+async function fetchCard(videoId: string): Promise<Answer> {
+  for (let attempt = 0; ; attempt += 1) {
+    if (extraWaitMs > 0) await new Promise((resolve) => setTimeout(resolve, extraWaitMs));
+    try {
+      const card = await findMusicCard(videoId);
+      return card ? { artist: card.artist, title: card.title } : null;
+    } catch (error) {
+      const refused = error instanceof WatchPageError && (error.status === 429 || error.status >= 500);
+      if (!refused || attempt === 3) throw error;
+      const asked = error.retryAfterMs;
+      await new Promise((resolve) => setTimeout(resolve, asked ?? 30_000 * 2 ** attempt));
+    }
+  }
+}
+
+async function cached(videoId: string): Promise<Answer | undefined> {
+  try {
+    return JSON.parse(await readFile(join(CACHE, `${videoId}.json`), 'utf8')) as Answer;
+  } catch {
+    return undefined;
+  }
+}
+
+async function remember(videoId: string, answer: Answer): Promise<void> {
+  await writeFile(join(CACHE, `${videoId}.json`), JSON.stringify(answer), 'utf8');
+}
+
+interface Track {
+  provider_media_id: string;
+  title: string;
+}
+
+/**
+ * The tracks with no answer from this source yet, most played first, so that
+ * stopping early leaves the music people actually hear labelled.
+ */
+async function unlabelled(
+  db: ReturnType<typeof drizzle>,
+  source: string,
+  limit: number,
+): Promise<Track[]> {
+  const rows = await db.execute<Track>(sql`
+    select known.provider_media_id, min(known.title) as title
+    from (
+      select provider, provider_media_id, title from media
+      union all
+      select provider, provider_media_id, title from legacy_plays
+    ) as known
+    where known.provider = 'youtube'
+      and not exists (
+        select 1 from track_genres
+        where track_genres.provider = 'youtube'
+          and track_genres.provider_media_id = known.provider_media_id
+          and track_genres.source = ${source}
+      )
+    group by known.provider_media_id
+    order by count(*) desc, known.provider_media_id
+    limit ${limit}
+  `);
+  return rows.rows;
+}
+
+async function main(): Promise<void> {
+  const outFile = flag('out');
+  if (!outFile) {
+    console.error('Usage: npx tsx scripts/youtube-music-identities.ts --out tracks.json');
+    process.exit(1);
+  }
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    console.error('DATABASE_URL is required. Set it in the environment or in .env.');
+    process.exit(1);
+  }
+  const source = flag('source') ?? 'musicbrainz';
+  const limit = Number(flag('limit') ?? 200_000);
+
+  console.log(`Database: ${describeDatabase(url)}`);
+  await claimTheLock();
+  await mkdir(CACHE, { recursive: true });
+  const db = drizzle({ connection: url, schema });
+
+  const tracks = await unlabelled(db, source, limit);
+  console.log(`${tracks.length.toLocaleString()} tracks with no ${source} answer`);
+
+  const found: { provider: 'youtube'; providerMediaId: string; title: string }[] = [];
+  let asked = 0;
+  let fromCache = 0;
+  let failed = 0;
+  const started = Date.now();
+
+  let next = 0;
+  let refusals = 0;
+  let cooldowns = 0;
+  let stopped: string | null = null;
+  async function worker(): Promise<void> {
+    while (next < tracks.length && !stopped) {
+      const track = tracks[next++]!;
+      const id = track.provider_media_id;
+      let answer = await cached(id);
+      if (answer === undefined) {
+        try {
+          answer = await fetchCard(id);
+          await remember(id, answer);
+          refusals = 0;
+        } catch (error) {
+          // A page that cannot be read is not the same as a video with no card,
+          // so it is left uncached and a later run will try it again. A run of
+          // them means YouTube has stopped answering, and carrying on would
+          // spend the whole list learning that once per track.
+          failed += 1;
+          refusals += 1;
+          if (refusals >= GIVE_UP_AFTER) {
+            if (cooldowns >= MAX_COOLDOWNS) {
+              stopped = error instanceof Error ? error.message : String(error);
+              continue;
+            }
+            // Put the track back: it was refused, not answered.
+            next -= 1;
+            cooldowns += 1;
+            extraWaitMs = Math.min(extraWaitMs === 0 ? 1_000 : extraWaitMs * 2, MAX_EXTRA_WAIT_MS);
+            process.stdout.write(
+              `\n  refused — waiting ${COOLDOWN_MS / 60_000} minutes, ` +
+                `then ${extraWaitMs / 1_000}s slower (cooldown ${cooldowns})\n`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, COOLDOWN_MS));
+            refusals = 0;
+          }
+          continue;
+        }
+        asked += 1;
+      } else {
+        fromCache += 1;
+      }
+      if (answer) {
+        found.push({
+          provider: 'youtube',
+          providerMediaId: id,
+          // Exactly the shape the importers split on.
+          title: `${answer.artist} - ${answer.title}`,
+        });
+      }
+      const done = asked + fromCache + failed;
+      if (done % 250 === 0) {
+        // Fetches per second of fetching, not of elapsed time: cached hits and
+        // cooldowns are not the rate, and averaging them in hides it.
+        const rate = asked / Math.max((Date.now() - started) / 1000 - cooldowns * (COOLDOWN_MS / 1000), 1);
+        process.stdout.write(
+          `\r  ${done.toLocaleString()} / ${tracks.length.toLocaleString()}, ` +
+            `${found.length.toLocaleString()} named, ${rate.toFixed(1)} fetched/s   `,
+        );
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  process.stdout.write('\n');
+
+  await writeFile(outFile, JSON.stringify({ tracks: found }), 'utf8');
+
+  if (stopped) {
+    console.error(
+      `Stopped after ${GIVE_UP_AFTER} refusals in a row: ${stopped}\n` +
+        'Everything read so far is cached and written. Wait a while, then run it again.',
+    );
+  }
+
+  const considered = asked + fromCache;
+  const rate = considered ? ((found.length / considered) * 100).toFixed(1) : '0.0';
+  console.log(
+    `${outFile}: ${found.length.toLocaleString()} named of ${considered.toLocaleString()} ` +
+      `read (${rate}%), ${fromCache.toLocaleString()} from cache, ` +
+      `${failed.toLocaleString()} unreadable`,
+  );
+  process.exit(0);
+}
+
+await main();

@@ -1,0 +1,38 @@
+/*
+ * Where the track actually lives. Two letters rather than the provider's name,
+ * because this sits on every row of every list beside a title that wants the
+ * room, and the colour already says which service it is.
+ */
+.provider-badge {
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/*
+ * Named twice over, because a page that colours its own links — `.history-track
+ * a` does — outranks a single class and the badge quietly goes the colour of
+ * every other link on the row. Two classes puts it back above them without
+ * reaching for `!important`.
+ */
+.provider-badge.provider-youtube {
+  color: var(--youtube);
+}
+
+.provider-badge.provider-soundcloud {
+  color: var(--soundcloud);
+}
+
+a.provider-badge:hover {
+  text-decoration: underline;
+}
+
+/* The channel or account, quieter than the title it sits under. */
+.artist-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.artist-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}

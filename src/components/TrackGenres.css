@@ -1,0 +1,80 @@
+/*
+ * What a track is, one tag per source. Quieter than the title and the artist,
+ * because it is a claim somebody else made about the track rather than
+ * something the room knows.
+ */
+.track-genres {
+  display: inline;
+}
+
+.track-genre::before {
+  content: ' · ';
+}
+
+/* A name reads as text until it is worth clicking, and then as a link. */
+.track-genre-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+}
+
+button.track-genre-name {
+  cursor: pointer;
+  border-bottom: 1px dotted var(--line-strong);
+}
+
+button.track-genre-name:hover {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  background: none;
+}
+
+/* Two sources said so independently, which is worth more than either alone. */
+.track-genres.is-corroborated .track-genre-name {
+  color: var(--accent-soft);
+}
+
+/* Where the claim came from. Both licences ask for the link. */
+.track-genre-source {
+  margin-left: 0.15rem;
+  color: var(--faint);
+  vertical-align: -1px;
+}
+
+.track-genre-source:hover {
+  color: var(--accent-soft);
+}
+
+/*
+ * A genre that describes the artist and not the track. It says so out loud
+ * rather than in a tooltip: read as a track genre it would be wrong.
+ */
+.track-genre-level {
+  margin-right: 0.3rem;
+  padding: 0 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--faint);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.track-genre.is-artist .track-genre-name {
+  color: var(--faint);
+}
+
+/* Discogs attached the video to releases that disagree. */
+.track-genre-doubt {
+  margin-left: 0.15rem;
+  color: var(--faint);
+  cursor: help;
+}
+
+.genre-credit {
+  margin: 14px 0 0;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

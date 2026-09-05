@@ -5,6 +5,7 @@ import { shutdownServerAnalytics } from '../src/server/analytics';
 import { getSessionUserByToken, readSessionTokenFromCookieHeader } from '../src/server/auth';
 import { getDatabase } from '../src/server/db/client';
 import { getEnv } from '../src/server/env';
+import { applySeeds } from '../src/server/seed';
 import { advanceIfExpired, currentRevision, ensureRoomExists } from '../src/server/room';
 import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -55,6 +56,26 @@ const app = createApp({
 // commit that adds a migration would start the API against a stale schema.
 // Failing here is deliberate: a container that cannot migrate should not serve.
 await migrate(getDatabase(), { migrationsFolder: 'drizzle' });
+
+// The QueUp years and what every track is, shipped in the repository so that a
+// deploy carries them. They only fill gaps, so anything this database has
+// learned since survives. Unlike a migration this is allowed to fail: a room
+// with less in it still works, and a seed file is no reason to refuse to serve.
+try {
+  const seeded = await applySeeds();
+  for (const [what, result] of Object.entries(seeded)) {
+    if (result) {
+      console.log(
+        result.skipped
+          ? `Seed ${what}: unchanged since it was applied, ${result.kept.toLocaleString()} rows left alone`
+          : `Seeded ${what}: added ${result.added.toLocaleString()}, ` +
+            `left ${result.kept.toLocaleString()} already stored`,
+      );
+    }
+  }
+} catch (error) {
+  console.error('Could not apply the seeds', error);
+}
 
 await ensureRoomExists();
 

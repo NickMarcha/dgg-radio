@@ -121,22 +121,35 @@
   min-width: 0;
 }
 
-.track-copy strong,
-.track-copy span {
+/* Direct children only: the genre tags nest inside the second line. */
+.track-copy > strong,
+.track-copy > span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.track-copy strong {
+.track-copy > strong {
   font-size: 21px;
 }
 
-.track-copy span {
+.track-copy > span {
   margin-top: 2px;
   color: var(--muted);
   font-size: 16px;
+}
+
+/*
+ * Genre gets its own line here rather than competing with the requester for
+ * what is left of one: the second line already truncates on a narrow player.
+ */
+.track-genre-line {
+  font-size: 13px;
+}
+
+.track-genre-line .track-genre:first-child::before {
+  content: none;
 }
 
 .playback-controls {
@@ -878,11 +891,11 @@
 }
 
 .search-copy .search-provider-youtube {
-  color: #ff4057;
+  color: var(--youtube);
 }
 
 .search-copy .search-provider-soundcloud {
-  color: #ff6a21;
+  color: var(--soundcloud);
 }
 
 .import-report {

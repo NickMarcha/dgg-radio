@@ -347,6 +347,156 @@
   padding: 0.75rem 0;
 }
 
+/*
+ * Adding to a blocklist by link or by search, without waiting for somebody to
+ * play the thing first.
+ */
+.admin-block {
+  margin: 0.6rem 0 0.4rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.admin-block form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-block input {
+  flex: 1 1 18rem;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+}
+
+.admin-block form button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  white-space: nowrap;
+}
+
+.admin-block-results {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+}
+
+.admin-block-results > li {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.admin-block-results img,
+.admin-block-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 30px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface);
+  color: var(--faint);
+}
+
+.admin-block-results a {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-block-results a:hover {
+  color: var(--accent-soft);
+}
+
+.admin-block-results span {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Copies of the room's data. Links rather than buttons, because the browser is
+ * doing the saving and a navigation carries the session cookie on its own.
+ */
+.admin-export-note {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.admin-export-group + .admin-export-group {
+  margin-top: 1.2rem;
+}
+
+.admin-export-group h3 {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-exports {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-exports > li {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.9rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-exports a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent-soft);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.admin-exports a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.admin-exports span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 620px) {
+  .admin-exports > li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.2rem;
+  }
+}
+
 .admin-embed-links {
   display: grid;
   gap: 0.8rem;

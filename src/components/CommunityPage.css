@@ -109,6 +109,324 @@
   margin-top: 0;
 }
 
+/*
+ * Which slice of time the stats are about: years, and then the months of
+ * whichever year is open. Only periods with plays in them are offered, so this
+ * never grows a row of months nothing happened in.
+ */
+.stats-period {
+  margin-bottom: 14px;
+}
+
+.stats-period-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.stats-period-months {
+  margin-top: 6px;
+}
+
+.stats-period button {
+  padding: 0.3rem 0.6rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.stats-period button.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.stats-period-months button {
+  font-size: 11px;
+  padding: 0.25rem 0.5rem;
+}
+
+/* The archive's totals, beside the room's own and visibly not them. */
+.stat-strip-legacy {
+  margin-top: -8px;
+  opacity: 0.86;
+}
+
+/* One search across both histories. Each tab counts its own matches. */
+.history-search {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 14px;
+}
+
+.history-search input {
+  flex: 1 1 24rem;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+}
+
+.history-search button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  white-space: nowrap;
+}
+
+/*
+ * Nine hundred pages of archive is too many to walk a page at a time, so this
+ * offers the ends, where the reader is, and a few either side.
+ */
+.history-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.history-pager p {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.history-pager > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.history-pager button {
+  min-width: 30px;
+  padding: 0.3rem 0.45rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.history-pager button.is-current {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.history-pager button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.history-pager span {
+  padding: 0 0.15rem;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* The genre a reader has narrowed to, and the way back out of it. */
+.history-genre-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.history-genre-filter strong {
+  color: var(--accent-soft);
+  font-weight: 400;
+}
+
+.history-genre-filter button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem;
+  color: var(--muted);
+}
+
+/*
+ * Genre by plays. Two histories of very different sizes, so `Both` stacks them
+ * rather than adding them into one number that would be the archive's alone.
+ */
+.stats-scope {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.stats-scope button {
+  padding: 0.3rem 0.6rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.stats-scope button.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.genre-chart {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.genre-chart > li {
+  display: grid;
+  grid-template-columns: minmax(6rem, 10rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.genre-name {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.genre-chart a {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Whose word this is. The two vocabularies are never merged, so a chart that
+ * lists them together has to say which list each name came off.
+ */
+.genre-source {
+  flex: none;
+  padding: 0 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  cursor: help;
+}
+
+.genre-source-musicbrainz {
+  border-color: var(--accent-soft);
+  color: var(--accent-soft);
+}
+
+.genre-chart a:hover {
+  color: var(--accent-soft);
+}
+
+.genre-bar {
+  display: block;
+  height: 12px;
+  background: var(--surface-raised);
+}
+
+.genre-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent-soft);
+}
+
+/* This room's share of the same bar, so the split is readable at a glance. */
+.genre-bar-room {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--accent);
+}
+
+.genre-plays {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.genre-plays small {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.genre-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 620px) {
+  .genre-chart > li {
+    grid-template-columns: minmax(5rem, 8rem) minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+}
+
+/* What the room said about a track somebody asked to hear again. */
+.history-notice {
+  margin: 0 0 14px;
+  color: var(--accent-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.history-queue-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0.3rem;
+}
+
+/*
+ * Two histories on one page: what this room has played, and the QueUp years it
+ * inherited. Same underline the site nav uses, one level in, because it is the
+ * same kind of choice.
+ */
+.history-tabs {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.history-tabs button {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding: 0.3rem 0.1rem 0.5rem;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.history-tabs button:hover {
+  color: var(--text);
+}
+
+.history-tabs button.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+/* How much archive there is, kept quieter than the name of the tab. */
+.history-tabs small {
+  margin-left: 6px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
 .community-section-heading {
   display: flex;
   align-items: baseline;
@@ -239,18 +557,6 @@
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.provider-text {
-  font-weight: 700;
-}
-
-.provider-youtube {
-  color: #ff4057;
-}
-
-.provider-soundcloud {
-  color: #ff6a21;
 }
 
 .profile-link {
@@ -528,4 +834,40 @@
 .profile-heading p [title] {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
+}
+
+/*
+ * The QueUp archive, in the second history tab and deliberately quieter than
+ * the room's own: the plays are somebody else's records, and a reader who has
+ * switched tabs should be able to feel that without reading the heading again.
+ */
+.legacy-table {
+  opacity: 0.86;
+}
+
+.legacy-requester {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.legacy-more {
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  margin-top: 14px;
+  padding: 0.4rem 0.9rem;
+}
+
+.legacy-more:hover:not(:disabled) {
+  background: var(--line);
+}
+
+.legacy-more:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

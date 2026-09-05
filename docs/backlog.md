@@ -22,26 +22,17 @@ the strings are spelled `ADMIN` and `MODERATOR`. Turning it back on is a small
 change to `radioRole` in `src/server/auth.ts`; `git log` has the version that
 did it.
 
-## Fifty tracks per playlist is a guess, not a decision
+## The MusicBrainz dump import is memory hungry
 
-`MAX_PLAYLIST_TRACKS` is 50 in `playlists.ts`, mirrored by the `.max(50)` on
-`playlistOrderSchema` and by the same cap on provider-playlist imports in
-`room.ts`. It was picked because it matches the import limit and because it lets
-"add playlist to queue" mean the whole playlist: no paging, no background job,
-one request that either finishes or reports what it skipped.
+`scripts/musicbrainz-dump-import.ts` needs `--max-old-space-size` at 12 GB or
+more; Node's default 4 GB dies partway through the `track` scan, which peaks
+around 14 GB. The heap grows with rows scanned rather than with rows kept, so
+it is the scanning that costs, not the filtering.
 
-Nothing has tested it against real use. Nobody has hit it yet, and it is not
-known whether people want a handful of short themed playlists or one long
-library of everything they have ever liked.
-
-Raising it is not free. Queueing a whole playlist walks every track through
-`enqueueMedia` in one request, so the ceiling is also how long that request can
-run and how many provider lookups it can spend. Past a few hundred it stops
-being one request and becomes a job with progress to report, which is a
-different feature.
-
-Leave it at 50 until somebody complains, then decide with that complaint in
-hand rather than in advance.
+Nothing depends on fixing it — the run takes 25 minutes on a workstation and
+happens perhaps monthly — but it is the reason the script cannot simply be run
+without thinking about it, and the reason `--tracks`/`--out` exist so it never
+has to run anywhere near the deployment host.
 
 ## The PostHog event set has never been judged against real data
 

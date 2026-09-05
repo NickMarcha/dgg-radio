@@ -4,12 +4,14 @@ import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { z } from 'zod';
 import {
+  blockByUrlSchema,
   blockMediaSchema,
   clearQueueSchema,
   playlistSchema,
   personalPlaylistSchema,
   playlistListQuerySchema,
   playlistOrderSchema,
+  queupImportSchema,
   reorderSchema,
   searchSchema,
   removeQueueItemSchema,
@@ -45,6 +47,7 @@ import {
 import { ChatLookupError, requestChatCheck } from './chat';
 import { listPlaybackRegions, RegionLookupError } from './regions';
 import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
+import { CatalogueError, getArtistDetail, getTrackDetail } from './catalogue';
 import {
   CommunityError,
   getCommunityStats,
@@ -52,8 +55,10 @@ import {
   listHistory,
 } from './community';
 import { getEnv } from './env';
+import { enqueueLegacyPlay, listLegacyHistory } from './legacy';
 import { MediaLookupError, searchMedia } from './media';
 import {
+  blockMediaByUrl,
   blockQueueItemMedia,
   clearUserQueue,
   enqueueMedia,
@@ -71,11 +76,13 @@ import {
   withdrawQueuedTrack,
 } from './room';
 import {
+  addLegacyPlayToPlaylist,
   addPlaylistTrack,
   addPlaylistTrackByUrl,
   createPlaylist,
   deletePlaylist,
   getPlaylist,
+  importQueupPlaylists,
   listPlaylists,
   PlaylistError,
   queuePlaylist,
@@ -85,7 +92,9 @@ import {
   reorderPlaylist,
 } from './playlists';
 import { getModerationLog } from './moderation';
+import { QueupError, refreshArchive } from './queup';
 import { limitPerAddress, limitPerUser } from './rate-limit';
+import { exportCsv, exportFilename, EXPORTS } from './export';
 import { getStorageSnapshot } from './storage';
 
 interface AppDependencies {
@@ -106,9 +115,55 @@ const callbackSchema = z.object({
 
 const idParamSchema = z.object({ id: z.uuid() });
 const playlistTrackParamSchema = z.object({ id: z.uuid(), mediaId: z.uuid() });
+/** QueUp's own id for a play, which is what the archive is keyed by. */
+const legacySourceId = z.string().trim().min(1).max(64);
+const legacyTrackParamSchema = z.object({ id: z.uuid(), sourceId: legacySourceId });
+const legacySourceParamSchema = z.object({ sourceId: legacySourceId });
 const usernameParamSchema = z.object({ username: z.string().trim().min(1).max(64) });
+/** The slug out of a QueUp room's URL, as in `queup.net/join/dgg-radio`. */
+const archiveRefreshSchema = z.object({
+  room: z.string().trim().min(1).max(80).regex(/^[a-z0-9-]+$/i, 'That is not a QueUp room name.'),
+});
+
+/** A provider id, as the provider spells it rather than as a UUID. */
+const providerId = z.string().trim().min(1).max(120);
+const trackParamSchema = z.object({
+  provider: z.enum(['youtube', 'soundcloud']),
+  providerMediaId: providerId,
+});
+const artistParamSchema = z.object({
+  provider: z.enum(['youtube', 'soundcloud']),
+  providerArtistId: providerId,
+});
+
+/** A month on its own means nothing, and is ignored rather than guessed at. */
+const statsQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
+  month: z.coerce.number().int().min(1).max(12).optional(),
+});
+
+const exportParamSchema = z.object({
+  dataset: z.enum([
+    'history',
+    'archive',
+    'tracks',
+    'lookups',
+    'stats-tracks',
+    'stats-jammers',
+    'stats-genres',
+  ]),
+});
+/**
+ * Both histories are read the same way: one numbered page at a time, newest
+ * first, optionally narrowed by a search. Numbered rather than walked by a
+ * cursor so that the page somebody is reading survives being shared as a link.
+ */
 const historyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
+  page: z.coerce.number().int().min(1).max(100_000).default(1),
+  q: z.string().trim().min(1).max(80).optional(),
+  /** One genre or style, spelled the way the tag a reader clicked spells it. */
+  genre: z.string().trim().min(1).max(60).optional(),
 });
 
 function errorBody(code: string, message: string) {
@@ -172,6 +227,8 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof MediaLookupError ||
       error instanceof RuleError ||
       error instanceof AdminError ||
+      error instanceof CatalogueError ||
+      error instanceof QueupError ||
       error instanceof CommunityError ||
       error instanceof RegionLookupError ||
       error instanceof ChatLookupError ||
@@ -237,10 +294,54 @@ export function createApp(dependencies: AppDependencies) {
       '/api/history',
       limitPerAddress('history', 60),
       zValidator('query', historyQuerySchema),
-      async (context) => context.json({ history: await listHistory(context.req.valid('query').limit) }),
+      async (context) => {
+        const { limit, page, q, genre } = context.req.valid('query');
+        return context.json(await listHistory({ limit, page, search: q, genre }));
+      },
     )
-    .get('/api/stats', limitPerAddress('stats', 60), async (context) =>
-      context.json(await getCommunityStats()),
+    // The archive from QueUp. Public like the room's own history, and paged the
+    // same way, because it holds every play the room made before this one
+    // existed.
+    .get(
+      '/api/history/legacy',
+      limitPerAddress('history', 60),
+      zValidator('query', historyQuerySchema),
+      async (context) => {
+        const { limit, page, q, genre } = context.req.valid('query');
+        return context.json(await listLegacyHistory({ limit, page, search: q, genre }));
+      },
+    )
+    // One track, and whoever published it. Public, like the history they are
+    // reached from, and keyed by the provider's own id so that a track only the
+    // QueUp archive remembers has a page too.
+    .get(
+      '/api/tracks/:provider/:providerMediaId',
+      limitPerAddress('catalogue', 60),
+      zValidator('param', trackParamSchema),
+      async (context) => {
+        const { provider, providerMediaId } = context.req.valid('param');
+        return context.json(await getTrackDetail(provider, providerMediaId));
+      },
+    )
+    .get(
+      '/api/artists/:provider/:providerArtistId',
+      limitPerAddress('catalogue', 60),
+      zValidator('param', artistParamSchema),
+      async (context) => {
+        const { provider, providerArtistId } = context.req.valid('param');
+        return context.json(await getArtistDetail(provider, providerArtistId));
+      },
+    )
+    .get(
+      '/api/stats',
+      limitPerAddress('stats', 60),
+      zValidator('query', statsQuerySchema),
+      async (context) => {
+        const { year, month } = context.req.valid('query');
+        return context.json(
+          await getCommunityStats(undefined, { year: year ?? null, month: month ?? null }),
+        );
+      },
     )
     .get(
       '/api/playlists',
@@ -262,6 +363,27 @@ export function createApp(dependencies: AppDependencies) {
         context.json(
           await getPlaylist(context.req.valid('param').id, context.get('user').id),
         ),
+    )
+    // A whole library moved over from QueUp, exported by
+    // `public/queup-export-playlists.js` in the owner's own browser. It costs
+    // provider lookups, so it is limited like the other import routes.
+    .post(
+      '/api/playlists/import',
+      requireUser,
+      limitPerUser('playlist-import', 5),
+      zValidator('json', queupImportSchema),
+      async (context) => {
+        const imported = await importQueupPlaylists(
+          context.req.valid('json'),
+          context.get('user').id,
+        );
+        captureServerEvent(context.get('user').id, 'queup_playlists_imported', {
+          playlists: imported.playlists.length,
+          saved: imported.playlists.reduce((total, entry) => total + entry.saved, 0),
+          skipped: imported.playlists.reduce((total, entry) => total + entry.skipped.length, 0),
+        });
+        return context.json(imported);
+      },
     )
     .post(
       '/api/playlists',
@@ -336,6 +458,23 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
+    // Saving a track out of the QueUp archive. Unlike the route above it may
+    // have to ask a provider first, because the archive holds no media rows, so
+    // it is limited like everything else that spends a lookup.
+    .put(
+      '/api/playlists/:id/legacy/:sourceId',
+      requireUser,
+      limitPerUser('legacy-save', 30),
+      zValidator('param', legacyTrackParamSchema),
+      async (context) => {
+        const { id, sourceId } = context.req.valid('param');
+        const saved = await addLegacyPlayToPlaylist(id, sourceId, context.get('user').id);
+        captureServerEvent(context.get('user').id, 'track_saved_to_playlist', {
+          source: 'queup_archive',
+        });
+        return context.json(saved);
+      },
+    )
     .patch(
       '/api/playlists/:id/tracks/order',
       requireUser,
@@ -394,6 +533,28 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json({ id: queued.id }, 201);
     })
+    // Requesting a track out of the QueUp archive. The archive holds a provider
+    // id rather than a link, so this resolves one and then goes through the
+    // room's ordinary request path, rules and cooldown included.
+    .post(
+      '/api/queue/legacy/:sourceId',
+      requireUser,
+      limitPerUser('lookup', 20),
+      zValidator('param', legacySourceParamSchema),
+      async (context) => {
+        const queued = await enqueueLegacyPlay(
+          context.req.valid('param').sourceId,
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'track_requested', {
+          provider: queued.provider,
+          duration_seconds: queued.durationSeconds,
+          source: 'queup_archive',
+        });
+        dependencies.onRoomChanged();
+        return context.json({ id: queued.id }, 201);
+      },
+    )
     .post(
       '/api/queue/:id/vote',
       requireUser,
@@ -527,6 +688,30 @@ export function createApp(dependencies: AppDependencies) {
     .get('/api/rules/:id/entries', requireAdmin, zValidator('param', idParamSchema), async (context) =>
       context.json({ entries: await listRuleEntries(context.req.valid('param').id) }),
     )
+    // Blocking something before anyone requests it. It costs a provider lookup,
+    // so it is limited like every other route that spends one.
+    .post(
+      '/api/rules/:id/entries',
+      requireAdmin,
+      limitPerUser('lookup', 20),
+      zValidator('param', idParamSchema),
+      zValidator('json', blockByUrlSchema),
+      async (context) => {
+        const { id } = context.req.valid('param');
+        const { url, entryType, note } = context.req.valid('json');
+        const blocked = await blockMediaByUrl(
+          url,
+          { ruleIds: [id], entryType, note },
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'media_blocked', {
+          entry_type: entryType,
+          source: 'link',
+        });
+        dependencies.onRoomChanged();
+        return context.json(blocked, 201);
+      },
+    )
     .post('/api/rules', requireAdmin, zValidator('json', ruleSchema), async (context) => {
       const id = await createRule(context.req.valid('json'), context.get('user'));
       captureServerEvent(context.get('user').id, 'rule_created');
@@ -571,6 +756,48 @@ export function createApp(dependencies: AppDependencies) {
       dependencies.onRoomChanged();
       return context.json(result);
     })
+    // Taking the room's data out of it. A browser downloads these by navigating
+    // to them, so they are a plain GET with the session cookie rather than a
+    // fetch, and the whole answer is one response.
+    // Topping the archive up from the room QueUp still runs. It reads a handful
+    // of pages and stops where the archive and the live room meet, so it is
+    // quick, and it is limited because it reaches somebody else's API.
+    .post(
+      '/api/archive/refresh',
+      requireAdmin,
+      limitPerUser('archive-refresh', 4),
+      zValidator('json', archiveRefreshSchema),
+      async (context) => {
+        const refreshed = await refreshArchive(context.req.valid('json').room);
+        captureServerEvent(context.get('user').id, 'archive_refreshed', {
+          added: refreshed.added,
+          pages_read: refreshed.pagesRead,
+        });
+        dependencies.onRoomChanged();
+        return context.json(refreshed);
+      },
+    )
+    .get('/api/exports', requireAdmin, (context) => context.json({ exports: EXPORTS }))
+    .get(
+      '/api/exports/:dataset',
+      requireAdmin,
+      limitPerUser('export', 10),
+      zValidator('param', exportParamSchema),
+      async (context) => {
+        const { dataset } = context.req.valid('param');
+        const csv = await exportCsv(dataset);
+        captureServerEvent(context.get('user').id, 'data_exported', {
+          dataset,
+          bytes: Buffer.byteLength(csv),
+        });
+        return new Response(csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${exportFilename(dataset)}"`,
+          },
+        });
+      },
+    )
     .get('/api/moderation', requireAdmin, async (context) => context.json(await getModerationLog()))
     .get('/api/operations', requireAdmin, async (context) =>
       context.json({

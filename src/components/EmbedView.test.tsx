@@ -42,6 +42,7 @@ function roomSnapshot(): RoomSnapshot {
         id: '22222222-2222-4222-8222-222222222222',
         provider: 'youtube',
         providerMediaId: 'M7lc1UVf-VE',
+        providerArtistId: 'channel-M7lc1UVf-VE',
         canonicalUrl: 'https://www.youtube.com/watch?v=M7lc1UVf-VE',
         title: 'YouTube IFrame API Demo',
         artist: 'YouTube Developers',
@@ -63,6 +64,7 @@ function roomSnapshot(): RoomSnapshot {
           id: '55555555-5555-4555-8555-555555555555',
           provider: 'soundcloud',
           providerMediaId: '555555',
+          providerArtistId: 'channel-555555',
           canonicalUrl: 'https://soundcloud.com/artist/next-track',
           title: 'Next track',
           artist: 'Queue artist',
@@ -82,6 +84,7 @@ function roomSnapshot(): RoomSnapshot {
     myNotices: [],
     rules: [],
     selectorStats: [],
+    currentGenres: null,
   };
 }
 

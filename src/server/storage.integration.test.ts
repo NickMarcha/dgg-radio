@@ -23,6 +23,7 @@ const GROUP_NAMES = [
   'Accounts and authentication',
   'History and voting',
   'Personal playlists',
+  'QueUp archive',
   'Room state and internal tables',
   'Rules and moderation',
   'Track catalogue and provider cache',

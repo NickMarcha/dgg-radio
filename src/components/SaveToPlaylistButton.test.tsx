@@ -3,7 +3,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlaylistLibrary, RoomMedia } from '../shared/contracts';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
-import { usePlaylistLibrary, type PlaylistLibraryController } from './usePlaylistLibrary';
+import {
+  usePlaylistLibrary,
+  type PlaylistLibraryController,
+  type PlaylistSaveTarget,
+} from './usePlaylistLibrary';
 
 const API = 'http://api.test';
 
@@ -11,6 +15,7 @@ const track: RoomMedia = {
   id: '11111111-1111-4111-8111-111111111111',
   provider: 'youtube',
   providerMediaId: 'abc123',
+  providerArtistId: 'channel-abc123',
   canonicalUrl: 'https://www.youtube.com/watch?v=abc123',
   title: 'I Think About You',
   artist: 'Someone',
@@ -41,11 +46,21 @@ function fetchMock(input: RequestInfo | URL, init?: RequestInit) {
   } as Response);
 }
 
+const savedTrack: PlaylistSaveTarget = { kind: 'media', mediaId: track.id, title: track.title };
+
 /** Renders the button with a real hook so state changes follow the API responses. */
-function Harness({ media = track, mediaIds = [track.id] }: { media?: RoomMedia; mediaIds?: string[] }) {
+function Harness({
+  target = savedTrack,
+  mediaIds = [track.id],
+  onResolved,
+}: {
+  target?: PlaylistSaveTarget;
+  mediaIds?: string[];
+  onResolved?: (mediaId: string) => void;
+}) {
   const controller: PlaylistLibraryController = usePlaylistLibrary(API, mediaIds);
   if (!controller.signedIn) return <p>signed out</p>;
-  return <SaveToPlaylistButton media={media} library={controller} />;
+  return <SaveToPlaylistButton target={target} library={controller} onResolved={onResolved} />;
 }
 
 beforeEach(() => {
@@ -130,6 +145,31 @@ describe('SaveToPlaylistButton', () => {
 
     await waitFor(() => expect(screen.getByText('That playlist is full.')).toBeDefined());
     expect(checkbox('Driving').checked).toBe(true);
+  });
+
+  it('saves an archived play by its archive id, and says which row it became', async () => {
+    library({ playlists: [driving], memberships: {} });
+    responses.push({ status: 200, body: { mediaId: track.id, saved: true } });
+    library({ playlists: [driving], memberships: { [track.id]: [driving.id] } });
+    const resolved = vi.fn();
+
+    render(
+      <Harness
+        target={{ kind: 'legacy', sourceId: 'queup-play-1', title: 'An Archived Track' }}
+        mediaIds={[]}
+        onResolved={resolved}
+      />,
+    );
+    await openPicker();
+    toggle('Driving');
+
+    await waitFor(() => expect(resolved).toHaveBeenCalledWith(track.id));
+    expect(
+      calls.some(
+        ({ url, method }) =>
+          method === 'PUT' && url === `${API}/api/playlists/${driving.id}/legacy/queup-play-1`,
+      ),
+    ).toBe(true);
   });
 
   it('asks for every displayed track in one request', async () => {

@@ -26,6 +26,20 @@ export const mediaProvider = pgEnum('media_provider', ['youtube', 'soundcloud'])
  */
 export const djRotation = pgSequence('dj_rotation_seq');
 
+/** Where a genre came from. The two vocabularies are never merged, so both stay named. */
+export const genreSource = pgEnum('genre_source', ['musicbrainz', 'discogs']);
+/**
+ * What the genre actually describes. `artist` is the coarse one: every Boards of
+ * Canada track inherits the same genres regardless of which track played, so it
+ * is worth having and must never be shown as though it described the track.
+ */
+export const genreLevel = pgEnum('genre_level', [
+  'recording',
+  'release_group',
+  'artist',
+  'master',
+]);
+
 export const ruleEnforcement = pgEnum('rule_enforcement', ['blocklist', 'advisory']);
 export const ruleEntryType = pgEnum('rule_entry_type', ['track', 'artist']);
 export const skipMode = pgEnum('skip_mode', ['absolute', 'ratio']);
@@ -398,3 +412,102 @@ export const moderationActions = pgTable(
   },
   (table) => [index('moderation_actions_created_at_index').on(table.createdAt)],
 );
+
+/**
+ * What a source says a track is, one row per source per track.
+ *
+ * Keyed by the provider's own id rather than by `media.id`, because the archive
+ * imported from QueUp holds 34,114 tracks that have no `media` row and never
+ * will until somebody reaches for one. Genre is a property of the recording,
+ * not of this room's copy of it, so one table labels both lists.
+ *
+ * A row with no genres is an answer too: it records that the source was asked
+ * and had nothing, so an enrichment run does not ask again.
+ *
+ * The two vocabularies are deliberately not merged. Discogs has about fifteen
+ * broad genres plus a sharper `styles` list; MusicBrainz has a folksonomy of
+ * hundreds. Normalising them together manufactures both false agreement and
+ * false conflict, so each source keeps its own row and its own link back.
+ *
+ * Nothing from the Discogs *API* belongs here. Its terms forbid storing that,
+ * and `genre.ts` keeps API answers in a short-lived display cache instead. Only
+ * the CC0 monthly dump is written to this table.
+ */
+export const trackGenres = pgTable(
+  'track_genres',
+  {
+    provider: mediaProvider('provider').notNull(),
+    providerMediaId: text('provider_media_id').notNull(),
+    source: genreSource('source').notNull(),
+    /** Null when the source was asked and knew nothing. */
+    level: genreLevel('level'),
+    genres: text('genres').array().notNull().default(sql`'{}'::text[]`),
+    /** Discogs' second, sharper vocabulary. MusicBrainz has no equivalent. */
+    styles: text('styles').array().notNull().default(sql`'{}'::text[]`),
+    /** The MBID or Discogs master id this came from. */
+    sourceEntityId: text('source_entity_id'),
+    /** Where a reader can check it, which both licences ask for. */
+    sourceUrl: text('source_url'),
+    /**
+     * Discogs attaches one video to several masters — the album, a best-of, a
+     * compilation — and they do not always agree. When they disagree there is
+     * no tie-break that rescues the track, so the answer is kept and marked.
+     */
+    ambiguous: boolean('ambiguous').notNull().default(false),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.provider, table.providerMediaId, table.source] }),
+  ],
+);
+
+/**
+ * What the community played on QueUp before this room existed, kept as an
+ * archive of another service's records rather than folded into `queue_items`.
+ *
+ * Nothing in it is a first-class part of the room: the requester is a QueUp
+ * username with no Destiny account behind it, the track is whatever QueUp held
+ * rather than a row in `media`, and the votes were cast somewhere else. So the
+ * room's own machinery — stats, profiles, the DJ rotation, the repeat cooldown
+ * — deliberately ignores this table, and the history page shows it as a
+ * separate, older list.
+ *
+ * Rows are keyed by QueUp's own id for the play, so importing the same export
+ * twice adds whatever is new and rewrites nothing.
+ */
+export const legacyPlays = pgTable(
+  'legacy_plays',
+  {
+    sourceId: text('source_id').primaryKey(),
+    playedAt: timestamp('played_at', { withTimezone: true }).notNull(),
+    requesterName: text('requester_name').notNull(),
+    provider: mediaProvider('provider').notNull(),
+    providerMediaId: text('provider_media_id').notNull(),
+    title: text('title').notNull(),
+    durationSeconds: integer('duration_seconds').notNull(),
+    thumbnailUrl: text('thumbnail_url'),
+    upvotes: integer('upvotes').notNull().default(0),
+    downvotes: integer('downvotes').notNull().default(0),
+    skipped: boolean('skipped').notNull().default(false),
+  },
+  // The history page reads this newest first; a btree scans backwards for that.
+  (table) => [index('legacy_plays_played_at_index').on(table.playedAt)],
+);
+
+/**
+ * Which shipped data file has already been applied.
+ *
+ * The archive and the genre answers are committed to the repository and applied
+ * when the API starts. Left alone, that is 68,000 rows re-offered to PostgreSQL
+ * on every restart to be told each one is already there — about four seconds
+ * before the room can serve, spent to change nothing.
+ *
+ * So each file records the digest of what was applied. An unchanged file is
+ * skipped; regenerating one changes its digest and it applies again by itself.
+ * Nothing here is the room's data, only a note about what has been read.
+ */
+export const seedState = pgTable('seed_state', {
+  name: text('name').primaryKey(),
+  digest: text('digest').notNull(),
+  appliedAt: timestamp('applied_at', { withTimezone: true }).notNull().defaultNow(),
+});
