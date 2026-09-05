@@ -53,14 +53,34 @@ export class WatchPageError extends Error {
   readonly status: number;
   /** What the response asked for, in milliseconds, or null if it said nothing. */
   readonly retryAfterMs: number | null;
+  /** True when Google answered with its "unusual traffic" challenge. */
+  readonly challenged: boolean;
 
-  constructor(response: Response) {
-    super(`The watch page answered ${response.status}`);
+  constructor(response: Response, challenged = false) {
+    super(
+      challenged
+        ? 'Google answered its unusual-traffic challenge instead of the watch page'
+        : `The watch page answered ${response.status}`,
+    );
     this.name = 'WatchPageError';
     this.status = response.status;
+    this.challenged = challenged;
     const header = Number(response.headers.get('retry-after'));
     this.retryAfterMs = Number.isFinite(header) && header > 0 ? header * 1_000 : null;
   }
+}
+
+/**
+ * Being blocked does not look like being blocked.
+ *
+ * The challenge is served as a 302 to `google.com/sorry`, and `fetch` follows
+ * redirects, so it arrives as a perfectly good 200 whose body happens to have
+ * no initial data in it. Left alone that surfaces as a parse error, which reads
+ * like YouTube changed its page shape — the one diagnosis that would send the
+ * next person to rewrite a parser that is working fine.
+ */
+function wasChallenged(response: Response): boolean {
+  return response.redirected && new URL(response.url).pathname.startsWith('/sorry');
 }
 
 export interface MusicCard {
@@ -179,6 +199,7 @@ export async function findMusicCard(videoId: string): Promise<MusicCard | null> 
     headers: { 'User-Agent': USER_AGENT, 'Accept-Language': ACCEPT_LANGUAGE },
     signal: AbortSignal.timeout(20_000),
   });
+  if (wasChallenged(response)) throw new WatchPageError(response, true);
   if (!response.ok) throw new WatchPageError(response);
   return firstCard(initialData(await response.text()));
 }

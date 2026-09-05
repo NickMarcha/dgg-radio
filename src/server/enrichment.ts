@@ -3,7 +3,7 @@ import { getDatabase, type Database } from './db/client';
 import { searchGenre } from './discogs';
 import { guessTrackIdentity, listGenres, storeGenre, trackKey } from './genre';
 import { findGenres, findRecording } from './musicbrainz';
-import { findMusicCard } from './youtube-music';
+import { findMusicCard, WatchPageError } from './youtube-music';
 
 /**
  * Working out what a track is, the first time the room sees one.
@@ -28,6 +28,49 @@ import { findMusicCard } from './youtube-music';
 /** Tracks currently being asked about, so two requests do not both ask. */
 const inFlight = new Set<string>();
 
+/**
+ * Whether YouTube is still answering, and saying so out loud when it stops.
+ *
+ * A failed card lookup falls back to splitting the upload title, which is the
+ * right thing to do for one dead video and the wrong thing to be silent about
+ * for a thousand. A blocked server keeps working, keeps storing genres, and
+ * simply gets worse answers — with nothing anywhere saying why.
+ *
+ * One failure is noise, so nothing is logged for it. A run of them is the
+ * address being refused, which is worth waking up to, and is reported once on
+ * the way down and once on the way back rather than per track.
+ */
+const COMPLAIN_AFTER = 5;
+let consecutiveFailures = 0;
+let complained = false;
+
+function cardFailed(videoId: string, error: unknown): void {
+  consecutiveFailures += 1;
+  if (complained || consecutiveFailures < COMPLAIN_AFTER) return;
+  complained = true;
+
+  const reason =
+    error instanceof WatchPageError && error.challenged
+      ? 'Google is serving its unusual-traffic challenge. This address is blocked, ' +
+        'not rate limited, and nothing here will clear it.'
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  console.error(
+    `YouTube has refused ${consecutiveFailures} music-card lookups in a row (latest ${videoId}): ` +
+      `${reason} Genres are still being stored, from upload titles instead of music cards, ` +
+      'so they will be less precise until this clears.',
+  );
+}
+
+function cardSucceeded(): void {
+  if (complained) {
+    console.log('YouTube is answering music-card lookups again.');
+  }
+  consecutiveFailures = 0;
+  complained = false;
+}
+
 /** How many may be waiting before new ones are dropped rather than queued. */
 const MAX_WAITING = 200;
 let waiting = 0;
@@ -51,10 +94,14 @@ async function identify(
   if (provider === 'youtube') {
     try {
       const card = await findMusicCard(providerMediaId);
+      // A video with no card answered fine; it simply has nothing to say.
+      cardSucceeded();
       if (card) return { artist: card.artist, title: card.title };
-    } catch {
+    } catch (error) {
       // YouTube's watch page is a private response that changes shape without
-      // warning. Losing it costs precision, not the lookup.
+      // warning. Losing it costs precision, not the lookup — but losing every
+      // one of them in a row is worth hearing about.
+      cardFailed(providerMediaId, error);
     }
   }
   const guessed = guessTrackIdentity(uploadTitle, channel);

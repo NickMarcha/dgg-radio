@@ -29,6 +29,28 @@ describe('reading a video\'s music card', () => {
     vi.restoreAllMocks();
   });
 
+  it('reports a challenge as a challenge rather than a broken parser', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      // What being blocked actually looks like: the 302 to google.com/sorry has
+      // already been followed, so this is a 200 with the wrong body.
+      const response = new Response('<html><body>unusual traffic</body></html>', { status: 200 });
+      Object.defineProperty(response, 'redirected', { value: true });
+      Object.defineProperty(response, 'url', {
+        value: 'https://www.google.com/sorry/index?continue=https://www.youtube.com/watch',
+      });
+      return response;
+    });
+
+    await expect(findMusicCard('ddddddddddd')).rejects.toMatchObject({
+      name: 'WatchPageError',
+      challenged: true,
+    });
+  }, 20_000);
+
+  it('does not mistake an ordinary page for a challenge', async () => {
+    await expect(findMusicCard('eeeeeeeeeee')).resolves.toBeNull();
+  }, 20_000);
+
   it('sends one request at a time even when asked for many at once', async () => {
     const started = Date.now();
     await Promise.all(['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc'].map(findMusicCard));
