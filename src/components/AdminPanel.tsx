@@ -1327,16 +1327,23 @@ function PersonalWatcherSource({
 }: SectionProps & { origin: string }) {
   const [saved, setSaved] = useState<WatcherEmbedSettings | null>(null);
   const [draft, setDraft] = useState<WatcherEmbedSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void call('/api/watcher-embed')
       .then((settings: WatcherEmbedSettings) => {
         setSaved(settings);
         setDraft(settings);
+        setError(null);
       })
-      .catch(() => undefined);
+      // An API that does not answer this leaves the section here for good, so
+      // say so. An older API without the route is exactly what that looks like.
+      .catch((cause: Error) =>
+        setError(`Your watcher source could not be loaded. ${cause.message}`),
+      );
   }, [call]);
 
+  if (error) return <p className="admin-empty">{error}</p>;
   if (!draft || !saved) {
     return <p className="admin-empty">Loading your watcher source…</p>;
   }
