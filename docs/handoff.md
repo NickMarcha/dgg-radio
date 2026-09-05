@@ -21,12 +21,13 @@ Everything is on `main` and pushed, through `952619a` on 2026-09-06.
 push: neither `astro build` nor `tsup` type-checks, so a build failure is a
 different failure from a failing `check`.
 
-**A push deploys half of the room.** Netlify builds the frontend from `main` by
-itself; the API, its Postgres and the tunnel are a Docker stack on a self-hosted
-machine, and nothing about a push touches them. Until `npm run stack:up` is run
-there, the deployed site calls an API that does not have the routes it is
-calling — which reads exactly like a broken page and is not one. Migrations
-`0019` through `0024` apply on that container's startup.
+**Both halves deploy themselves.** Netlify builds the frontend from `main`, and
+a webhook rebuilds and redeploys the API stack, which applies migrations
+`0019` through `0024` on startup. `docs/deployment.md` describes the setup and
+the settings it depends on. Verified against the deployed API minutes after this
+push: `/api/watchers` answers with an idle snapshot, `/api/watcher-embed` answers
+401 rather than 404, and an unknown source id comes back as the route's own
+`WATCHER_EMBED_NOT_FOUND` — which only happens if the new columns are there.
 
 Run the two halves of `npm run check` separately, or at least do not truncate
 their output: it is `astro check && tsc --noEmit`, and piping the pair through
@@ -217,37 +218,31 @@ include development data unless each remembered to filter.
 
 ## Waiting on a person
 
-1. **The API host has to be rebuilt before the deployed site works.** The push
-   deploys the frontend and nothing else. `npm run stack:up` on the machine that
-   runs the API is what applies `0019`–`0024` and adds every route the new pages
-   call. Until then `/admin#obs` and `/embed/watchers` are pages calling routes
-   that answer 404. That exact failure already happened once locally, against a
-   container two hours older than the code.
-2. **Nobody has watched the bumper layout move.** Its physics is unit-tested and
+1. **Nobody has watched the bumper layout move.** Its physics is unit-tested and
    its wiring is tested in a real DOM with hand-driven frames, but a hidden
    browser tab runs no animation at all — no `requestAnimationFrame`, no CSS
    timeline — and the tab this session can open is always hidden. An OBS source
    is not hidden in that sense, so it should simply work; it has still never been
    seen working.
-3. **The overlay has been judged by one pair of eyes.** How it reads over a real
+2. **The overlay has been judged by one pair of eyes.** How it reads over a real
    stream, at a real size, is one operator's opinion so far. The four destiny.gg
    socket clients likewise have had one reviewer.
-4. **The slow-request alert has never seen real data.** `api_request_slow` has
+3. **The slow-request alert has never seen real data.** `api_request_slow` has
    not been emitted anywhere, so `qz51WBuF` reads zero and the alert reads
    "Not firing" because there is nothing to fire on, not because it was
    checked. Its threshold was chosen against local timings and production adds
    the tunnel hop; if it nags on ordinary traffic the number to move is
    `SLOW_REQUEST_MS` in `src/server/analytics.ts`. The alert itself needs no
    edit, because it fires on any count above zero.
-5. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
+4. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
    therefore still disposable data by the rule in `AGENTS.md`.
-6. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
+5. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
    video is re-fetched against the metered quota on every playlist import
    containing it. Still a real bug, still unrelated to everything above.
-7. **The seed files drift.** They are a snapshot: regenerate with
+6. **The seed files drift.** They are a snapshot: regenerate with
    `scripts/seed-export.ts` after topping up the archive or running a dump
    import, then commit what changed.
-8. **The README says the Chrome extension cannot open a localhost page.** It
+7. **The README says the Chrome extension cannot open a localhost page.** It
    can: `http://localhost:4321/embed/watchers` opened, screenshotted and
    scripted fine on 2026-09-05. `TEST_HOST` still earns its place for OBS on
    another machine, but that sentence is wrong and cost three rounds of blind
@@ -408,11 +403,20 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   generator tested each rule's whole selector string, so every alternative after
   a comma was invisible to it — which is how Chatting was classified as
   unanimated while a rule two commas along said otherwise.
-- **The API container is not rebuilt by editing code.** `astro dev` reloads the
-  frontend on save and the Docker API does not, so a route added in this session
-  answers 404 until `docker compose … up -d --build api`. It cost a round of
-  puzzled staring at a settings panel that sat on "Loading…" for good, because
-  the panel swallowed the 404 rather than saying it.
+- **The local API container is not rebuilt by editing code.** `astro dev`
+  reloads the frontend on save and the Docker API does not, so a route added in
+  a session answers 404 until `docker compose … up -d --build api`. It cost a
+  round of puzzled staring at a settings panel that sat on "Loading…" for good,
+  because the panel swallowed the 404 rather than saying it. This is a local
+  development trap only — production redeploys itself.
+- **Reading `compose.yaml` is not reading the deployment.** This file said, in
+  its own "waiting on a person" list, that a push deploys the frontend and
+  somebody must then rebuild the API by hand. That was inferred from the compose
+  files and was simply wrong: `docs/deployment.md` and the README both say a
+  webhook redeploys the API stack, and the deployed API had the new routes
+  minutes after the push. A false blocker at the top of a handoff is worse than
+  no handoff, because the next person acts on it. Check `docs/` before writing
+  down how something is operated.
 
 ## Suggested skills
 
@@ -437,12 +441,11 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 
 ## Next
 
-Bring the API host up on this code, then watch the watchers in production:
-whether both sockets stay up for longer than a development session, whether the
-minute sampler keeps pace once it is writing a row per embed rather than one,
-and how the embed history reads after a week of real data rather than a night of
-it. Nothing connects to destiny.gg until an admin switches it on at
-`/admin#obs`.
+Watch the watchers in production, which is deployed and idle: whether both
+sockets stay up for longer than a development session, whether the minute
+sampler keeps pace once it is writing a row per embed rather than one, and how
+the embed history reads after a week of real data rather than a night of it.
+Nothing connects to destiny.gg until an admin switches it on at `/admin#obs`.
 
 The overlay itself wants one honest look over a real stream at real size — the
 bumper layout especially, which no one has seen move.
