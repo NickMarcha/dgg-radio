@@ -16,7 +16,10 @@ run against the local Postgres:
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything below is on `main` and **deployed**. `npm run build` succeeds.
+Everything below is on `main` and **deployed** — pushed as far as `687c90b` on
+2026-09-05. `npm run build` succeeds. Both halves of the build are worth running
+before a push: neither `astro build` nor `tsup` type-checks, so a build failure is
+a different failure from a failing `check`.
 
 Run the two halves of `npm run check` separately, or at least do not truncate
 their output: it is `astro check && tsc --noEmit`, and piping the pair through
@@ -124,25 +127,45 @@ that volume; `ALTER SYSTEM RESET` and another restart undoes it. Worth the two
 minutes before guessing at any query again — it named the query immediately, and
 both standing theories about that query were wrong.
 
-### A slow request now says so
+### A slow request says so, and only the deployed room says it
 
 `src/server/app.ts` times `/api/*` and writes `api_request_slow` when a request
-takes more than a second, and nothing otherwise. That is the whole design: a
-healthy server is silent, so `/api/room` at a poll every fifteen seconds per open
-room costs nothing. In PostHog, insight `qz51WBuF` counts the event hourly and an
-alert fires on any value above zero.
+takes more than a second, and writes nothing otherwise. That is the whole design:
+a healthy server is silent, which is what makes it free to sit in front of
+`/api/room` at a poll every fifteen seconds per open room. In PostHog, insight
+`qz51WBuF` counts the event hourly and an alert fires on any value above zero.
 
 It measures the time the server spent producing a response, not the time anyone
-waited for one.
+waited for one. A response nobody receives still counts as delivered, which was
+true of `data_exported` before this too.
+
+Local development reports nothing at all, deliberately. `compose.test.yaml`
+blanks `POSTHOG_PROJECT_KEY` for the API and `.env.development` blanks
+`PUBLIC_POSTHOG_KEY` for the browser — the browser was the larger leak, since
+`astro dev` had been sending pageviews, exceptions and session recordings to the
+deployed project for as long as it has existed. Neither needed a code change:
+both analytics modules already treat a missing key as send nothing. Source maps
+needed nothing either, because `astro.config.mjs` reads `process.env`, which does
+not carry `.env`.
+
+The consequence is that analytics cannot be exercised locally at all. That is the
+trade, and the point at which a second PostHog project earns its place — one
+project per environment is PostHog's own recommendation. One project with an
+environment property is the wrong shape: every insight and alert would silently
+include development data unless each remembered to filter.
 
 ## Waiting on a person
 
-1. **The archive is deployed**, as of 2026-09-05. Nothing is waiting to ship.
-2. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
+1. **Nothing is waiting to ship.** `main` is deployed as of 2026-09-05.
+2. **The slow-request alert has never seen real data.** `api_request_slow` has
+   not been emitted anywhere, so `qz51WBuF` reads zero and the alert reads
+   "Not firing" because there is nothing to fire on, not because it was
+   checked. Its threshold was chosen against local timings and production adds
+   the tunnel hop; if it nags on ordinary traffic the number to move is
+   `SLOW_REQUEST_MS` in `src/server/analytics.ts`. The alert itself needs no
+   edit, because it fires on any count above zero.
+3. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
    therefore still disposable data by the rule in `AGENTS.md`.
-3. **Nothing here is unverified any more.** The admin archive button was
-   driven in a browser against the running stack: three plays across two pages,
-   then "Nothing new" on the second press.
 4. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
    video is re-fetched against the metered quota on every playlist import
    containing it. Still a real bug, still unrelated to everything above.
@@ -224,9 +247,30 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 - **Discogs coverage was once called contaminated** because YouTube ids appear
   in `<video>` description text as well as in `src`. The fix was right and moved
   coverage by 0.07 points; the mislabelling blamed on it was Discogs' own data.
+- **A handoff outside the repository is one nobody reads.** `5c0e547` made
+  `docs/handoff.md` the single rolling file and deleted `docs/handoffs/`, but it
+  never touched `.claude/skills/handoff/SKILL.md`, which still said to write to
+  the OS temporary directory. So `/handoff` correctly wrote
+  `%TEMP%\dggradio-handoff-query-performance.md`, which no search scoped to the
+  project can see, while `docs/handoff.md` went on claiming to be the only one.
+  A convention changed in `docs/` and not in the skill that writes it is a
+  convention that lasts one session. The skill now updates this file.
 - **Re-running a patch to see why it failed applies the parts that worked
   again.** That silently duplicated seventy lines of `contracts.ts`, which
   TypeScript accepted because identical interfaces merge.
+
+## Suggested skills
+
+- **`diagnosing-bugs`** for anything slow or broken. Its measure-before-theorise
+  order is what caught that both standing theories about the stats query were
+  wrong; guessing has a poor record in this repository.
+- **`marcoshernanz`** before adding configuration or an abstraction. It is the
+  argument against the speculative version of whatever is being built, and it is
+  what settled blanking a key over standing up a second PostHog project.
+- **`research`** when a question needs primary sources, such as a provider's
+  limits or terms. It writes to `docs/research/`, which is where this project
+  keeps that kind of finding.
+- **`unslop`** on anything written for a person to read, this file included.
 
 ## Next
 
