@@ -9,21 +9,64 @@ Last updated 2026-09-05.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 293 Vitest pass across 31 files,
+`astro check` and `tsc --noEmit` are both clean. 384 Vitest pass across 40 files,
 run against the local Postgres:
 
 ```
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything below is on `main` and **deployed** — pushed as far as `687c90b` on
-2026-09-05. `npm run build` succeeds. Both halves of the build are worth running
-before a push: neither `astro build` nor `tsup` type-checks, so a build failure is
-a different failure from a failing `check`.
+The bigscreen watchers work is committed as `ce37d8c`, migrations `0019`
+through `0021`, and is **not pushed and not deployed**. Everything before it is
+on `main` and deployed, as far as `687c90b` on 2026-09-05. `npm run build`
+succeeds. Both halves of the build are worth running before a push: neither
+`astro build` nor `tsup` type-checks, so a build failure is a different failure
+from a failing `check`.
 
 Run the two halves of `npm run check` separately, or at least do not truncate
 their output: it is `astro check && tsc --noEmit`, and piping the pair through
 `tail` shows only the first summary. A type error reached `main` that way.
+
+### The room can see who is watching its stream
+
+The newest and largest part of the room. When the radio streams to a Kick
+channel it is watched through `destiny.gg/bigscreen#kick/dggJams`, and Destiny
+chat knows who has that embed open. The API reads that and serves it to an OBS
+overlay.
+
+`docs/plans/bigscreen-watchers.md` is the plan and the record of every decision;
+`docs/research/dgg-embed-watchers-websockets.md` is the measured behaviour of
+both destiny.gg sockets. All five slices are built: the tracker and its admin
+section, the overlay, the emote somebody last used, the history graph, and a
+source that keeps its settings.
+
+That last one is why there are two ways to configure the overlay and both are
+meant. A query string configures a source that will then be left alone.
+`?profile=<the admin's own uuid>` reads `watcher_embed_settings` instead, so the
+look can be changed from `/admin#obs` without reaching the machine OBS runs on:
+the overlay polls that row once a second, both ends send `no-store`, and a save
+lands in a running browser source without a reload. `?profile=` wins where both
+are given.
+
+`stream_watch_samples` stores the site count and chat roster count once a
+minute. Every row also stores the selected platform and channel. The composite
+key is the minute plus that target, so changing the target inside a minute keeps
+both readings. `/api/watchers/history` returns up to a week, and `/admin#obs`
+draws each target separately. Missing source counts and missing minutes break a
+line instead of being drawn as measured zeroes.
+
+Try it without the room at all:
+
+```
+npx tsx scripts/dgg-watch-probe.ts kick destiny
+```
+
+`kick/destiny` is the channel to develop against, because `dggJams` is dark most
+of the time and a dark channel correctly shows nothing at all.
+
+`stream_watch` is **switched on** in the local database for testing, pointed at
+`kick/destiny`. Both sockets, the overlay and the minute sampler were live on
+2026-09-05. The switch at the top of `/admin#obs` turns it off again.
 
 ### The archive is part of the room now
 
@@ -156,7 +199,14 @@ include development data unless each remembered to filter.
 
 ## Waiting on a person
 
-1. **Nothing is waiting to ship.** `main` is deployed as of 2026-09-05.
+1. **The watchers feature has never been deployed.** It is committed, tested,
+   and green through `check`, the suite and `build`, and the diff has been read
+   as far as the integration points, the contracts, the schema, the tracker and
+   the admin page. The four destiny.gg socket clients and the overlay's CSS have
+   had one pair of eyes only. The visual side — how the overlay reads over a
+   real stream — has been judged through one browser window and one operator's
+   eye. It is not pushed: deploying it turns nothing on by itself, since
+   `stream_watch` arrives disabled, but production has never held either socket.
 2. **The slow-request alert has never seen real data.** `api_request_slow` has
    not been emitted anywhere, so `qz51WBuF` reads zero and the alert reads
    "Not firing" because there is nothing to fire on, not because it was
@@ -172,6 +222,11 @@ include development data unless each remembered to filter.
 5. **The seed files drift.** They are a snapshot: regenerate with
    `scripts/seed-export.ts` after topping up the archive or running a dump
    import, then commit what changed.
+6. **The README says the Chrome extension cannot open a localhost page.** It
+   can: `http://localhost:4321/embed/watchers` opened, screenshotted and
+   scripted fine on 2026-09-05. `TEST_HOST` still earns its place for OBS on
+   another machine, but that sentence is wrong and cost three rounds of blind
+   fixes before anybody tried it.
 
 ## True but not visible in the code
 
@@ -179,6 +234,24 @@ include development data unless each remembered to filter.
   forbid keeping API content durably, which is why the durable table was built
   from the CC0 dump. The room's operator has confirmed permission, so the live
   lookup now writes what it finds like any other source.
+- **Both destiny.gg sockets answer 403 to a foreign `Origin`.** They accept a
+  request carrying none at all, which is why the tracker is server-side: a
+  browser always sends its own origin and cannot be told not to, so the OBS page
+  could never connect for itself. Nothing about this is CORS.
+- **Chat never broadcasts a change of embed.** It is seen when that person next
+  speaks, so `NAMES` on each connect is the only correction and a reconnect is a
+  repair rather than a cost. Everything else about the two sockets, including
+  why the site's count and the chat roster disagree, is in the research doc.
+- **A prerendered island must render the same thing the server did.** The
+  watchers overlay read its options out of the query string while rendering;
+  the server has no query string, so React kept the server's class and the
+  container stayed `watchers-float` however the browser source was configured,
+  while its children were built for a row. Twelve absolutely positioned
+  watchers with no coordinates stack in the top left corner. Options are read
+  in an effect now.
+- **`zoom` is how an emote grows, not `scale`.** `scale` is painted, so the
+  layout box stays 28 pixels and a row of them overlaps itself. `emotes.md` has
+  the detail.
 - **`@distube/ytsr` reads videos and playlists and nothing else.** Its
   `parseItem` returns null for a `channelRenderer`, which then throws, so there
   is no channel search however the options are written. Blocking a channel goes
@@ -255,6 +328,16 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   project can see, while `docs/handoff.md` went on claiming to be the only one.
   A convention changed in `docs/` and not in the skill that writes it is a
   convention that lasts one session. The skill now updates this file.
+- **Three fixes were shipped for a layout nobody had looked at.** The row
+  overlay was wrong for one reason — a hydration mismatch meant its stylesheet
+  never applied — and each round found a real, unrelated fault instead, because
+  each round reasoned about CSS rather than opening the page. The browser was
+  available the whole time. Open the thing before fixing the thing.
+- **Measuring settled in one step what argument could not.** Whether a row fits
+  is arithmetic: twenty-four watchers need 2668px of a 1888px line, twelve need
+  1264px. Same for the overlay churn — three to ten of twenty-four slots
+  swapping every second, counted off the live socket, which is what justified
+  holding the drawn set steady.
 - **Re-running a patch to see why it failed applies the parts that worked
   again.** That silently duplicated seventy lines of `contracts.ts`, which
   TypeScript accepted because identical interfaces merge.
@@ -270,9 +353,19 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 - **`research`** when a question needs primary sources, such as a provider's
   limits or terms. It writes to `docs/research/`, which is where this project
   keeps that kind of finding.
+- **`claude-in-chrome`** before changing anything visual. It opens a localhost
+  page despite what the README says, and three rounds of overlay fixes were
+  spent reasoning about CSS that a single screenshot disproved.
 - **`unslop`** on anything written for a person to read, this file included.
 
 ## Next
+
+Push the watchers work and watch it in production: whether both sockets stay up
+for longer than a development session, and whether the minute sampler and the
+graph agree with what the site says. Nothing switches on until an admin sets a
+channel at `/admin#obs`.
+
+After that, the genre work below is still the larger prize.
 
 The one thing that moves 37% upward: the per-track pass in
 `scripts/enrich-genres.ts`, which identifies a track from its YouTube Music card
