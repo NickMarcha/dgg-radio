@@ -164,7 +164,16 @@
   }
 }
 
-.watcher .emote {
+/*
+ * `:where` so this weighs nothing, which is the whole point of a base rule:
+ * every one of the CDN's `.emote.<prefix>` rules has to beat it, the way they
+ * beat chat-gui's own. Written as `.watcher .emote` it tied with them instead,
+ * and our stylesheet is the one the browser reads second, so it won 24 emotes'
+ * `background-position`. CuckCrab is the visible half of that: 92 frames of a
+ * 2944px strip, starting at `704px` and stepping to `-2240px`, forced to start
+ * at zero and so playing 22 frames of somebody else's cat and 22 of nothing.
+ */
+:where(.watcher) .emote {
   display: inline-block;
   position: relative;
   overflow: hidden;
@@ -175,11 +184,10 @@
 }
 
 /*
- * Two things that have to beat the CDN's own `.emote.<prefix>` rules, which
- * sit at the same specificity as the base rule above — so which of them won
- * would otherwise depend on the order the two stylesheets happen to load in.
- * The class is named twice to outrank them outright, the same trick flairs.css
- * uses, rather than with `!important`.
+ * Two things that have to beat the CDN's own `.emote.<prefix>` rules. The
+ * class is named twice to outrank them outright, the same trick flairs.css
+ * uses, rather than with `!important` — and unlike the base rule above, these
+ * are meant to win.
  *
  * A dance stops after a dozen or so iterations upstream, because a chat message
  * settles down once it has been read and an overlay has nothing to settle into.

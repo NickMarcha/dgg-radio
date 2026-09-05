@@ -250,6 +250,15 @@ Three things only using it revealed:
   default `max` of twelve. Two earlier attempts at this — `zoom` instead of
   `scale`, then `nowrap` instead of wrapping — were both real fixes for real
   faults and neither touched the cause, because neither was measured first.
+- **A base rule has to weigh nothing.** The copy of chat-gui's `.emote` rule
+  was written `.watcher .emote`, which ties with every `.emote.<prefix>` rule
+  the CDN declares — and our stylesheet is the one the browser reads second, so
+  it won all 24 ties over `background-position`. CuckCrab is 92 frames of a
+  2944px strip, declared to start at `704px` and step to `-2240px`; forced to
+  start at zero it played 22 frames of somebody else's cat and then 22 of
+  nothing. Wrapping the scope in `:where()` puts the base rule back below every
+  per-emote rule, where chat-gui's own sits. The deliberate overrides still name
+  their class twice and still win.
 - **The base `.emote` rule is not decoration.** Copied from chat-gui's own
   stylesheet, it carries `position: relative` and `overflow: hidden`, and some
   emotes decorate themselves with absolutely positioned pseudo-elements that
