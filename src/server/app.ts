@@ -1,4 +1,5 @@
 import { zValidator } from '@hono/zod-validator';
+import { routePath } from 'hono/route';
 import { cors } from 'hono/cors';
 import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
@@ -33,7 +34,12 @@ import {
   setSessionCookie,
   type AuthenticatedUser,
 } from './auth';
-import { captureServerEvent, captureServerException } from './analytics';
+import {
+  captureServerEvent,
+  captureServerException,
+  captureSlowRequest,
+  SLOW_REQUEST_MS,
+} from './analytics';
 import {
   createRule,
   deleteRule,
@@ -175,6 +181,32 @@ export function createApp(dependencies: AppDependencies) {
   const app = new Hono<{ Variables: Variables }>();
 
   app.use('*', secureHeaders());
+  // Only the tail is recorded: a request slower than SLOW_REQUEST_MS. A healthy
+  // server writes nothing at all, which is what makes this safe to put in front
+  // of /api/room, polled every fifteen seconds by every open room.
+  app.use('/api/*', async (context, next) => {
+    const startedAt = performance.now();
+    // If the handler throws, the error handler below decides the real status;
+    // what is recorded here is only that the request failed slowly.
+    let status = 500;
+    try {
+      await next();
+      status = context.res.status;
+    } finally {
+      const durationMs = performance.now() - startedAt;
+      if (durationMs >= SLOW_REQUEST_MS) {
+        captureSlowRequest({
+          // The registered path rather than the requested one, so a thousand
+          // track ids do not become a thousand different routes.
+          route: routePath(context, -1),
+          method: context.req.method,
+          status,
+          durationMs,
+          userId: context.get('user')?.id,
+        });
+      }
+    }
+  });
   app.use(
     '/api/*',
     cors({
