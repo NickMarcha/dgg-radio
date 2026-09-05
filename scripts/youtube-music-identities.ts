@@ -67,8 +67,8 @@ const CONCURRENCY = 1;
  * doubles the spacing, which walks the rate down towards whatever is actually
  * sustainable instead of tripping the same limit sixty times.
  */
-const STARTING_SPACING_MS = 2_000;
-const MAX_SPACING_MS = 8_000;
+/** On top of the two seconds `findMusicCard` already enforces. */
+const MAX_EXTRA_WAIT_MS = 8_000;
 /** Consecutive refusals taken as "the window is shut" rather than a bad page. */
 const GIVE_UP_AFTER = 20;
 /** How long to sit out a shut window. Measured at about twenty minutes. */
@@ -127,15 +127,13 @@ ${LOCK} if it is gone.`,
 /** Null means asked and told no; undefined means not asked yet. */
 type Answer = { artist: string; title: string } | null;
 
-let nextSlot = Promise.resolve();
-let spacingMs = STARTING_SPACING_MS;
-
-/** One request at a time, spaced, however many workers are asking. */
-function waitForSlot(): Promise<void> {
-  const waited = nextSlot;
-  nextSlot = waited.then(() => new Promise((resolve) => setTimeout(resolve, spacingMs)));
-  return waited;
-}
+/**
+ * The spacing lives in `findMusicCard` now, so that the room is protected by it
+ * too rather than only this script. What is left here is the extra wait after a
+ * refusal, which is this script's business: it is the only caller that makes
+ * enough requests in a row to be refused.
+ */
+let extraWaitMs = 0;
 
 /**
  * A refusal is worth waiting out rather than skipping past: the video is fine,
@@ -147,7 +145,7 @@ function waitForSlot(): Promise<void> {
  */
 async function fetchCard(videoId: string): Promise<Answer> {
   for (let attempt = 0; ; attempt += 1) {
-    await waitForSlot();
+    if (extraWaitMs > 0) await new Promise((resolve) => setTimeout(resolve, extraWaitMs));
     try {
       const card = await findMusicCard(videoId);
       return card ? { artist: card.artist, title: card.title } : null;
@@ -264,10 +262,10 @@ async function main(): Promise<void> {
             // Put the track back: it was refused, not answered.
             next -= 1;
             cooldowns += 1;
-            spacingMs = Math.min(spacingMs * 2, MAX_SPACING_MS);
+            extraWaitMs = Math.min(extraWaitMs === 0 ? 1_000 : extraWaitMs * 2, MAX_EXTRA_WAIT_MS);
             process.stdout.write(
               `\n  refused — waiting ${COOLDOWN_MS / 60_000} minutes, ` +
-                `then ${spacingMs / 1_000}s apart (cooldown ${cooldowns})\n`,
+                `then ${extraWaitMs / 1_000}s slower (cooldown ${cooldowns})\n`,
             );
             await new Promise((resolve) => setTimeout(resolve, COOLDOWN_MS));
             refusals = 0;

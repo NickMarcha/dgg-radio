@@ -19,6 +19,29 @@ const USER_AGENT =
 const ACCEPT_LANGUAGE = 'en-US,en;q=0.9';
 
 /**
+ * One watch page at a time, two seconds apart, for the whole process.
+ *
+ * Enrichment starts up to two hundred lookups at once, and MusicBrainz and
+ * Discogs each serialize their own share behind a limiter of their own. This
+ * had none, so a few playlist imports arriving together meant two hundred
+ * concurrent requests to YouTube — and eight concurrent is what earned a
+ * `google.com/sorry` block on the address that ran the backfill. A single
+ * caller at this spacing read 25,220 pages without one refusal.
+ *
+ * It belongs here rather than in each caller because the address is what gets
+ * blocked, and the address is shared by everything in the process.
+ */
+const REQUEST_SPACING_MS = 2_000;
+
+let nextSlot = Promise.resolve();
+
+function waitForSlot(): Promise<void> {
+  const waited = nextSlot;
+  nextSlot = waited.then(() => new Promise((resolve) => setTimeout(resolve, REQUEST_SPACING_MS)));
+  return waited;
+}
+
+/**
  * A page that would not answer, with what it said about coming back.
  *
  * YouTube sends no rate-limit headers on a good response, so there is nothing
@@ -146,6 +169,7 @@ function firstCard(data: unknown): MusicCard | null {
  * card apart from YouTube having changed its response.
  */
 export async function findMusicCard(videoId: string): Promise<MusicCard | null> {
+  await waitForSlot();
   const endpoint = new URL('https://www.youtube.com/watch');
   endpoint.searchParams.set('v', videoId);
   endpoint.searchParams.set('hl', 'en');
