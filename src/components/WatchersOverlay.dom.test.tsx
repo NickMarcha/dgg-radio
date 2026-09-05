@@ -5,10 +5,12 @@ import type { WatchersSnapshot } from '../shared/contracts';
 import WatchersOverlay from './WatchersOverlay';
 
 /**
- * The bumper layout is the one that moves things itself, so this is about the
- * wiring rather than the physics: that the loop starts, measures, and writes a
- * position onto each watcher, and stops when the layout changes. What the
- * positions should be is `bumperMotion.test.ts`.
+ * The overlay in a real DOM, for the parts that only exist after it hydrates:
+ * the options it reads out of the address bar, and the bumper layout, which is
+ * the one that moves things itself. The bumper cases are about the wiring
+ * rather than the physics — that the loop starts, measures, and writes a
+ * position onto each watcher. What the positions should be is
+ * `bumperMotion.test.ts`.
  */
 
 const state = vi.hoisted(() => ({ snapshot: null as WatchersSnapshot | null }));
@@ -137,5 +139,29 @@ describe('the bumper layout', () => {
 
     for (let i = 0; i < 5; i += 1) runFrame(16);
     expect(positions().every((value) => value === '')).toBe(true);
+  });
+});
+
+describe('names', () => {
+  it('colours a name the way chat colours it', () => {
+    window.history.replaceState({}, '', '/embed/watchers');
+    state.snapshot = snapshot(['Moddy']);
+    state.snapshot.watchers[0].flair = 'moderator';
+    render(<WatchersOverlay apiUrl="http://api.test" />);
+
+    expect(document.querySelector('.watcher-name')?.className).toBe(
+      'watcher-name flair-moderator',
+    );
+  });
+
+  it('drops the flair entirely when the source asked for plain white', () => {
+    // Not a colour laid over the flair: two of them are moving gradients, which
+    // no colour paints over. Without the class there is nothing to beat.
+    window.history.replaceState({}, '', '/embed/watchers?color=white');
+    state.snapshot = snapshot(['Moddy']);
+    state.snapshot.watchers[0].flair = 'moderator';
+    render(<WatchersOverlay apiUrl="http://api.test" />);
+
+    expect(document.querySelector('.watcher-name')?.className).toBe('watcher-name');
   });
 });

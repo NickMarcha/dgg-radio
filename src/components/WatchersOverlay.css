@@ -46,7 +46,10 @@
  * changed `background-size` would not.
  */
 .watcher-body {
-  zoom: var(--watcher-scale);
+  /* The layout's own scale times whatever the source asked for, so a size is a
+     percentage of what this arrangement was drawn to look like rather than an
+     absolute that undoes it. */
+  zoom: calc(var(--watcher-scale) * var(--size, 1));
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -173,6 +176,17 @@
  * 2944px strip, starting at `704px` and stepping to `-2240px`, forced to start
  * at zero and so playing 22 frames of somebody else's cat and 22 of nothing.
  */
+/*
+ * The container chat-gui puts a message's emotes in. It is here because parts
+ * of the CDN stylesheet are written against it — Chatting declares its whole
+ * 320px strip as its width and is cut back to one frame only by
+ * `.text > .emote.Chatting` — so it exists for those selectors rather than for
+ * the layout, and takes no box of its own.
+ */
+:where(.watcher) .text {
+  display: contents;
+}
+
 :where(.watcher) .emote {
   display: inline-block;
   position: relative;
@@ -203,12 +217,12 @@
  * catalogue moves; an emote it has never heard of is left as the CDN wrote it.
  */
 .watcher .emote.emote:is(
-  .Askers, .BEARSLEEP, .BLADE, .BLICKY, .BONK, .catJAM, .CHEERSTINY, .ChokeDank,
-  .Clap, .COOMER, .CuckCrab, .DANKMEMES, .gachiGASM, .JAMSTINY, .Klappa, .KYSNOW,
-  .MiyanoHype, .MLADY, .monkaGun, .monkaSMEGA, .MonkeyListening, .NOOOO,
-  .NoTears, .OOOO, .OverRustle, .peepoRiot, .pepeJAM, .PepeLaugh, .PepeSteer,
-  .PepoPunch, .POPPERS, .RaveDoge, .REE, .SHRUGSTINY, .SICKO, .SideEye, .SMASHit,
-  .SNAP, .SpookerZ, .WooYeah, .YAM, .YAP, .YeeLaugh
+  .Askers, .BEARSLEEP, .BLADE, .BLICKY, .BONK, .catJAM, .Chatting, .CHEERSTINY,
+  .ChokeDank, .Clap, .COOMER, .CuckCrab, .DANKMEMES, .gachiGASM, .JAMSTINY,
+  .Klappa, .KYSNOW, .MiyanoHype, .MLADY, .monkaGun, .monkaSMEGA,
+  .MonkeyListening, .NOOOO, .NoTears, .OOOO, .OverRustle, .peepoRiot, .pepeJAM,
+  .PepeLaugh, .PepeSteer, .PepoPunch, .POPPERS, .RaveDoge, .REE, .SHRUGSTINY,
+  .SICKO, .SideEye, .SMASHit, .SNAP, .SpookerZ, .WooYeah, .YAM, .YAP, .YeeLaugh
 ) {
   animation-iteration-count: infinite;
 }

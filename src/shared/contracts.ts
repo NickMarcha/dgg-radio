@@ -860,6 +860,14 @@ export type WatcherNames = (typeof watcherNames)[number];
 export const watcherEntrances = ['fade', 'spin', 'slide', 'random'] as const;
 export type WatcherEntrance = (typeof watcherEntrances)[number];
 
+/**
+ * Whether a name is coloured the way chat colours it, or plain white. Chat's
+ * colours mean something to somebody watching chat; over a stream they can
+ * read as decoration, and two of them are moving gradients.
+ */
+export const watcherColors = ['flair', 'white'] as const;
+export type WatcherColor = (typeof watcherColors)[number];
+
 export interface WatcherEmbedOptions {
   show: WatcherShow;
   /** Minutes, for `show=speakers`. */
@@ -869,8 +877,11 @@ export interface WatcherEmbedOptions {
   names: WatcherNames;
   enter: WatcherEntrance;
   motion: WatcherMotion;
+  color: WatcherColor;
   /** Percent of the standard pace. 200 is twice as fast, 25 a crawl. */
   speed: number;
+  /** Percent of the size the layout draws a watcher at, emote and name together. */
+  size: number;
   /** Percent of the standard distance travelled. 0 holds a watcher still. */
   roam: number;
   /** Percent of the frame kept clear at every edge, so nothing is cropped. */
@@ -880,6 +891,7 @@ export interface WatcherEmbedOptions {
 export const WATCHER_SPEED_RANGE = { min: 10, max: 400 } as const;
 export const WATCHER_ROAM_RANGE = { min: 0, max: 300 } as const;
 export const WATCHER_INSET_RANGE = { min: 0, max: 25 } as const;
+export const WATCHER_SIZE_RANGE = { min: 25, max: 400 } as const;
 
 export const DEFAULT_WATCHER_EMBED_OPTIONS: WatcherEmbedOptions = {
   show: 'speakers',
@@ -889,7 +901,9 @@ export const DEFAULT_WATCHER_EMBED_OPTIONS: WatcherEmbedOptions = {
   names: 'under',
   enter: 'fade',
   motion: 'drift',
+  color: 'flair',
   speed: 100,
+  size: 100,
   roam: 100,
   inset: 4,
 };
@@ -902,7 +916,9 @@ export const watcherEmbedSchema = z.object({
   names: z.enum(watcherNames).optional(),
   enter: z.enum(watcherEntrances).optional(),
   motion: z.enum(watcherMotions).optional(),
+  color: z.enum(watcherColors).optional(),
   speed: z.number().int().min(WATCHER_SPEED_RANGE.min).max(WATCHER_SPEED_RANGE.max).optional(),
+  size: z.number().int().min(WATCHER_SIZE_RANGE.min).max(WATCHER_SIZE_RANGE.max).optional(),
   roam: z.number().int().min(WATCHER_ROAM_RANGE.min).max(WATCHER_ROAM_RANGE.max).optional(),
   inset: z.number().int().min(WATCHER_INSET_RANGE.min).max(WATCHER_INSET_RANGE.max).optional(),
 });

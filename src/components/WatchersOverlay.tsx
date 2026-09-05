@@ -4,7 +4,9 @@ import {
   DEFAULT_WATCHER_EMBED_OPTIONS,
   WATCHER_INSET_RANGE,
   WATCHER_ROAM_RANGE,
+  WATCHER_SIZE_RANGE,
   WATCHER_SPEED_RANGE,
+  watcherColors,
   watcherEntrances,
   watcherLayouts,
   watcherMotions,
@@ -55,6 +57,13 @@ export function readWatchersOptions(search: string): WatcherEmbedOptions {
     names: oneOf(params.get('names'), watcherNames, DEFAULT_WATCHER_EMBED_OPTIONS.names),
     enter: oneOf(params.get('enter'), watcherEntrances, DEFAULT_WATCHER_EMBED_OPTIONS.enter),
     motion: oneOf(params.get('motion'), watcherMotions, DEFAULT_WATCHER_EMBED_OPTIONS.motion),
+    color: oneOf(params.get('color'), watcherColors, DEFAULT_WATCHER_EMBED_OPTIONS.color),
+    size: wholeNumber(
+      params.get('size'),
+      DEFAULT_WATCHER_EMBED_OPTIONS.size,
+      WATCHER_SIZE_RANGE.max,
+      WATCHER_SIZE_RANGE.min,
+    ),
     speed: wholeNumber(
       params.get('speed'),
       DEFAULT_WATCHER_EMBED_OPTIONS.speed,
@@ -431,7 +440,12 @@ export default function WatchersOverlay({ apiUrl }: { apiUrl: string }) {
         `watchers-names-${options.names}`,
         `watchers-motion-${options.motion}`,
       ].join(' ')}
-      style={{ '--roam': String(options.roam / 100) } as React.CSSProperties}
+      style={
+        {
+          '--roam': String(options.roam / 100),
+          '--size': String(options.size / 100),
+        } as React.CSSProperties
+      }
     >
       {rendered.current.map(({ watcher, leavingSince }) => (
         <div
@@ -450,10 +464,26 @@ export default function WatchersOverlay({ apiUrl }: { apiUrl: string }) {
           style={positionOf(watcher.nick)}
         >
           <div className="watcher-body">
-            <span className={`emote ${watcher.lastEmote ?? watcher.emote ?? DEFAULT_EMOTE}`} />
+            {/*
+              `text` is the container chat-gui puts a message's emotes in, and
+              parts of the CDN stylesheet are written against it: Chatting
+              declares its whole 320px strip as its width and is cut back to one
+              32px frame only by `.text > .emote.Chatting`. Without this the
+              overlay drew the entire sprite sheet in a row.
+            */}
+            <span className="text">
+              <span className={`emote ${watcher.lastEmote ?? watcher.emote ?? DEFAULT_EMOTE}`} />
+            </span>
             {options.names !== 'off' && (
               <span
-                className={watcher.flair ? `watcher-name flair-${watcher.flair}` : 'watcher-name'}
+                className={
+                  // Plain white is the absence of the flair class rather than a
+                  // colour laid over it: two flairs are moving gradients, and
+                  // painting over one of those takes more than a colour.
+                  watcher.flair && options.color === 'flair'
+                    ? `watcher-name flair-${watcher.flair}`
+                    : 'watcher-name'
+                }
               >
                 {watcher.nick}
               </span>

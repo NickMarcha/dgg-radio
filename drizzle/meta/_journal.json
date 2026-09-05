@@ -162,6 +162,13 @@
       "when": 1788644211481,
       "tag": "0022_married_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788645619548,
+      "tag": "0023_gigantic_elektra",
+      "breakpoints": true
     }
   ]
 }

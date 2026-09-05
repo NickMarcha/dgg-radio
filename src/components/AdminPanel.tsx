@@ -45,7 +45,9 @@ import type {
 import {
   WATCHER_INSET_RANGE,
   WATCHER_ROAM_RANGE,
+  WATCHER_SIZE_RANGE,
   WATCHER_SPEED_RANGE,
+  watcherColors,
   watcherEntrances,
   watcherLayouts,
   watcherMotions,
@@ -1317,6 +1319,11 @@ const WATCHER_NAME_LABELS: Record<string, string> = {
   off: 'Hidden',
 };
 
+const WATCHER_COLOR_LABELS: Record<string, string> = {
+  flair: 'Chat flair colours',
+  white: 'Plain white',
+};
+
 const WATCHER_MOTION_LABELS: Record<string, string> = {
   drift: 'Wander',
   bob: 'Bob up and down',
@@ -1392,6 +1399,21 @@ const WATCHER_SOURCE_OPTIONS: SourceOption[] = [
     labels: WATCHER_MOTION_LABELS,
   },
   {
+    kind: 'choice',
+    name: 'color',
+    label: 'Name colour',
+    values: watcherColors,
+    fallback: 'flair',
+    labels: WATCHER_COLOR_LABELS,
+  },
+  {
+    kind: 'number',
+    name: 'size',
+    label: 'Size',
+    fallback: 100,
+    hint: 'Percent of the size this arrangement draws at, emote and name together.',
+  },
+  {
     kind: 'number',
     name: 'speed',
     label: 'Speed',
@@ -1456,7 +1478,9 @@ function PersonalWatcherSource({
     names: saved.names,
     enter: saved.enter,
     motion: saved.motion,
+    color: saved.color,
     speed: String(saved.speed),
+    size: String(saved.size),
     roam: String(saved.roam),
     inset: String(saved.inset),
   });
@@ -1475,7 +1499,9 @@ function PersonalWatcherSource({
         names: current.names,
         enter: current.enter,
         motion: current.motion,
+        color: current.color,
         speed: current.speed,
+        size: current.size,
         roam: current.roam,
         inset: current.inset,
       });
@@ -1569,6 +1595,30 @@ function PersonalWatcherSource({
               <option key={value} value={value}>{WATCHER_ENTRANCE_LABELS[value]}</option>
             ))}
           </select>
+        </label>
+        <label>
+          Name colour
+          <select
+            value={draft.color}
+            disabled={draft.names === 'off'}
+            onChange={(event) =>
+              setDraft({ ...draft, color: event.currentTarget.value as typeof draft.color })
+            }
+          >
+            {watcherColors.map((value) => (
+              <option key={value} value={value}>{WATCHER_COLOR_LABELS[value]}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Size %
+          <input
+            type="number"
+            min={WATCHER_SIZE_RANGE.min}
+            max={WATCHER_SIZE_RANGE.max}
+            value={draft.size}
+            onChange={(event) => setDraft({ ...draft, size: Number(event.currentTarget.value) })}
+          />
         </label>
         <label>
           Move

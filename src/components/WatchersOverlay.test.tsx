@@ -43,7 +43,9 @@ function options(overrides: Partial<WatcherEmbedOptions> = {}): WatcherEmbedOpti
     names: 'under',
     enter: 'fade',
     motion: 'drift',
+    color: 'flair',
     speed: 100,
+    size: 100,
     roam: 100,
     inset: 4,
     ...overrides,
@@ -64,7 +66,7 @@ describe('readWatchersOptions', () => {
     expect(
       readWatchersOptions(
         '?show=all&window=30&max=8&layout=climb&names=off&enter=spin' +
-          '&motion=orbit&speed=180&roam=0&inset=12',
+          '&motion=orbit&speed=180&roam=0&inset=12&color=white&size=150',
       ),
     ).toEqual(
       options({
@@ -78,6 +80,8 @@ describe('readWatchersOptions', () => {
         speed: 180,
         roam: 0,
         inset: 12,
+        color: 'white',
+        size: 150,
       }),
     );
   });
@@ -87,7 +91,7 @@ describe('readWatchersOptions', () => {
     // renders nothing cannot.
     const parsed = readWatchersOptions(
       '?show=everyone&max=0&window=abc&layout=grid&names=inside&enter=explode' +
-        '&motion=wiggle&speed=9000&roam=-5&inset=90',
+        '&motion=wiggle&speed=9000&roam=-5&inset=90&color=beige&size=1',
     );
     expect(parsed).toEqual(options());
   });
@@ -342,7 +346,7 @@ describe('WatchersOverlay', () => {
   it('renders an empty frame while nothing is being watched', () => {
     expect(render()).toBe(
       '<div class="watchers watchers-float watchers-names-under watchers-motion-drift"' +
-        ' style="--roam:1"></div>',
+        ' style="--roam:1;--size:1"></div>',
     );
   });
 });

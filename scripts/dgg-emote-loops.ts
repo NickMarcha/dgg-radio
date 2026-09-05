@@ -29,6 +29,25 @@ function repeats(animation: string): boolean {
   });
 }
 
+/** One rule can list many selectors, and `:is(…)` has commas of its own. */
+function splitSelector(selector: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const character of selector) {
+    if (character === '(') depth += 1;
+    if (character === ')') depth -= 1;
+    if (character === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += character;
+  }
+  parts.push(current);
+  return parts;
+}
+
 function readRules(css: string): { base: Set<string>; pseudo: Set<string>; once: Set<string> } {
   const base = new Set<string>();
   const pseudo = new Set<string>();
@@ -38,16 +57,25 @@ function readRules(css: string): { base: Set<string>; pseudo: Set<string>; once:
     const animation = /animation\s*:\s*([^;]+)/.exec(body);
     if (!animation) continue;
 
-    // Comments run into the selector that follows them, so they go first.
-    const target = selector.replace(/\/\*[\s\S]*?\*\//g, '').trim();
-    const own = /^\.emote\.([A-Za-z0-9_]+)$/.exec(target);
-    if (own) {
-      (repeats(animation[1]) ? base : once).add(own[1]);
-      continue;
-    }
+    // Comments run into the selector that follows them, so they go first, and
+    // `:not(…)` guards come out because they only ever exclude a neighbouring
+    // emote — something an overlay drawing one emote per watcher never has.
+    for (const part of splitSelector(selector.replace(/\/\*[\s\S]*?\*\//g, ''))) {
+      const target = part.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, '').replace(/\s+/g, ' ').trim();
 
-    const decoration = /^\.emote\.([A-Za-z0-9_]+):{1,2}(?:before|after)$/.exec(target);
-    if (decoration && repeats(animation[1])) pseudo.add(decoration[1]);
+      // What the overlay renders is `.text > .emote.<prefix>`, so a rule scoped
+      // to a chat line counts and one that needs a neighbour does not.
+      const own = /^(?:\.text > )?\.emote\.([A-Za-z0-9_]+)$/.exec(target);
+      if (own) {
+        (repeats(animation[1]) ? base : once).add(own[1]);
+        continue;
+      }
+
+      const decoration = /^(?:\.text > )?\.emote\.([A-Za-z0-9_]+):{1,2}(?:before|after)$/.exec(
+        target,
+      );
+      if (decoration && repeats(animation[1])) pseudo.add(decoration[1]);
+    }
   }
 
   // An emote whose own rule repeats is not also a one-shot: the CDN declares
