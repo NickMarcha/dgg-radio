@@ -8,7 +8,15 @@ const LEFT = 42;
 const RIGHT = 12;
 const TOP = 12;
 const BOTTOM = 28;
-const GAP_MS = 90_000;
+/**
+ * How far apart two readings may be and still be joined by a line. It follows
+ * the width of a stored point rather than being fixed: a week is grouped into
+ * half-hour buckets, and a rule written for one-minute samples would leave
+ * every point of that stranded on its own.
+ */
+function gapFor(bucketMinutes: number): number {
+  return Math.max(1, bucketMinutes) * 90_000;
+}
 
 type WatchMetric = 'siteCount' | 'chatCount';
 
@@ -68,6 +76,7 @@ export function buildWatchChartSeries(
   from: number,
   to: number,
   ceiling: number,
+  gapMs: number,
 ): WatchChartSeries {
   const segments: WatchChartPoint[][] = [];
   let segment: WatchChartPoint[] = [];
@@ -86,7 +95,7 @@ export function buildWatchChartSeries(
       previousAt = null;
       continue;
     }
-    if (previousAt !== null && at - previousAt > GAP_MS) finish();
+    if (previousAt !== null && at - previousAt > gapMs) finish();
     segment.push(pointFor(sample, value, from, to, ceiling));
     previousAt = at;
   }
@@ -111,7 +120,7 @@ export function buildWatchChartSeries(
 function axisCeiling(samples: StreamWatchSample[]): number {
   const largest = Math.max(
     0,
-    ...samples.flatMap((sample) => [sample.siteCount ?? 0, sample.chatCount]),
+    ...samples.flatMap((sample) => [sample.siteCount ?? 0, sample.chatCount ?? 0]),
   );
   return Math.max(10, Math.ceil(largest / 10) * 10);
 }
@@ -125,7 +134,12 @@ function axisTime(iso: string, durationMs: number): string {
 
 function latestText(sample: StreamWatchSample): string {
   const open = sample.siteCount === null ? 'not listed' : `${sample.siteCount} open`;
-  return `${open}, ${sample.chatCount} in the chat roster`;
+  // Only the followed channel has a roster behind it. For everybody else the
+  // site's own count is the whole of what is known, and saying so is better
+  // than printing a zero nobody counted.
+  return sample.chatCount === null
+    ? open
+    : `${open}, ${sample.chatCount} in the chat roster`;
 }
 
 function WatchTargetChart({
@@ -140,8 +154,9 @@ function WatchTargetChart({
   const from = new Date(history.from).getTime();
   const to = new Date(history.to).getTime();
   const ceiling = axisCeiling(target.samples);
-  const site = buildWatchChartSeries(target.samples, 'siteCount', from, to, ceiling);
-  const chat = buildWatchChartSeries(target.samples, 'chatCount', from, to, ceiling);
+  const gap = gapFor(history.bucketMinutes);
+  const site = buildWatchChartSeries(target.samples, 'siteCount', from, to, ceiling, gap);
+  const chat = buildWatchChartSeries(target.samples, 'chatCount', from, to, ceiling, gap);
   const latest = target.samples.at(-1)!;
   const plotBottom = HEIGHT - BOTTOM;
   const plotRight = WIDTH - RIGHT;

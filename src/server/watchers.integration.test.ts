@@ -92,17 +92,34 @@ describe.skipIf(!connectionString)('stream watch settings', () => {
     });
   });
 
+  const tracked = (channel: string, chatCount: number, siteCount: number | null = null) => ({
+    channel: { platform: 'kick' as const, id: channel },
+    live: siteCount !== null,
+    siteCount,
+    chatCount,
+    watchers: [],
+  });
+
+  const listed = (platform: string, id: string, count: number) => ({
+    platform,
+    id,
+    count,
+    displayName: null,
+    title: null,
+    previewUrl: null,
+    viewers: null,
+  });
+
   it('keeps one latest sample per minute and target', async () => {
-    const first = {
-      channel: { platform: 'kick' as const, id: 'destiny' },
-      live: true,
-      siteCount: 840,
-      chatCount: 851,
-      watchers: [],
-    };
-    await recordStreamWatchSample(first, new Date('2026-09-05T20:14:05.000Z'), db);
     await recordStreamWatchSample(
-      { ...first, siteCount: 845, chatCount: 856 },
+      [listed('kick', 'destiny', 840)],
+      tracked('destiny', 851, 840),
+      new Date('2026-09-05T20:14:05.000Z'),
+      db,
+    );
+    await recordStreamWatchSample(
+      [listed('kick', 'destiny', 845)],
+      tracked('destiny', 856, 845),
       new Date('2026-09-05T20:14:54.000Z'),
       db,
     );
@@ -115,24 +132,47 @@ describe.skipIf(!connectionString)('stream watch settings', () => {
       channel: 'destiny',
       siteCount: 845,
       chatCount: 856,
-      live: true,
     });
+  });
+
+  it('records every embed the site listed, not only the one being followed', async () => {
+    await recordStreamWatchSample(
+      [listed('kick', 'destiny', 840), listed('kick', 'Zugami', 56), listed('youtube', 'abc123', 16)],
+      tracked('destiny', 851, 840),
+      new Date('2026-09-05T20:14:05.000Z'),
+      db,
+    );
+
+    const rows = await db.select().from(streamWatchSamples);
+    expect(rows.map((row) => `${row.platform}/${row.channel}`).sort()).toEqual([
+      'kick/destiny',
+      'kick/zugami',
+      'youtube/abc123',
+    ]);
+    // Only the followed channel has a roster behind it.
+    expect(rows.filter((row) => row.chatCount !== null)).toHaveLength(1);
+  });
+
+  it('records the followed channel in a minute the site did not list it', async () => {
+    await recordStreamWatchSample(
+      [listed('kick', 'someoneelse', 12)],
+      tracked('dggjams', 3),
+      new Date('2026-09-05T20:14:05.000Z'),
+      db,
+    );
+
+    const [row] = await db
+      .select()
+      .from(streamWatchSamples)
+      .where(sql`channel = 'dggjams'`);
+    expect(row).toMatchObject({ siteCount: null, chatCount: 3 });
   });
 
   it('does not overwrite another target selected in the same minute', async () => {
     const at = new Date('2026-09-05T20:14:30.000Z');
+    await recordStreamWatchSample([listed('kick', 'destiny', 840)], tracked('destiny', 851, 840), at, db);
     await recordStreamWatchSample(
-      {
-        channel: { platform: 'kick', id: 'destiny' },
-        live: true,
-        siteCount: 840,
-        chatCount: 851,
-        watchers: [],
-      },
-      at,
-      db,
-    );
-    await recordStreamWatchSample(
+      [],
       {
         channel: { platform: 'youtube', id: 'another-channel' },
         live: false,
@@ -152,17 +192,49 @@ describe.skipIf(!connectionString)('stream watch settings', () => {
     ]);
   });
 
+  it('groups a longer period into coarser points', async () => {
+    // A week of minutes is 10,080 points per channel, and there are as many
+    // channels as the site is listing. Longer periods are grouped instead.
+    const at = (minute: string) => new Date(`2026-09-05T${minute}:00.000Z`);
+    await recordStreamWatchSample([listed('kick', 'destiny', 10)], tracked('destiny', 11, 10), at('12:01'), db);
+    await recordStreamWatchSample([listed('kick', 'destiny', 30)], tracked('destiny', 31, 30), at('12:03'), db);
+
+    const history = await getStreamWatchHistory(at('00:00'), at('20:00'), db);
+
+    expect(history.bucketMinutes).toBe(5);
+    expect(history.samples).toHaveLength(1);
+    // The busiest reading in the bucket, not the last one: a peak that lasted a
+    // minute is the thing worth seeing at this width.
+    expect(history.samples[0]).toMatchObject({ siteCount: 30, chatCount: 31 });
+  });
+
+  it('draws the busiest channels, and always the one being followed', async () => {
+    const at = new Date('2026-09-05T12:00:00.000Z');
+    const crowd = Array.from({ length: 12 }, (_, index) =>
+      listed('kick', `channel${index}`, 100 + index),
+    );
+    // The followed channel is the quietest thing on the list.
+    await recordStreamWatchSample([...crowd, listed('kick', 'dggjams', 2)], tracked('dggjams', 3, 2), at, db);
+
+    const history = await getStreamWatchHistory(
+      new Date('2026-09-05T11:00:00.000Z'),
+      new Date('2026-09-05T13:00:00.000Z'),
+      db,
+    );
+
+    const drawn = history.samples.map((sample) => sample.channel);
+    expect(drawn).toHaveLength(8);
+    expect(drawn).toContain('dggjams');
+    expect(drawn).toContain('channel11');
+    expect(drawn).not.toContain('channel0');
+  });
+
   it('returns only samples inside the requested period', async () => {
-    const snapshot = {
-      channel: { platform: 'kick' as const, id: 'destiny' },
-      live: true,
-      siteCount: 840,
-      chatCount: 851,
-      watchers: [],
-    };
-    await recordStreamWatchSample(snapshot, new Date('2026-09-05T18:59:00.000Z'), db);
-    await recordStreamWatchSample(snapshot, new Date('2026-09-05T19:00:00.000Z'), db);
-    await recordStreamWatchSample(snapshot, new Date('2026-09-05T20:00:00.000Z'), db);
+    const snapshot = tracked('destiny', 851, 840);
+    const entries = [listed('kick', 'destiny', 840)];
+    await recordStreamWatchSample(entries, snapshot, new Date('2026-09-05T18:59:00.000Z'), db);
+    await recordStreamWatchSample(entries, snapshot, new Date('2026-09-05T19:00:00.000Z'), db);
+    await recordStreamWatchSample(entries, snapshot, new Date('2026-09-05T20:00:00.000Z'), db);
 
     const history = await getStreamWatchHistory(
       new Date('2026-09-05T19:00:00.000Z'),
@@ -172,6 +244,7 @@ describe.skipIf(!connectionString)('stream watch settings', () => {
     expect(history).toEqual({
       from: '2026-09-05T19:00:00.000Z',
       to: '2026-09-05T19:30:00.000Z',
+      bucketMinutes: 1,
       samples: [
         {
           sampledAt: '2026-09-05T19:00:00.000Z',
@@ -179,7 +252,6 @@ describe.skipIf(!connectionString)('stream watch settings', () => {
           channel: 'destiny',
           siteCount: 840,
           chatCount: 851,
-          live: true,
         },
       ],
     });

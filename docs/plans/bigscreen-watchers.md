@@ -1,6 +1,6 @@
 # Bigscreen watchers plan
 
-Status: all six slices are built and committed.
+Status: all seven slices are built and committed.
 
 ## Outcome
 
@@ -116,23 +116,28 @@ Singleton on `id = 1`, the shape `room_settings` already uses.
 
 ### `stream_watch_samples`
 
-One row a minute while tracking is on, keyed on the minute and target.
+One row a minute per embed while tracking is on, keyed on the minute and the
+target. Every embed the site listed gets a row, not only the one the room
+follows: the list arrives twice a minute anyway, and throwing away everything
+but one line of it was the only reason the rest was not recorded.
 
 | column | meaning |
 | --- | --- |
 | `sampled_at` | truncated to the minute |
-| `platform`, `channel` | the selected target when the sample was taken |
-| `site_count` | `count` from `dggApi:embeds`, null when the channel is absent |
-| `chat_count` | watchers in the roster |
-| `live` | whether the embeds list carried the channel at all |
+| `platform`, `channel` | the embed this row is about, channel lowercased |
+| `site_count` | `count` from `dggApi:embeds`, null when the followed channel is absent |
+| `chat_count` | watchers in the roster, null for every channel but the followed one |
 
-Both counts are kept because they measure different things. The site count can
-be missing because a channel nobody is watching does not appear in
+`platform` is text here rather than the enum the settings use. The room can
+only be pointed at platforms it knows about; the site lists whatever it lists,
+and a platform nobody here has heard of is worth recording rather than dropping.
+
+Both counts are kept because they measure different things, and a missing site
+count says something: a channel nobody is watching does not appear in
 `dggApi:embeds` at all. That list is also the only signal that a non-Destiny
-channel is live. `dggApi:streamInfo` answers for Destiny's own streams and
-nothing else. So
-`live` here means "the site reported at least one person on it", and the graph
-should say that rather than claim to know Kick's state. If that turns out to
+channel is live — `dggApi:streamInfo` answers for Destiny's own streams and
+nothing else — so a row means "the site reported somebody on it", and the graph
+says that rather than claiming to know Kick's state. If that turns out to
 matter, `kick.com/api/v2/channels/<slug>` answers without a key, and that is a
 later slice rather than a dependency now.
 
@@ -530,3 +535,33 @@ no CSS timeline either. That is why the bumper layout is covered by a test
 driving its own frames rather than by a screenshot: a tab this session can open
 is a tab the browser has already stopped animating. An OBS source is never
 hidden in that sense.
+
+### Slice 7: every embed, not only ours — done
+
+The live socket sends the whole list twice a minute and always did; only one
+line of it was ever written down. Now every embed in that list is stored each
+minute, and the followed channel is simply the row that also carries a chat
+count — the roster is read for one channel, so nobody else can have one.
+
+That makes the graph a picture of what destiny.gg was watching rather than of
+one channel, which is worth having for the same reason the room keeps any
+history: it answers questions nobody thought to ask at the time.
+
+Two things had to change to survive the extra rows.
+
+The history is grouped before it is sent. A week of minutes is 10,080 points per
+channel and there are as many channels as the site is listing, so a period picks
+a bucket — a minute up to six hours, then five, fifteen and thirty — and each
+bucket keeps the busiest reading in it, which is the thing worth seeing at that
+width. Only the eight busiest channels are drawn, and the followed one is always
+among them however quiet it is.
+
+The chart's rule for breaking a line was written for one-minute samples: points
+more than ninety seconds apart were treated as a gap in the record. Half-hour
+buckets are all further apart than that, so a week would have been drawn as a
+field of isolated dots. The rule now follows the width of a point.
+
+The bucket width is written into the statement rather than bound as a parameter.
+A bound parameter makes the copy in `group by` a different expression from the
+one in `select`, and Postgres answers by asking for the raw column to be grouped
+instead — which reads as a bug in the query rather than in how it was built.

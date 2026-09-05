@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
 import type {
   StreamWatchHistory,
   StreamWatchSample,
@@ -10,7 +10,7 @@ import type {
 import { getDatabase, type Database } from './db/client';
 import { streamWatch, streamWatchSamples, users } from './db/schema';
 import { ChatTracker, type WatchedChannel } from './dgg-chat';
-import { EmbedsTracker } from './dgg-embeds';
+import { EmbedsTracker, type EmbedEntry } from './dgg-embeds';
 import { ensureEmoteCatalogue, lastEmoteIn, type EmoteCatalogue } from './dgg-emotes';
 
 /**
@@ -106,29 +106,49 @@ export async function updateStreamWatchSettings(
 }
 
 /**
- * Store the latest values for this minute. Repeating a write after a quick
- * process restart updates the same row. A target switch gets its own row.
+ * Store this minute's reading of every embed the site listed, plus the followed
+ * channel, which is the only one with a chat roster behind it. Repeating a
+ * write inside the same minute updates those rows rather than adding more, so a
+ * restart costs nothing and a channel appearing mid-minute is simply recorded.
  */
 export async function recordStreamWatchSample(
-  snapshot: WatchersSnapshot,
+  entries: EmbedEntry[],
+  tracked: WatchersSnapshot,
   at: Date = new Date(),
   db: Database = getDatabase(),
 ): Promise<void> {
-  if (!snapshot.channel) return;
-
   const sampledAt = new Date(Math.floor(at.getTime() / SAMPLE_MS) * SAMPLE_MS);
-  const values = {
-    sampledAt,
-    platform: snapshot.channel.platform,
-    channel: snapshot.channel.id,
-    siteCount: snapshot.siteCount,
-    chatCount: snapshot.chatCount,
-    live: snapshot.live,
-  };
+  const rows = new Map<string, typeof streamWatchSamples.$inferInsert>();
+
+  for (const entry of entries) {
+    const channel = entry.id.toLowerCase();
+    rows.set(`${entry.platform}/${channel}`, {
+      sampledAt,
+      platform: entry.platform,
+      channel,
+      siteCount: entry.count,
+      chatCount: null,
+    });
+  }
+
+  // The followed channel carries its roster count, and is recorded even in a
+  // minute the site did not list it — that absence is a reading too.
+  if (tracked.channel) {
+    const key = `${tracked.channel.platform}/${tracked.channel.id}`;
+    rows.set(key, {
+      sampledAt,
+      platform: tracked.channel.platform,
+      channel: tracked.channel.id,
+      siteCount: rows.get(key)?.siteCount ?? tracked.siteCount,
+      chatCount: tracked.chatCount,
+    });
+  }
+
+  if (rows.size === 0) return;
 
   await db
     .insert(streamWatchSamples)
-    .values(values)
+    .values([...rows.values()])
     .onConflictDoUpdate({
       target: [
         streamWatchSamples.sampledAt,
@@ -136,35 +156,91 @@ export async function recordStreamWatchSample(
         streamWatchSamples.channel,
       ],
       set: {
-        siteCount: values.siteCount,
-        chatCount: values.chatCount,
-        live: values.live,
+        siteCount: sql`excluded.site_count`,
+        chatCount: sql`excluded.chat_count`,
       },
     });
 }
+
+/**
+ * How wide one point of the graph is. A week of minutes is 10,080 points per
+ * channel and there are as many channels as the site is listing, so a longer
+ * period is grouped more coarsely rather than sent in full.
+ */
+export function bucketMinutesFor(from: Date, to: Date): number {
+  const hours = (to.getTime() - from.getTime()) / 3_600_000;
+  if (hours <= 6) return 1;
+  if (hours <= 24) return 5;
+  if (hours <= 72) return 15;
+  return 30;
+}
+
+/** How many channels one period is drawn for, busiest first. */
+const HISTORY_TARGETS = 8;
 
 export async function getStreamWatchHistory(
   from: Date,
   to: Date,
   db: Database = getDatabase(),
 ): Promise<StreamWatchHistory> {
-  const rows = await db
-    .select()
-    .from(streamWatchSamples)
-    .where(
-      and(gte(streamWatchSamples.sampledAt, from), lte(streamWatchSamples.sampledAt, to)),
-    )
-    .orderBy(
-      asc(streamWatchSamples.sampledAt),
-      asc(streamWatchSamples.platform),
-      asc(streamWatchSamples.channel),
-    );
+  const bucketMinutes = bucketMinutesFor(from, to);
+  // The width is written into the statement rather than bound to it: a bound
+  // parameter makes the copy in `group by` a different expression from the one
+  // in `select`, and Postgres then asks to have the raw column grouped instead.
+  // It is one of four numbers this module chooses, never anything from outside.
+  const seconds = sql.raw(String(bucketMinutes * 60));
+  const bucket = sql<Date>`to_timestamp(floor(extract(epoch from ${streamWatchSamples.sampledAt}) / ${seconds}) * ${seconds})`;
 
-  const samples: StreamWatchSample[] = rows.map((row) => ({
-    ...row,
-    sampledAt: row.sampledAt.toISOString(),
-  }));
-  return { from: from.toISOString(), to: to.toISOString(), samples };
+  const rows = await db
+    .select({
+      sampledAt: bucket,
+      platform: streamWatchSamples.platform,
+      channel: streamWatchSamples.channel,
+      siteCount: sql<number | null>`max(${streamWatchSamples.siteCount})`,
+      chatCount: sql<number | null>`max(${streamWatchSamples.chatCount})`,
+    })
+    .from(streamWatchSamples)
+    .where(and(gte(streamWatchSamples.sampledAt, from), lte(streamWatchSamples.sampledAt, to)))
+    .groupBy(bucket, streamWatchSamples.platform, streamWatchSamples.channel)
+    .orderBy(asc(bucket), asc(streamWatchSamples.platform), asc(streamWatchSamples.channel));
+
+  // The busiest channels, and always the followed one: it is the only row with
+  // a chat count, which is the half of this nobody else can be drawn with.
+  const peaks = new Map<string, { peak: number; followed: boolean }>();
+  for (const row of rows) {
+    const key = `${row.platform}/${row.channel}`;
+    const seen = peaks.get(key) ?? { peak: 0, followed: false };
+    peaks.set(key, {
+      peak: Math.max(seen.peak, row.siteCount ?? 0),
+      followed: seen.followed || row.chatCount !== null,
+    });
+  }
+  const drawn = new Set(
+    [...peaks.entries()]
+      .sort(
+        ([, left], [, right]) =>
+          Number(right.followed) - Number(left.followed) || right.peak - left.peak,
+      )
+      .slice(0, HISTORY_TARGETS)
+      .map(([key]) => key),
+  );
+
+  const samples: StreamWatchSample[] = rows
+    .filter((row) => drawn.has(`${row.platform}/${row.channel}`))
+    .map((row) => ({
+      sampledAt: new Date(row.sampledAt).toISOString(),
+      platform: row.platform,
+      channel: row.channel,
+      siteCount: row.siteCount === null ? null : Number(row.siteCount),
+      chatCount: row.chatCount === null ? null : Number(row.chatCount),
+    }));
+
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    bucketMinutes,
+    samples,
+  };
 }
 
 function channelOf(settings: StreamWatchSettings): WatchedChannel | null {
@@ -201,13 +277,22 @@ class WatchTracker {
     }
     this.channel = channel;
 
-    if (!channel) {
+    if (!this.settings.enabled) {
       this.embeds.stop();
       this.stopChat();
       return;
     }
 
+    // The live socket is held for the whole of tracking, not for one channel:
+    // its list is what the graph records for every embed on the site, and the
+    // followed channel is only the one that also gets a chat roster.
     this.embeds.start();
+
+    if (!channel) {
+      this.stopChat();
+      return;
+    }
+
     this.members = await loadMembers(db);
     this.catalogue = await ensureEmoteCatalogue();
     this.applyGate();
@@ -252,7 +337,7 @@ class WatchTracker {
     this.sampleTimer ??= setInterval(() => {
       if (this.sampleBusy) return;
       this.sampleBusy = true;
-      void recordStreamWatchSample(this.snapshot())
+      void recordStreamWatchSample(this.embeds.all(), this.snapshot())
         .catch((error) => console.error('Stream watch sample failed', error))
         .finally(() => {
           this.sampleBusy = false;

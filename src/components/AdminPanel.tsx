@@ -1264,7 +1264,7 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
 
           <div className="admin-watch-history">
             <div className="admin-section-subheading">
-              <h3>Watcher history</h3>
+              <h3>Embed history</h3>
               <label className="admin-watch-history-toolbar">
                 Show
                 <select
@@ -1286,7 +1286,17 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
             {historyError ? (
               <p className="admin-empty">{historyError}</p>
             ) : history ? (
-              <StreamWatchChart history={history} />
+              <>
+                <p className="admin-help">
+                  Every embed destiny.gg listed while tracking was on, busiest first, up to
+                  eight of them.{' '}
+                  {history.bucketMinutes === 1
+                    ? 'One point a minute.'
+                    : `One point every ${history.bucketMinutes} minutes.`}{' '}
+                  Only the channel above is also counted in chat.
+                </p>
+                <StreamWatchChart history={history} />
+              </>
             ) : (
               <p className="admin-empty">Loading watcher history…</p>
             )}

@@ -118,4 +118,9 @@ export class EmbedsTracker {
   entryFor(channel: WatchedChannel): EmbedEntry | null {
     return findEmbed(this.entries, channel);
   }
+
+  /** Everything the site listed in the latest frame. */
+  all(): EmbedEntry[] {
+    return this.entries;
+  }
 }

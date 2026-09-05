@@ -169,6 +169,13 @@
       "when": 1788645619548,
       "tag": "0023_gigantic_elektra",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788645989632,
+      "tag": "0024_ambitious_harrier",
+      "breakpoints": true
     }
   ]
 }

@@ -17,7 +17,6 @@ function sample(
     channel: 'destiny',
     siteCount: 40,
     chatCount: 42,
-    live: true,
     ...overrides,
   };
 }
@@ -43,13 +42,14 @@ describe('watcher history chart', () => {
       [
         sample('2026-09-05T12:00:00.000Z'),
         sample('2026-09-05T12:01:00.000Z'),
-        sample('2026-09-05T12:02:00.000Z', { siteCount: null, live: false }),
+        sample('2026-09-05T12:02:00.000Z', { siteCount: null }),
         sample('2026-09-05T12:05:00.000Z'),
       ],
       'siteCount',
       from,
       to,
       50,
+      90_000,
     );
 
     expect(source.paths).toHaveLength(1);
@@ -61,6 +61,7 @@ describe('watcher history chart', () => {
     const history: StreamWatchHistory = {
       from: '2026-09-05T12:00:00.000Z',
       to: '2026-09-05T13:00:00.000Z',
+      bucketMinutes: 1,
       samples: [
         sample('2026-09-05T12:59:00.000Z'),
         sample('2026-09-05T12:59:00.000Z', {
@@ -68,7 +69,6 @@ describe('watcher history chart', () => {
           channel: 'another-channel',
           siteCount: null,
           chatCount: 0,
-          live: false,
         }),
       ],
     };
@@ -78,5 +78,49 @@ describe('watcher history chart', () => {
     expect(markup).toContain('Chatters watching');
     expect(markup).toContain('kick/destiny');
     expect(markup).toContain('youtube/another-channel');
+  });
+});
+
+describe('a period stored in coarser buckets', () => {
+  it('still joins points that are one bucket apart', () => {
+    // A week is grouped into half-hour buckets. A gap rule written for
+    // one-minute samples would call every one of those a break and draw a
+    // chart of isolated dots.
+    const from = new Date('2026-09-05T00:00:00.000Z').getTime();
+    const to = new Date('2026-09-05T02:00:00.000Z').getTime();
+    const series = buildWatchChartSeries(
+      [
+        sample('2026-09-05T00:00:00.000Z'),
+        sample('2026-09-05T00:30:00.000Z'),
+        sample('2026-09-05T01:00:00.000Z'),
+      ],
+      'siteCount',
+      from,
+      to,
+      50,
+      30 * 90_000,
+    );
+
+    expect(series.paths).toHaveLength(1);
+    expect(series.isolated).toHaveLength(0);
+  });
+
+  it('says only what it knows for a channel with no roster behind it', () => {
+    const history: StreamWatchHistory = {
+      from: '2026-09-05T12:00:00.000Z',
+      to: '2026-09-05T13:00:00.000Z',
+      bucketMinutes: 1,
+      samples: [
+        sample('2026-09-05T12:59:00.000Z', {
+          channel: 'zugami',
+          siteCount: 56,
+          chatCount: null,
+        }),
+      ],
+    };
+
+    const markup = renderToStaticMarkup(<StreamWatchChart history={history} />);
+    expect(markup).toContain('56 open');
+    expect(markup).not.toContain('in the chat roster');
   });
 });

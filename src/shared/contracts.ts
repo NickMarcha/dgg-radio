@@ -989,20 +989,29 @@ export interface WatchersSnapshot {
   watchers: Watcher[];
 }
 
-/** One stored minute of both counts, tied to the target that produced them. */
+/**
+ * One stored minute of one embed. Every embed destiny.gg listed gets a row, not
+ * only the one the room follows, so `platform` is whatever the site called it.
+ */
 export interface StreamWatchSample {
   sampledAt: string;
-  platform: WatchPlatform;
+  platform: string;
   channel: string;
+  /** People with the embed open, or null in a minute the site did not list it. */
   siteCount: number | null;
-  chatCount: number;
-  live: boolean;
+  /** People in chat with it selected. Only the followed channel has one. */
+  chatCount: number | null;
 }
 
-/** The exact period returned with the samples, so every graph uses one time axis. */
+/**
+ * The exact period returned with the samples, so every graph uses one time
+ * axis, and the width of one stored point: a week of minutes is more than any
+ * chart can draw, so longer periods come back grouped into coarser buckets.
+ */
 export interface StreamWatchHistory {
   from: string;
   to: string;
+  bucketMinutes: number;
   samples: StreamWatchSample[];
 }
 

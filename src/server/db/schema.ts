@@ -483,23 +483,32 @@ export const watcherEmbedSettings = pgTable(
 );
 
 /**
- * One reading of both watcher counts per minute and stream target. The target
- * belongs on every row because an admin can change it while this history is
- * still being graphed. A composite key keeps both readings if that happens
- * inside one minute.
+ * One reading per minute and stream, for every embed destiny.gg listed in that
+ * minute rather than only the one the room follows. The target belongs on every
+ * row, and the key is the minute plus that target, so a channel appearing and
+ * an admin switching targets are both just more rows.
+ *
+ * `platform` is text rather than the enum the settings use: the room can only
+ * be pointed at platforms it knows, but the site lists whatever it lists, and a
+ * platform nobody here has heard of is worth recording rather than dropping.
  */
 export const streamWatchSamples = pgTable(
   'stream_watch_samples',
   {
     sampledAt: timestamp('sampled_at', { withTimezone: true }).notNull(),
-    platform: watchPlatform('platform').notNull(),
+    platform: text('platform').notNull(),
     channel: text('channel').notNull(),
-    /** The count from destiny.gg's embed list. Null when the target is absent. */
+    /**
+     * People with this embed open on destiny.gg. Null only for the followed
+     * channel in a minute the site did not list it at all, which is what makes
+     * the graph break its line rather than draw a measured zero.
+     */
     siteCount: integer('site_count'),
-    /** People in chat whose selected embed matches this target. */
-    chatCount: integer('chat_count').notNull(),
-    /** Whether destiny.gg included the target in its latest embed list. */
-    live: boolean('live').notNull(),
+    /**
+     * People in chat with this embed selected. Only the followed channel has
+     * one: the chat roster is read for that channel alone.
+     */
+    chatCount: integer('chat_count'),
   },
   (table) => [
     primaryKey({ columns: [table.sampledAt, table.platform, table.channel] }),
@@ -511,7 +520,10 @@ export const streamWatchSamples = pgTable(
       'stream_watch_samples_site_count_nonnegative',
       sql`${table.siteCount} is null or ${table.siteCount} >= 0`,
     ),
-    check('stream_watch_samples_chat_count_nonnegative', sql`${table.chatCount} >= 0`),
+    check(
+      'stream_watch_samples_chat_count_nonnegative',
+      sql`${table.chatCount} is null or ${table.chatCount} >= 0`,
+    ),
   ],
 );
 
