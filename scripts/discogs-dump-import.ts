@@ -97,15 +97,23 @@ function tagValues(masterXml: string, container: string, item: string): string[]
 }
 
 /**
- * Streams the dump, keeping only masters that carry a video this room has
- * played. Keeping all 5.7 million embedded ids exhausts a 4 GB Node heap, and
- * every one of them but these would be discarded anyway.
+ * Streams the dump, keeping only masters this room has a use for. Keeping all
+ * 5.7 million embedded ids exhausts a 4 GB Node heap, and every one of them
+ * but these would be discarded anyway.
+ *
+ * Two ways in. The embedded `<video src>` id is exact and is always preferred.
+ * The other is the release's own artist and title, for tracks carrying no such
+ * link -- which can only work where the upload names a release rather than a
+ * track on one, because a master in this dump has no tracklist. So it is a
+ * supplement to the id join, not a replacement for it.
  */
 async function buildIndex(
   dumpPath: string,
   wanted: Set<string>,
-): Promise<Map<string, Master[]>> {
+  wantedNames: Map<string, string[]>,
+): Promise<{ byVideo: Map<string, Master[]>; byName: Map<string, Master[]> }> {
   const index = new Map<string, Master[]>();
+  const byName = new Map<string, Master[]>();
   const lines = createInterface({
     input: createReadStream(dumpPath).pipe(createGunzip()),
     crlfDelay: Infinity,
@@ -133,24 +141,43 @@ async function buildIndex(
     }
 
     const relevant = youtubeIds(record).filter((videoId) => wanted.has(videoId));
-    if (relevant.length === 0) continue;
+    const title = record.match(/<title>(.*?)<\/title>/s)?.[1] ?? null;
+    const artists = tagValues(record, 'artists', 'name');
+
+    // Which tracks this release could answer for by name. Both halves have to
+    // match once normalized: a title on its own matches far too much.
+    const named = new Set<string>();
+    if (title && wantedNames.size > 0) {
+      const releaseTitle = normalize(title);
+      for (const artist of artists) {
+        for (const videoId of wantedNames.get(`${normalize(artist)}|${releaseTitle}`) ?? []) {
+          named.add(videoId);
+        }
+      }
+    }
+    if (relevant.length === 0 && named.size === 0) continue;
 
     const master: Master = {
       masterId: id,
       genres: tagValues(record, 'genres', 'genre'),
       styles: tagValues(record, 'styles', 'style'),
-      artists: tagValues(record, 'artists', 'name'),
-      title: record.match(/<title>(.*?)<\/title>/s)?.[1] ?? null,
+      artists,
+      title,
     };
     for (const videoId of relevant) {
       const existing = index.get(videoId);
       if (!existing) index.set(videoId, [master]);
       else if (existing.length < MAX_MASTERS_PER_VIDEO) existing.push(master);
     }
+    for (const videoId of named) {
+      const existing = byName.get(videoId);
+      if (!existing) byName.set(videoId, [master]);
+      else if (existing.length < MAX_MASTERS_PER_VIDEO) existing.push(master);
+    }
   }
 
   process.stdout.write(`\r  ${masters.toLocaleString()} masters scanned   \n`);
-  return index;
+  return { byVideo: index, byName };
 }
 
 function normalize(value: string): string {
@@ -162,6 +189,20 @@ function normalize(value: string): string {
     .replace(/\(\d+\)\s*$/, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+/**
+ * The artist and the release out of an upload title. `Artist - Title` is what
+ * `youtube-music-identities.ts` writes and what most music uploads are called
+ * anyway, so the same split serves both.
+ */
+function readIdentity(uploadTitle: string): { artist: string; title: string } | null {
+  const split = uploadTitle.match(/^(.{2,60}?)\s+[-–—]\s+(.{2,})$/);
+  if (!split?.[1] || !split[2]) return null;
+  const artist = normalize(split[1]);
+  const title = normalize(split[2]);
+  // A one-character side matches half the catalogue; it is not an identity.
+  return artist.length > 2 && title.length > 2 ? { artist, title } : null;
 }
 
 function genreFingerprint(master: Master): string {
@@ -265,12 +306,37 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  console.log(`Scanning ${dumpPath} against ${tracks.size.toLocaleString()} YouTube tracks`);
-  const index = await buildIndex(dumpPath, new Set(tracks.keys()));
+  // Only tracks with no embedded-video answer need the name route, but which
+  // those are is not known until the scan is done, so every one is offered.
+  const wantedNames = new Map<string, string[]>();
+  for (const track of tracks.values()) {
+    const identity = readIdentity(track.title);
+    if (!identity) continue;
+    const key = `${identity.artist}|${identity.title}`;
+    const existing = wantedNames.get(key);
+    if (existing) existing.push(track.providerMediaId);
+    else wantedNames.set(key, [track.providerMediaId]);
+  }
+
+  console.log(
+    `Scanning ${dumpPath} against ${tracks.size.toLocaleString()} YouTube tracks, ` +
+      `${wantedNames.size.toLocaleString()} of them with a readable "Artist - Title"`,
+  );
+  const { byVideo, byName } = await buildIndex(dumpPath, new Set(tracks.keys()), wantedNames);
+
+  // The id join is exact, so it answers wherever it can and the name route
+  // only fills in behind it.
+  const answered = new Map<string, Master[]>(byVideo);
+  let byNameUsed = 0;
+  for (const [videoId, masters] of byName) {
+    if (answered.has(videoId)) continue;
+    answered.set(videoId, masters);
+    byNameUsed += 1;
+  }
 
   const rows: StoredGenre[] = [];
   let ambiguous = 0;
-  for (const [videoId, masters] of index) {
+  for (const [videoId, masters] of answered) {
     const track = tracks.get(videoId);
     if (!track) continue;
     const chosen = chooseMaster(masters, track.title);
@@ -309,7 +375,9 @@ async function main(): Promise<void> {
   const percent = ((rows.length / tracks.size) * 100).toFixed(1);
   console.log(
     `Labelled ${rows.length.toLocaleString()} of ${tracks.size.toLocaleString()} tracks (${percent}%), ` +
-      `${ambiguous.toLocaleString()} of them from masters that disagree.`,
+      `${ambiguous.toLocaleString()} of them from masters that disagree.\n` +
+      `  ${byVideo.size.toLocaleString()} reached by embedded video id, ` +
+      `${byNameUsed.toLocaleString()} more by artist and release title.`,
   );
   process.exit(0);
 }

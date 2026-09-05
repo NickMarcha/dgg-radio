@@ -45,11 +45,11 @@ Against the whole archive:
 
 | | tracks | of 34,248 |
 | --- | --- | --- |
-| Discogs | 10,480 | 30.6% |
+| Discogs | 12,320 | 36.0% |
 | MusicBrainz | 17,952 | 52.4% |
-| **Either** | **21,175** | **61.8%** |
-| Both, so cross-checkable | 7,257 | 21.2% |
-| About the track rather than its artist | 17,903 | 52.3% |
+| **Either** | **21,726** | **63.4%** |
+| Both, so cross-checkable | 8,546 | 24.9% |
+| About the track rather than its artist | 18,883 | 55.1% |
 
 MusicBrainz doubled on 2026-09-04, and not because the catalogue got better.
 The dumps match on an artist and a title read out of the upload title, and only
@@ -58,7 +58,15 @@ question, not the answer. `scripts/youtube-music-identities.ts` reads the Music
 card off each video's watch page — 20,093 of 25,220, 79.7% — and hands the dump
 importer those names instead. 10,764 matched, 9,694 carried a genre.
 
-Discogs comes from its CC0 monthly dump, joined exactly on the YouTube ids it
+Discogs takes the same names by a second route, added 2026-09-05: where a
+master carries no embedded video id, its own artist and release title are
+matched instead. That is worth 1,840 tracks and no more, because a master in
+the dump has no tracklist — only a release title, so it can answer for a single
+or a title track and never for track nine of an album. The releases dump does
+carry tracklists and is the way to do better; it is 10 GB and was not needed to
+find that out.
+
+Discogs otherwise comes from its CC0 monthly dump, joined exactly on the ids it
 embeds in masters. MusicBrainz comes from its dumps too, and the interesting
 part is *why*: its URL relations only reach 6.6% of the archive, and what
 actually pays is a fuzzy match on artist and title parsed from the upload title
@@ -68,8 +76,8 @@ correction it forced.
 
 ### Deploying carries the data
 
-`data/legacy-plays.json.gz` (48,182 plays, 3 MB) and `data/genres.json` (30,086
-answers, 8 MB) are committed, and `src/server/seed.ts` applies them at startup
+`data/legacy-plays.json.gz` (48,182 plays, 3 MB) and `data/genres.json` (31,926
+answers, 9 MB) are committed, and `src/server/seed.ts` applies them at startup
 right after migrations. So a deployment gets two years of history and everything
 known about it without fetching a byte of anyone's data dump.
 
