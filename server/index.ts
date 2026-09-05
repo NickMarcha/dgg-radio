@@ -6,6 +6,7 @@ import { getSessionUserByToken, readSessionTokenFromCookieHeader } from '../src/
 import { getDatabase } from '../src/server/db/client';
 import { getEnv } from '../src/server/env';
 import { applySeeds } from '../src/server/seed';
+import { watchTracker } from '../src/server/watchers';
 import { advanceIfExpired, currentRevision, ensureRoomExists } from '../src/server/room';
 import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -31,6 +32,33 @@ function operationsSnapshot() {
       lastAdvancedAt: lastClockAdvanceAt?.toISOString() ?? null,
     },
   };
+}
+
+/**
+ * The overlay is pushed the snapshot itself rather than a revision to go and
+ * fetch, the way the room socket works: every field of it is already public in
+ * Destiny chat, so there is no private state to keep out of a shared message.
+ * An unchanged snapshot is not resent, which on a quiet channel is most seconds.
+ */
+let lastWatchersMessage: string | null = null;
+
+function watchersMessage(): string {
+  return JSON.stringify({ type: 'watchers', snapshot: watchTracker.snapshot() });
+}
+
+function broadcastWatchers(): void {
+  const clients = [...connections.clientsOfKind('embed-watchers')];
+  if (clients.length === 0) {
+    lastWatchersMessage = null;
+    return;
+  }
+
+  const message = watchersMessage();
+  if (message === lastWatchersMessage) return;
+  lastWatchersMessage = message;
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN) client.send(message);
+  }
 }
 
 function broadcastRoomChanged(): void {
@@ -78,6 +106,15 @@ try {
 }
 
 await ensureRoomExists();
+
+// Watching a destiny.gg embed, if an admin has turned it on. It connects to
+// nothing while it is off, and a failure here is never a reason to refuse to
+// serve the room.
+// An open overlay is reason enough to hold the chat socket, so the tracker is
+// told how many there are.
+watchTracker
+  .start(() => connections.countOfKind('embed-watchers'))
+  .catch((error) => console.error('Could not start the stream watch', error));
 
 const server = serve(
   {
@@ -133,12 +170,21 @@ webSocketServer.on('connection', async (client, request) => {
   );
   broadcastRoomChanged();
 
+  if (connectionRequest.kind === 'embed-watchers') {
+    client.send(watchersMessage());
+    // The first overlay is a reason to open the chat socket, and waiting for
+    // the next refresh would leave it dark for a quarter of a minute.
+    void watchTracker.refresh().catch((error) => console.error('Stream watch refresh failed', error));
+  }
+
   const removeConnection = () => {
     if (connections.delete(client)) broadcastRoomChanged();
   };
   client.on('close', removeConnection);
   client.on('error', removeConnection);
 });
+
+const watchersClock = setInterval(broadcastWatchers, 1_000);
 
 let clockBusy = false;
 const clock = setInterval(() => {
@@ -165,6 +211,8 @@ async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   clearInterval(clock);
+  clearInterval(watchersClock);
+  watchTracker.stop();
   for (const client of connections.clients()) client.close(1001, 'Server shutting down');
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await shutdownServerAnalytics();

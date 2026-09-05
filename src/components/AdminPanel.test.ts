@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildSourcePath,
   cooldownParts,
   cooldownSeconds,
   copyText,
@@ -158,5 +159,35 @@ describe('copyText', () => {
       'The browser refused to copy the URL.',
     );
     expect(textarea.remove).toHaveBeenCalledOnce();
+  });
+});
+
+describe('browser source URLs', () => {
+  const watcherOptions = [
+    { kind: 'choice' as const, name: 'show', label: 'Draw', values: ['speakers', 'all'], fallback: 'speakers' },
+    { kind: 'number' as const, name: 'max', label: 'At most', fallback: 24 },
+    { kind: 'toggle' as const, name: 'captions', label: 'Captions', on: 'on' },
+  ];
+
+  it('copies as a bare path while everything is left alone', () => {
+    // The defaults live in the page that reads them, so writing them into the
+    // URL would only pin today's value into somebody's OBS scene.
+    expect(buildSourcePath('/embed/watchers', watcherOptions, {})).toBe('/embed/watchers');
+    expect(buildSourcePath('/embed/watchers', watcherOptions, { show: 'speakers', max: '24' })).toBe(
+      '/embed/watchers',
+    );
+  });
+
+  it('carries only what was changed', () => {
+    expect(buildSourcePath('/embed/watchers', watcherOptions, { show: 'all', max: '8' })).toBe(
+      '/embed/watchers?show=all&max=8',
+    );
+  });
+
+  it('writes a toggle only while it is on', () => {
+    expect(buildSourcePath('/embed/player', watcherOptions, { captions: 'on' })).toBe(
+      '/embed/player?captions=on',
+    );
+    expect(buildSourcePath('/embed/player', watcherOptions, { captions: '' })).toBe('/embed/player');
   });
 });

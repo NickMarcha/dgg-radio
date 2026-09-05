@@ -17,6 +17,12 @@ const { title } = Astro.props;
     <meta name="robots" content="noindex" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{title}</title>
+    <!-- For an embed that needs a stylesheet of its own, such as the emote
+         catalogue the watchers overlay draws from. -->
+    <slot name="head" />
+    <!-- A browser source is captured as it is drawn, and in development the
+         Astro toolbar is drawn into the corner of it. -->
+    <style is:global>astro-dev-toolbar { display: none; }</style>
   </head>
   <body>
     <slot />

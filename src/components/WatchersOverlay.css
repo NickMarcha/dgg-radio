@@ -1,0 +1,343 @@
+/*
+ * Who is watching the room's stream, drawn over it in OBS.
+ *
+ * The emote rules come from https://cdn.destiny.gg/emotes/emotes.css, linked by
+ * the page. That file declares only `.emote.<prefix>` — a background image and
+ * the two pixel sizes it must be painted at — and leaves the base rule to
+ * chat-gui's own stylesheet, which is not here. This is that base rule, copied
+ * from `assets/chat/css/messages/emote/_index.scss`, and every part of it earns
+ * its place: `position` anchors the pseudo-elements that some emotes decorate
+ * themselves with, and `overflow` is what makes those decorations swim through
+ * the frame instead of floating loose above it. GSN's dolphins need both.
+ *
+ * Nothing here may change a declared width or height. catJAM and RaveDoge are
+ * one long strip stepped across by pixel offset, so a different painted size
+ * desynchronises every frame.
+ */
+
+/* The browser source composites onto the stream, so the page itself paints
+   nothing. Without this the layout's page colour covers everything below it. */
+.embed-document,
+.embed-document body {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.watchers {
+  --watcher-scale: 2;
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #fff;
+  font-family: 'Share Tech Mono', ui-monospace, monospace;
+}
+
+/*
+ * `zoom` rather than `scale`, which is the one thing that has to be got right
+ * here. `scale` is a painted transform: it makes an emote bigger while its
+ * layout box stays 28 pixels, so in a row the neighbours sit under each other
+ * and everything looks bunched. `zoom` scales the layout too, and scales every
+ * length in the subtree together — so the sprite strips stay in step, which a
+ * changed `background-size` would not.
+ */
+.watcher-body {
+  zoom: var(--watcher-scale);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation-duration: 450ms;
+  animation-fill-mode: both;
+  animation-timing-function: ease-out;
+}
+
+.watchers-names-under .watcher-body {
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/*
+ * Nobody pops in or out: a watcher arrives and leaves the way the source asked
+ * for. On a `speakers` overlay this happens all the time, because the window is
+ * a moving one.
+ */
+.watcher.enter-fade .watcher-body {
+  animation-name: watcher-in-fade;
+}
+
+.watcher.enter-spin .watcher-body {
+  animation-name: watcher-in-spin;
+}
+
+.watcher.enter-slide .watcher-body {
+  animation-name: watcher-in-slide;
+}
+
+.watcher-leaving.enter-fade .watcher-body {
+  animation-name: watcher-out-fade;
+  animation-timing-function: ease-in;
+}
+
+.watcher-leaving.enter-spin .watcher-body {
+  animation-name: watcher-out-spin;
+  animation-timing-function: ease-in;
+}
+
+.watcher-leaving.enter-slide .watcher-body {
+  animation-name: watcher-out-slide;
+  animation-timing-function: ease-in;
+}
+
+/* The individual properties rather than `transform`, so an emote animating its
+   own transform underneath is left alone. */
+@keyframes watcher-in-fade {
+  from {
+    opacity: 0;
+    scale: 0.6;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes watcher-out-fade {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.6;
+  }
+}
+
+@keyframes watcher-in-spin {
+  from {
+    opacity: 0;
+    rotate: -180deg;
+    scale: 0.4;
+  }
+  to {
+    opacity: 1;
+    rotate: 0deg;
+    scale: 1;
+  }
+}
+
+@keyframes watcher-out-spin {
+  from {
+    opacity: 1;
+    rotate: 0deg;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    rotate: 180deg;
+    scale: 0.4;
+  }
+}
+
+@keyframes watcher-in-slide {
+  from {
+    opacity: 0;
+    translate: -4rem 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes watcher-out-slide {
+  from {
+    opacity: 1;
+    translate: 0 0;
+  }
+  to {
+    opacity: 0;
+    translate: 4rem 0;
+  }
+}
+
+.watcher .emote {
+  display: inline-block;
+  position: relative;
+  overflow: hidden;
+  text-indent: -999em;
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  flex: none;
+}
+
+/*
+ * Three things that have to beat the CDN's own `.emote.<prefix>` rules, which
+ * sit at the same specificity as the base rule above — so which of them won
+ * would otherwise depend on the order the two stylesheets happen to load in.
+ * The class is named twice to outrank them outright, the same trick flairs.css
+ * uses, rather than with `!important`.
+ *
+ * Upstream every dance stops after a dozen or so iterations, because a chat
+ * message settles down once it has been read; an overlay has nothing to settle
+ * into. The pseudo-elements are the same story — GSN's dolphins swim past once
+ * and are never seen again. And pepeJAM pivots on a point 20px outside its own
+ * left edge, YAM on one below itself, which at this size swings them across
+ * their neighbours.
+ */
+.watcher .emote.emote,
+.watcher .emote.emote::before,
+.watcher .emote.emote::after {
+  animation-iteration-count: infinite;
+}
+
+.watcher .emote.emote {
+  transform-origin: center;
+}
+
+.watcher-name {
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+  /* Over live video there is no background to rely on, so the name carries its
+     own edge rather than a box that would hide the stream. */
+  text-shadow:
+    0 0 3px #000,
+    0 1px 2px #000,
+    0 0 8px rgb(0 0 0 / 0.9);
+}
+
+/* Floating: each watcher sits where their own name puts them and drifts from
+   there, so nobody jumps when somebody else speaks. */
+.watchers-float .watcher {
+  position: absolute;
+  left: var(--left);
+  top: var(--top);
+  animation: watcher-drift var(--duration) var(--delay) ease-in-out infinite;
+}
+
+@keyframes watcher-drift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  25% {
+    translate: 1.5rem -1rem;
+  }
+  50% {
+    translate: -0.5rem 1.25rem;
+  }
+  75% {
+    translate: -1.75rem -0.5rem;
+  }
+}
+
+/* Fixed seats around the frame keep its middle clear. */
+.watchers-safe .watcher {
+  position: absolute;
+  left: var(--left);
+  top: var(--top);
+  transform: translateX(var(--edge-shift));
+  animation: watcher-edge-drift var(--duration) var(--delay) ease-in-out infinite;
+}
+
+@keyframes watcher-edge-drift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 1rem -0.6rem;
+  }
+}
+
+.watchers-rail {
+  --watcher-scale: 1.25;
+}
+
+.watchers-rail .watcher {
+  position: absolute;
+  left: var(--slot-left);
+  bottom: 2rem;
+  translate: -50% 0;
+  animation: watcher-rail-wander var(--duration) var(--delay) ease-in-out infinite;
+}
+
+.watchers-rail .watcher-name {
+  max-width: 10ch;
+}
+
+@keyframes watcher-rail-wander {
+  0%,
+  100% {
+    margin-left: -1.1rem;
+  }
+  50% {
+    margin-left: 1.1rem;
+  }
+}
+
+.watchers-column {
+  --watcher-scale: 1.05;
+}
+
+.watchers-column .watcher {
+  position: absolute;
+  right: 2rem;
+  top: var(--slot-top);
+  translate: 0 -50%;
+  animation: watcher-column-climb var(--duration) var(--delay) ease-in-out infinite;
+}
+
+.watchers-column .watcher-body {
+  flex-direction: row-reverse;
+  gap: 0.45rem;
+}
+
+.watchers-column .watcher-name,
+.watchers-sides .watcher-name,
+.watchers-climb .watcher-name {
+  max-width: 9ch;
+}
+
+@keyframes watcher-column-climb {
+  0%,
+  100% {
+    margin-top: -0.7rem;
+  }
+  50% {
+    margin-top: 0.7rem;
+  }
+}
+
+.watchers-sides,
+.watchers-climb {
+  --watcher-scale: 1.35;
+}
+
+.watchers-sides .watcher,
+.watchers-climb .watcher {
+  position: absolute;
+  left: var(--slot-left);
+  top: var(--slot-top);
+  translate: var(--edge-shift) -50%;
+}
+
+.watchers-climb .watcher {
+  animation: watcher-column-climb var(--duration) var(--delay) ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .watchers-float .watcher,
+  .watchers-safe .watcher,
+  .watchers-rail .watcher,
+  .watchers-column .watcher,
+  .watchers-climb .watcher {
+    animation: none;
+  }
+}

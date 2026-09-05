@@ -573,6 +573,30 @@
   font-size: 0.95rem;
 }
 
+.admin-personal-watcher {
+  margin: 1.25rem 0 0.5rem;
+  padding: 1rem 0 1.25rem;
+  border-block: 1px solid var(--line);
+}
+
+.admin-personal-watcher h3 {
+  margin: 0;
+}
+
+.admin-personal-watcher .admin-form-inline {
+  margin: 1rem 0 0.75rem;
+  padding-bottom: 1rem;
+}
+
+.admin-watcher-form {
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.75rem;
+}
+
+.admin-watcher-form button {
+  white-space: nowrap;
+}
+
 .admin-steps {
   display: grid;
   gap: 0.5rem;
@@ -911,4 +935,41 @@
   .admin-connection-list li > div {
     flex-wrap: wrap;
   }
+}
+
+/* Who the stream watch can currently name, from the chat roster. */
+.admin-watcher-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+/* Options that build a browser-source URL, on the row that shows it. */
+.admin-embed-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0;
+}
+
+.admin-embed-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.admin-embed-options label.admin-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.admin-embed-options input[type='number'] {
+  width: 5rem;
 }

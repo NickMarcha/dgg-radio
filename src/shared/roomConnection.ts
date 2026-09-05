@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-export const embedConnectionKinds = ['embed-player', 'embed-playing', 'embed-queue'] as const;
+export const embedConnectionKinds = [
+  'embed-player',
+  'embed-playing',
+  'embed-queue',
+  'embed-watchers',
+] as const;
 export type EmbedConnectionKind = (typeof embedConnectionKinds)[number];
 export type ConnectionKind = 'room' | EmbedConnectionKind;
 export const visitorIdSchema = z.uuid();

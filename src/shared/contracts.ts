@@ -828,3 +828,144 @@ export interface ApiErrorBody {
     message: string;
   };
 }
+
+/** The platforms destiny.gg embeds, spelled the way a chatter's `watching` spells them. */
+export const watchPlatforms = ['kick', 'youtube', 'twitch', 'angelthump'] as const;
+export type WatchPlatform = (typeof watchPlatforms)[number];
+
+export const watcherShows = ['speakers', 'all', 'members'] as const;
+export type WatcherShow = (typeof watcherShows)[number];
+
+export const watcherLayouts = ['float', 'safe', 'rail', 'column', 'sides', 'climb'] as const;
+export type WatcherLayout = (typeof watcherLayouts)[number];
+
+export const watcherNames = ['under', 'beside', 'off'] as const;
+export type WatcherNames = (typeof watcherNames)[number];
+
+export const watcherEntrances = ['fade', 'spin', 'slide', 'random'] as const;
+export type WatcherEntrance = (typeof watcherEntrances)[number];
+
+export interface WatcherEmbedOptions {
+  show: WatcherShow;
+  /** Minutes, for `show=speakers`. */
+  window: number;
+  max: number;
+  layout: WatcherLayout;
+  names: WatcherNames;
+  enter: WatcherEntrance;
+}
+
+export const DEFAULT_WATCHER_EMBED_OPTIONS: WatcherEmbedOptions = {
+  show: 'speakers',
+  window: 10,
+  max: 12,
+  layout: 'float',
+  names: 'under',
+  enter: 'fade',
+};
+
+export const watcherEmbedSchema = z.object({
+  show: z.enum(watcherShows).optional(),
+  window: z.number().int().min(1).max(1_440).optional(),
+  max: z.number().int().min(1).max(100).optional(),
+  layout: z.enum(watcherLayouts).optional(),
+  names: z.enum(watcherNames).optional(),
+  enter: z.enum(watcherEntrances).optional(),
+});
+
+/** One admin's stable OBS source settings. */
+export interface WatcherEmbedSettings extends WatcherEmbedOptions {
+  ownerId: string;
+  updatedAt: string;
+}
+
+export const streamWatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  platform: z.enum(watchPlatforms).optional(),
+  channel: z.string().trim().max(120).optional(),
+});
+
+/** Which stream the room watches, and whether it is watching at all. */
+export interface StreamWatchSettings {
+  enabled: boolean;
+  platform: WatchPlatform;
+  /** Lowercase, as chat reports it. Empty until an admin names one. */
+  channel: string;
+  updatedAt: string;
+}
+
+/**
+ * One person in Destiny chat with the tracked embed open.
+ *
+ * `flair` is resolved from the same `features` array chat sends, so a name here
+ * is coloured the way chat colours it without anyone signing in.
+ */
+export interface Watcher {
+  nick: string;
+  flair: string | null;
+  subTier: number | null;
+  /** When they last said something, which is also when `watching` was last confirmed. */
+  lastSpokeAt: string | null;
+  /**
+   * The last emote they used in chat, if it was one their account can use.
+   * Null until they say one, which is what makes the overlay theirs rather
+   * than a list of stand-ins.
+   */
+  lastEmote: string | null;
+  /** Whether this nick has an account in the room. */
+  member: boolean;
+  /** A member's counted avatar emote. Null for everyone else, and for a member with none. */
+  emote: string | null;
+}
+
+/** What the overlay's socket carries. Every field of it is already public in chat. */
+export interface WatchersMessage {
+  type: 'watchers';
+  snapshot: WatchersSnapshot;
+}
+
+export interface WatchersSnapshot {
+  channel: { platform: WatchPlatform; id: string } | null;
+  /**
+   * Whether destiny.gg listed the channel at all. Its embed list only carries
+   * streams somebody is watching, so this means "the site reported someone on
+   * it" rather than anything about the platform's own live state.
+   */
+  live: boolean;
+  /** What the site counts, or null while it is not listing the channel. */
+  siteCount: number | null;
+  /** What the chat roster counts, which is the number with names behind it. */
+  chatCount: number;
+  watchers: Watcher[];
+}
+
+/** One stored minute of both counts, tied to the target that produced them. */
+export interface StreamWatchSample {
+  sampledAt: string;
+  platform: WatchPlatform;
+  channel: string;
+  siteCount: number | null;
+  chatCount: number;
+  live: boolean;
+}
+
+/** The exact period returned with the samples, so every graph uses one time axis. */
+export interface StreamWatchHistory {
+  from: string;
+  to: string;
+  samples: StreamWatchSample[];
+}
+
+export interface WatchSocketState {
+  connected: boolean;
+  lastFrameAt: string | null;
+  /** Consecutive failed connection attempts, so a struggling socket is visible. */
+  attempts: number;
+}
+
+/** Everything the admin page shows about the tracker. */
+export interface StreamWatchStatus {
+  settings: StreamWatchSettings;
+  sockets: { live: WatchSocketState; chat: WatchSocketState };
+  snapshot: WatchersSnapshot;
+}

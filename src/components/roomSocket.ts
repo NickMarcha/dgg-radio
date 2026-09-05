@@ -37,6 +37,8 @@ export function createRoomSocketUrl(apiUrl: string, connection: RoomConnectionRe
   return socketUrl;
 }
 
-export function embedConnectionKind(mode: 'player' | 'playing' | 'queue'): EmbedConnectionKind {
+export function embedConnectionKind(
+  mode: 'player' | 'playing' | 'queue' | 'watchers',
+): EmbedConnectionKind {
   return `embed-${mode}`;
 }

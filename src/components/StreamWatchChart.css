@@ -1,0 +1,138 @@
+.admin-watch-history {
+  margin-top: 1.25rem;
+}
+
+.admin-watch-history-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
+.admin-watch-history-toolbar select {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.admin-watch-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-watch-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.admin-watch-legend i {
+  display: block;
+  width: 1.5rem;
+  height: 2px;
+}
+
+.admin-watch-key-site {
+  background: var(--accent-soft);
+}
+
+.admin-watch-key-chat {
+  background: var(--success);
+}
+
+.admin-watch-chart {
+  margin: 0;
+  padding: 0.85rem 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.admin-watch-chart + .admin-watch-chart {
+  margin-top: 1rem;
+}
+
+.admin-watch-chart figcaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.admin-watch-chart figcaption span {
+  color: var(--faint);
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.admin-watch-chart-scroll {
+  overflow-x: auto;
+}
+
+.admin-watch-chart svg {
+  display: block;
+  width: 100%;
+  min-width: 32rem;
+  height: auto;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.admin-watch-grid line,
+.admin-watch-baseline {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.admin-watch-grid text,
+.admin-watch-axis text {
+  fill: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.admin-watch-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.admin-watch-line-site {
+  stroke: var(--accent-soft);
+}
+
+.admin-watch-line-chat {
+  stroke: var(--success);
+}
+
+.admin-watch-point-site {
+  fill: var(--accent-soft);
+}
+
+.admin-watch-point-chat {
+  fill: var(--success);
+}
+
+@media (max-width: 620px) {
+  .admin-watch-chart figcaption {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .admin-watch-chart figcaption span {
+    text-align: left;
+  }
+}

@@ -26,6 +26,9 @@ import {
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
 import type {
   ArchiveRefresh,
+  StreamWatchHistory,
+  StreamWatchStatus,
+  WatchPlatform,
   RoomMember,
   RoomSnapshot,
   RuleEntrySummary,
@@ -36,8 +39,18 @@ import type {
   OperationsSnapshot,
   SearchResult,
   UserRole,
+  WatcherEmbedSettings,
+  WatcherLayout,
+} from '../shared/contracts';
+import {
+  watcherEntrances,
+  watcherLayouts,
+  watcherNames,
+  watcherShows,
+  watchPlatforms,
 } from '../shared/contracts';
 import { moveItem, type MoveDestination } from './reorder';
+import { StreamWatchChart } from './StreamWatchChart';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -349,7 +362,8 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         </>
       )}
 
-      {tab === 'obs' && <ObsSources />}
+      {tab === 'obs' && <StreamWatchSection busy={busy} act={act} call={call} />}
+      {tab === 'obs' && <ObsSources busy={busy} act={act} call={call} />}
     </main>
   );
 }
@@ -753,6 +767,7 @@ const CONNECTION_LABELS = {
   'embed-player': 'Synchronized video player',
   'embed-playing': 'Now-playing overlay',
   'embed-queue': 'Upcoming queue',
+  'embed-watchers': 'Who is watching',
 } as const;
 
 function OperationsSection({
@@ -942,25 +957,125 @@ export async function copyText(value: string): Promise<void> {
   }
 }
 
+/**
+ * One thing an operator can set on a browser source. A default is never written
+ * into the URL, so a source with everything left alone still copies as the bare
+ * path it was before any of this existed.
+ */
+type SourceOption =
+  | { kind: 'toggle'; name: string; label: string; on: string; hint?: string }
+  | {
+      kind: 'choice';
+      name: string;
+      label: string;
+      values: readonly string[];
+      fallback: string;
+      labels?: Record<string, string>;
+    }
+  | { kind: 'number'; name: string; label: string; fallback: number; hint?: string };
+
+function optionDefault(option: SourceOption): string {
+  if (option.kind === 'toggle') return '';
+  if (option.kind === 'choice') return option.fallback;
+  return String(option.fallback);
+}
+
+/** The path, carrying whatever has been changed from its default and nothing else. */
+export function buildSourcePath(
+  path: string,
+  options: SourceOption[],
+  chosen: Record<string, string>,
+): string {
+  const params = new URLSearchParams();
+  for (const option of options) {
+    const value = chosen[option.name] ?? optionDefault(option);
+    if (value === '' || value === optionDefault(option)) continue;
+    params.set(option.name, value);
+  }
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 interface EmbedSourceProps {
   origin: string;
   path: string;
   name: string;
   size: string;
   note?: string;
+  options?: SourceOption[];
 }
 
-function EmbedSource({ origin, path, name, size, note }: EmbedSourceProps) {
-  const url = `${origin}${path}`;
+/**
+ * A browser source and its settings, as controls over one URL rather than a
+ * list of prebuilt variants. One option makes two variants and five make
+ * thirty-two, which is not a list anybody reads.
+ */
+function EmbedSource({ origin, path, name, size, note, options = [] }: EmbedSourceProps) {
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  const sourcePath = buildSourcePath(path, options, chosen);
+  const url = `${origin}${sourcePath}`;
+  const set = (option: string, value: string) =>
+    setChosen((current) => ({ ...current, [option]: value }));
 
   return (
     <li>
       <div className="admin-embed-head">
-        <a className="admin-link" href={path} target="_blank" rel="noreferrer">
+        <a className="admin-link" href={sourcePath} target="_blank" rel="noreferrer">
           {name} <ExternalLink size={13} />
         </a>
         <span className="admin-embed-detail">{size}</span>
       </div>
+
+      {options.length > 0 && (
+        <div className="admin-embed-options">
+          {options.map((option) => {
+            const value = chosen[option.name] ?? optionDefault(option);
+            if (option.kind === 'toggle') {
+              return (
+                <label key={option.name} className="admin-check" title={option.hint}>
+                  <input
+                    type="checkbox"
+                    checked={value === option.on}
+                    onChange={(event) =>
+                      set(option.name, event.currentTarget.checked ? option.on : '')
+                    }
+                  />
+                  {option.label}
+                </label>
+              );
+            }
+            if (option.kind === 'choice') {
+              return (
+                <label key={option.name}>
+                  {option.label}
+                  <select
+                    value={value}
+                    onChange={(event) => set(option.name, event.currentTarget.value)}
+                  >
+                    {option.values.map((allowed) => (
+                      <option key={allowed} value={allowed}>
+                        {option.labels?.[allowed] ?? allowed}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              );
+            }
+            return (
+              <label key={option.name} title={option.hint}>
+                {option.label}
+                <input
+                  type="number"
+                  min={1}
+                  value={value}
+                  onChange={(event) => set(option.name, event.currentTarget.value)}
+                />
+              </label>
+            );
+          })}
+        </div>
+      )}
+
       <div className="admin-embed-url">
         <code>{url}</code>
         <CopyButton value={url} label={name} />
@@ -970,7 +1085,383 @@ function EmbedSource({ origin, path, name, size, note }: EmbedSourceProps) {
   );
 }
 
-function ObsSources() {
+interface StreamWatchDraft {
+  enabled: boolean;
+  platform: WatchPlatform;
+  channel: string;
+}
+
+const STREAM_WATCH_PERIODS = [
+  { hours: 6, label: '6 hours' },
+  { hours: 24, label: '24 hours' },
+  { hours: 72, label: '3 days' },
+  { hours: 168, label: '7 days' },
+] as const;
+
+type StreamWatchHours = (typeof STREAM_WATCH_PERIODS)[number]['hours'];
+
+/**
+ * Watching a destiny.gg embed, so the room knows who is on its own stream.
+ *
+ * The two counts are meant to disagree a little. The site counts embeds open;
+ * chat counts people in chat with that embed selected, and only the second one
+ * has names behind it. The current values are sampled once a minute below.
+ */
+function StreamWatchSection({ busy, act, call }: SectionProps) {
+  const [status, setStatus] = useState<StreamWatchStatus | null>(null);
+  const [draft, setDraft] = useState<StreamWatchDraft | null>(null);
+  const [historyHours, setHistoryHours] = useState<StreamWatchHours>(24);
+  const [history, setHistory] = useState<StreamWatchHistory | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const next: StreamWatchStatus = await call('/api/stream-watch');
+    setStatus(next);
+    // The form is only filled once, so a poll never overwrites what is being
+    // typed into it.
+    setDraft((current) => current ?? { ...next.settings });
+  }, [call]);
+
+  useEffect(() => {
+    void load().catch(() => undefined);
+    const timer = window.setInterval(() => void load().catch(() => undefined), 10_000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const next: StreamWatchHistory = await call(`/api/watchers/history?hours=${historyHours}`);
+      setHistory(next);
+      setHistoryError(null);
+    } catch {
+      setHistoryError('Watcher history could not be loaded.');
+    }
+  }, [call, historyHours]);
+
+  useEffect(() => {
+    void loadHistory();
+    const timer = window.setInterval(() => void loadHistory(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [loadHistory]);
+
+  function submit(event: SubmitEvent) {
+    event.preventDefault();
+    if (!draft) return;
+    void act(
+      async () => setStatus(await call('/api/stream-watch', 'PATCH', draft)),
+      draft.enabled ? `Watching ${draft.platform}/${draft.channel.trim().toLowerCase()}.` : 'Stream watch is off.',
+    );
+  }
+
+  const snapshot = status?.snapshot;
+
+  return (
+    <section className="admin-card">
+      <h2>Stream watch</h2>
+      <p className="admin-help">Which destiny.gg embed to follow.</p>
+
+      {draft && (
+        <form className="admin-form admin-form-inline" onSubmit={submit}>
+          <label>
+            Platform
+            <select
+              value={draft.platform}
+              onChange={(event) =>
+                setDraft({ ...draft, platform: event.currentTarget.value as WatchPlatform })
+              }
+            >
+              {watchPlatforms.map((platform) => (
+                <option key={platform} value={platform}>
+                  {platform}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            Channel
+            <input
+              type="text"
+              value={draft.channel}
+              placeholder="dggJams"
+              onChange={(event) => setDraft({ ...draft, channel: event.currentTarget.value })}
+            />
+            <small>As it appears after the platform in a bigscreen link. Case does not matter.</small>
+          </label>
+
+          <label className="admin-check">
+            <input
+              type="checkbox"
+              checked={draft.enabled}
+              onChange={(event) => setDraft({ ...draft, enabled: event.currentTarget.checked })}
+            />
+            Follow this channel
+            <small>Nothing connects to destiny.gg while this is off.</small>
+          </label>
+
+          <button type="submit" disabled={busy}>
+            <Check size={16} /> Save
+          </button>
+        </form>
+      )}
+
+      {snapshot && (
+        <>
+          <dl className="admin-operation-counts">
+            <div>
+              <dt>Embeds open</dt>
+              <dd>{snapshot.siteCount ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Chatters watching</dt>
+              <dd>{snapshot.chatCount}</dd>
+            </div>
+            <div>
+              <dt>Sockets</dt>
+              <dd>
+                {status?.sockets.live.connected ? 'live' : 'live off'} ·{' '}
+                {status?.sockets.chat.connected ? 'chat' : 'chat off'}
+              </dd>
+            </div>
+          </dl>
+
+          <p className="admin-help">
+            Two counts of different people, so they never match exactly.{' '}
+            <strong>Embeds open</strong> is destiny.gg's own figure for how many have this embed
+            open, refreshed about every 30 seconds. <strong>Chatters watching</strong> is how many
+            people in Destiny chat have it selected — the number with names behind it, and the one
+            the overlay will draw. Somebody watching without being in chat is only in the first;
+            somebody who switched away without saying anything stays in the second until they speak
+            or leave.
+          </p>
+
+          <p className="admin-operation-clock">
+            {snapshot.channel === null
+              ? 'No channel is being followed.'
+              : snapshot.live
+                ? `destiny.gg is listing ${snapshot.channel.platform}/${snapshot.channel.id}.`
+                : `destiny.gg is not listing ${snapshot.channel.platform}/${snapshot.channel.id}, which means nobody has that embed open. The chat socket stays down until somebody does.`}
+          </p>
+
+          {snapshot.watchers.length > 0 && (
+            <p className="admin-watcher-list">
+              {snapshot.watchers.slice(0, 30).map((watcher) => (
+                <span
+                  key={watcher.nick}
+                  className={watcher.flair ? `flair-${watcher.flair}` : undefined}
+                >
+                  {watcher.nick}
+                </span>
+              ))}
+            </p>
+          )}
+
+          <div className="admin-watch-history">
+            <div className="admin-section-subheading">
+              <h3>Watcher history</h3>
+              <label className="admin-watch-history-toolbar">
+                Show
+                <select
+                  aria-label="Watcher history period"
+                  value={historyHours}
+                  onChange={(event) => {
+                    setHistory(null);
+                    setHistoryHours(Number(event.currentTarget.value) as StreamWatchHours);
+                  }}
+                >
+                  {STREAM_WATCH_PERIODS.map((period) => (
+                    <option key={period.hours} value={period.hours}>
+                      {period.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            {historyError ? (
+              <p className="admin-empty">{historyError}</p>
+            ) : history ? (
+              <StreamWatchChart history={history} />
+            ) : (
+              <p className="admin-empty">Loading watcher history…</p>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+const WATCHER_LAYOUT_LABELS: Record<WatcherLayout, string> = {
+  float: 'Free float',
+  safe: 'Safe frame',
+  rail: 'Bottom wander',
+  column: 'Side climb',
+  sides: 'Twin sides',
+  climb: 'Twin-side climb',
+};
+
+const WATCHER_SHOW_LABELS: Record<string, string> = {
+  speakers: 'Recent speakers',
+  all: 'Everyone',
+  members: 'Room members',
+};
+
+const WATCHER_NAME_LABELS: Record<string, string> = {
+  under: 'Under emote',
+  beside: 'Beside emote',
+  off: 'Hidden',
+};
+
+const WATCHER_ENTRANCE_LABELS: Record<string, string> = {
+  fade: 'Fade',
+  spin: 'Spin',
+  slide: 'Slide',
+  random: 'Mixed',
+};
+
+function PersonalWatcherSource({
+  origin,
+  busy,
+  act,
+  call,
+}: SectionProps & { origin: string }) {
+  const [saved, setSaved] = useState<WatcherEmbedSettings | null>(null);
+  const [draft, setDraft] = useState<WatcherEmbedSettings | null>(null);
+
+  useEffect(() => {
+    void call('/api/watcher-embed')
+      .then((settings: WatcherEmbedSettings) => {
+        setSaved(settings);
+        setDraft(settings);
+      })
+      .catch(() => undefined);
+  }, [call]);
+
+  if (!draft || !saved) {
+    return <p className="admin-empty">Loading your watcher source…</p>;
+  }
+
+  const sourcePath = `/embed/watchers?profile=${saved.ownerId}`;
+  const url = `${origin}${sourcePath}`;
+
+  function submit(event: SubmitEvent) {
+    event.preventDefault();
+    if (!draft) return;
+    const current = draft;
+    void act(async () => {
+      const next: WatcherEmbedSettings = await call('/api/watcher-embed', 'PATCH', {
+        show: current.show,
+        window: current.window,
+        max: current.max,
+        layout: current.layout,
+        names: current.names,
+        enter: current.enter,
+      });
+      setSaved(next);
+      setDraft(next);
+    }, 'Watcher source saved. Open sources pick it up within about a second.');
+  }
+
+  return (
+    <div className="admin-personal-watcher">
+      <div className="admin-embed-head">
+        <h3>Your watcher source</h3>
+        <a className="admin-link" href={sourcePath} target="_blank" rel="noreferrer">
+          Open <ExternalLink size={13} />
+        </a>
+      </div>
+      <p className="admin-help">
+        This URL stays the same. Save here and a running browser source updates without a reload.
+      </p>
+
+      <form className="admin-form admin-form-inline admin-watcher-form" onSubmit={submit}>
+        <label>
+          Draw
+          <select
+            value={draft.show}
+            onChange={(event) =>
+              setDraft({ ...draft, show: event.currentTarget.value as typeof draft.show })
+            }
+          >
+            {watcherShows.map((value) => (
+              <option key={value} value={value}>{WATCHER_SHOW_LABELS[value]}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Minutes
+          <input
+            type="number"
+            min={1}
+            max={1_440}
+            disabled={draft.show !== 'speakers'}
+            value={draft.window}
+            onChange={(event) => setDraft({ ...draft, window: Number(event.currentTarget.value) })}
+          />
+        </label>
+        <label>
+          At most
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={draft.max}
+            onChange={(event) => setDraft({ ...draft, max: Number(event.currentTarget.value) })}
+          />
+        </label>
+        <label>
+          Arrange
+          <select
+            value={draft.layout}
+            onChange={(event) =>
+              setDraft({ ...draft, layout: event.currentTarget.value as WatcherLayout })
+            }
+          >
+            {watcherLayouts.map((value) => (
+              <option key={value} value={value}>{WATCHER_LAYOUT_LABELS[value]}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Names
+          <select
+            value={draft.names}
+            onChange={(event) =>
+              setDraft({ ...draft, names: event.currentTarget.value as typeof draft.names })
+            }
+          >
+            {watcherNames.map((value) => (
+              <option key={value} value={value}>{WATCHER_NAME_LABELS[value]}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Arrive
+          <select
+            value={draft.enter}
+            onChange={(event) =>
+              setDraft({ ...draft, enter: event.currentTarget.value as typeof draft.enter })
+            }
+          >
+            {watcherEntrances.map((value) => (
+              <option key={value} value={value}>{WATCHER_ENTRANCE_LABELS[value]}</option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" disabled={busy}>
+          <Check size={16} /> Save watcher source
+        </button>
+      </form>
+
+      <div className="admin-embed-url">
+        <code>{url}</code>
+        <CopyButton value={url} label="personal watcher source" />
+      </div>
+    </div>
+  );
+}
+
+function ObsSources({ busy, act, call }: SectionProps) {
   // The pages are prerendered, so the host is only known once this runs in a
   // browser. Until then the paths stand in for the full URLs.
   const [origin, setOrigin] = useState('');
@@ -980,11 +1471,31 @@ function ObsSources() {
     <section className="admin-card">
       <h2>OBS browser sources</h2>
       <p className="admin-help">
-        Add any of these as a Browser Source. The player carries the room's audio and stays in sync with
-        it; the overlays are transparent and silent.
+        Add any of these as a Browser Source. The player carries the room's audio and stays in sync
+        with it; the overlays are transparent and silent.
+      </p>
+      <PersonalWatcherSource origin={origin} busy={busy} act={act} call={call} />
+
+      <h3>Fixed sources</h3>
+      <p className="admin-help">
+        Options below become part of the copied URL. They stay fixed until the URL changes in OBS.
       </p>
       <ul className="admin-embed-links">
-        <EmbedSource origin={origin} path="/embed/player" name="Synchronized video player" size="1920 × 1080" />
+        <EmbedSource
+          origin={origin}
+          path="/embed/player"
+          name="Synchronized video player"
+          size="1920 × 1080"
+          options={[
+            {
+              kind: 'toggle',
+              name: 'captions',
+              on: 'on',
+              label: 'Leave YouTube captions alone',
+              hint: 'Off hides them. On leaves them to YouTube’s own setting.',
+            },
+          ]}
+        />
         <EmbedSource origin={origin} path="/embed/playing" name="Now-playing overlay" size="1200 × 240" />
         <EmbedSource
           origin={origin}
@@ -993,16 +1504,60 @@ function ObsSources() {
           size="Any width · 600 high"
           note="Rows fill the Browser Source width. Titles scroll when they do not fit."
         />
-      </ul>
-
-      <h3>Player variants</h3>
-      <ul className="admin-embed-links">
         <EmbedSource
           origin={origin}
-          path="/embed/player?captions=on"
-          name="Player with captions"
+          path="/embed/watchers"
+          name="Who is watching"
           size="1920 × 1080"
-          note="The plain player hides YouTube captions. This one leaves them to YouTube's own setting."
+          note="Needs the stream watch above to be on. Transparent, so lay it over the stream. Fixed seats do not shift when somebody leaves."
+          options={[
+            {
+              kind: 'choice',
+              name: 'show',
+              label: 'Draw',
+              values: watcherShows,
+              fallback: 'speakers',
+              labels: WATCHER_SHOW_LABELS,
+            },
+            {
+              kind: 'number',
+              name: 'window',
+              label: 'Minutes',
+              fallback: 10,
+              hint: 'How recently somebody must have spoken, for “speakers”.',
+            },
+            {
+              kind: 'number',
+              name: 'max',
+              label: 'At most',
+              fallback: 12,
+              hint: 'Twelve is a useful starting point for a 1920 × 1080 source.',
+            },
+            {
+              kind: 'choice',
+              name: 'layout',
+              label: 'Arrange',
+              values: watcherLayouts,
+              fallback: 'float',
+              labels: WATCHER_LAYOUT_LABELS,
+            },
+            {
+              kind: 'choice',
+              name: 'names',
+              label: 'Names',
+              values: watcherNames,
+              fallback: 'under',
+              labels: WATCHER_NAME_LABELS,
+            },
+            {
+              kind: 'choice',
+              name: 'enter',
+              label: 'Arrive',
+              values: watcherEntrances,
+              fallback: 'fade',
+              labels: WATCHER_ENTRANCE_LABELS,
+            },
+          ]}
         />
       </ul>
 

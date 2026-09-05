@@ -43,6 +43,30 @@ export const genreLevel = pgEnum('genre_level', [
 export const ruleEnforcement = pgEnum('rule_enforcement', ['blocklist', 'advisory']);
 export const ruleEntryType = pgEnum('rule_entry_type', ['track', 'artist']);
 export const skipMode = pgEnum('skip_mode', ['absolute', 'ratio']);
+
+/** The platforms destiny.gg embeds, as they are spelled in a chatter's `watching`. */
+export const watchPlatform = pgEnum('watch_platform', [
+  'kick',
+  'youtube',
+  'twitch',
+  'angelthump',
+]);
+export const watcherShow = pgEnum('watcher_show', ['speakers', 'all', 'members']);
+export const watcherLayout = pgEnum('watcher_layout', [
+  'float',
+  'safe',
+  'rail',
+  'column',
+  'sides',
+  'climb',
+]);
+export const watcherNames = pgEnum('watcher_names', ['under', 'beside', 'off']);
+export const watcherEntrance = pgEnum('watcher_entrance', [
+  'fade',
+  'spin',
+  'slide',
+  'random',
+]);
 export const queueStatus = pgEnum('queue_status', [
   'queued',
   'playing',
@@ -383,6 +407,94 @@ export const roomSettings = pgTable(
     check('room_settings_country_code', sql`${table.targetCountry} ~ '^[A-Z]{2}$'`),
     check('room_settings_skip_downvotes', sql`${table.skipDownvotes} >= 1`),
     check('room_settings_skip_ratio', sql`${table.skipRatioPercent} between 1 and 100`),
+  ],
+);
+
+/**
+ * Which stream the room watches on destiny.gg/bigscreen, so the overlay and the
+ * admin page know whose watchers to count. Singleton, like the room settings:
+ * this room has one stream.
+ *
+ * The channel is stored lowercase because that is how Destiny chat reports it
+ * in `watching`, while the bigscreen link is written `#kick/dggJams`.
+ */
+export const streamWatch = pgTable(
+  'stream_watch',
+  {
+    id: integer('id').primaryKey().default(1),
+    /** Nothing connects to destiny.gg at all while this is false. */
+    enabled: boolean('enabled').notNull().default(false),
+    platform: watchPlatform('platform').notNull().default('kick'),
+    channel: text('channel').notNull().default(''),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
+  },
+  (table) => [
+    check('stream_watch_singleton', sql`${table.id} = 1`),
+    check('stream_watch_channel_lowercase', sql`${table.channel} = lower(${table.channel})`),
+  ],
+);
+
+/**
+ * One stable watcher source per admin account. The public OBS URL uses the
+ * owner's random UUID, while only that signed-in admin can change the row.
+ */
+export const watcherEmbedSettings = pgTable(
+  'watcher_embed_settings',
+  {
+    ownerUserId: uuid('owner_user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    show: watcherShow('show').notNull().default('speakers'),
+    windowMinutes: integer('window_minutes').notNull().default(10),
+    maxWatchers: integer('max_watchers').notNull().default(12),
+    layout: watcherLayout('layout').notNull().default('float'),
+    names: watcherNames('names').notNull().default('under'),
+    entrance: watcherEntrance('entrance').notNull().default('fade'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'watcher_embed_settings_window_range',
+      sql`${table.windowMinutes} between 1 and 1440`,
+    ),
+    check(
+      'watcher_embed_settings_max_range',
+      sql`${table.maxWatchers} between 1 and 100`,
+    ),
+  ],
+);
+
+/**
+ * One reading of both watcher counts per minute and stream target. The target
+ * belongs on every row because an admin can change it while this history is
+ * still being graphed. A composite key keeps both readings if that happens
+ * inside one minute.
+ */
+export const streamWatchSamples = pgTable(
+  'stream_watch_samples',
+  {
+    sampledAt: timestamp('sampled_at', { withTimezone: true }).notNull(),
+    platform: watchPlatform('platform').notNull(),
+    channel: text('channel').notNull(),
+    /** The count from destiny.gg's embed list. Null when the target is absent. */
+    siteCount: integer('site_count'),
+    /** People in chat whose selected embed matches this target. */
+    chatCount: integer('chat_count').notNull(),
+    /** Whether destiny.gg included the target in its latest embed list. */
+    live: boolean('live').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sampledAt, table.platform, table.channel] }),
+    check(
+      'stream_watch_samples_channel_lowercase',
+      sql`${table.channel} = lower(${table.channel})`,
+    ),
+    check(
+      'stream_watch_samples_site_count_nonnegative',
+      sql`${table.siteCount} is null or ${table.siteCount} >= 0`,
+    ),
+    check('stream_watch_samples_chat_count_nonnegative', sql`${table.chatCount} >= 0`),
   ],
 );
 

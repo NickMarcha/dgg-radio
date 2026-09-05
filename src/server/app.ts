@@ -19,9 +19,11 @@ import {
   ruleSchema,
   ruleUpdateSchema,
   roomSettingsSchema,
+  streamWatchSchema,
   submitRequestSchema,
   userRoleSchema,
   voteSchema,
+  watcherEmbedSchema,
   type ProcessSnapshot,
 } from '../shared/contracts';
 import {
@@ -102,6 +104,12 @@ import { QueupError, refreshArchive } from './queup';
 import { limitPerAddress, limitPerUser } from './rate-limit';
 import { exportCsv, exportFilename, EXPORTS } from './export';
 import { getStorageSnapshot } from './storage';
+import { getStreamWatchHistory, updateStreamWatchSettings, watchTracker } from './watchers';
+import {
+  findWatcherEmbedSettings,
+  getOrCreateWatcherEmbedSettings,
+  updateWatcherEmbedSettings,
+} from './watcher-embeds';
 
 interface AppDependencies {
   listenerCount: () => number;
@@ -146,6 +154,10 @@ const artistParamSchema = z.object({
 const statsQuerySchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
+});
+
+const streamWatchHistorySchema = z.object({
+  hours: z.coerce.number().int().min(1).max(168).default(24),
 });
 
 const exportParamSchema = z.object({
@@ -314,6 +326,24 @@ export function createApp(dependencies: AppDependencies) {
         const viewer = await getSessionUser(context);
         const username = context.req.valid('param').username;
         return context.json(await getUserProfile(username, viewer?.id ?? null));
+      },
+    )
+    // Public: an OBS browser source carries no session, and everything in the
+    // snapshot is already public in Destiny chat.
+    .get('/api/watchers', (context) => context.json(watchTracker.snapshot()))
+    // The UUID is the stable public source key. The row contains display
+    // choices only, and both ends disable caching so a running OBS source sees
+    // an admin's save without a reload.
+    .get(
+      '/api/watcher-embeds/:id',
+      zValidator('param', idParamSchema),
+      async (context) => {
+        context.header('Cache-Control', 'no-store, max-age=0');
+        const settings = await findWatcherEmbedSettings(context.req.valid('param').id);
+        if (!settings) {
+          return context.json(errorBody('WATCHER_EMBED_NOT_FOUND', 'That watcher source does not exist.'), 404);
+        }
+        return context.json(settings);
       },
     )
     .get('/api/me', async (context) =>
@@ -836,6 +866,55 @@ export function createApp(dependencies: AppDependencies) {
         ...dependencies.operationsSnapshot(),
         storage: await getStorageSnapshot(),
       }),
+    )
+    .get('/api/stream-watch', requireAdmin, async (context) =>
+      context.json(await watchTracker.status()),
+    )
+    .get('/api/watcher-embed', requireAdmin, async (context) => {
+      context.header('Cache-Control', 'no-store, max-age=0');
+      return context.json(await getOrCreateWatcherEmbedSettings(context.get('user').id));
+    })
+    .patch(
+      '/api/watcher-embed',
+      requireAdmin,
+      zValidator('json', watcherEmbedSchema),
+      async (context) => {
+        const patch = context.req.valid('json');
+        const settings = await updateWatcherEmbedSettings(context.get('user').id, patch);
+        captureServerEvent(context.get('user').id, 'watcher_embed_settings_changed', {
+          fields: Object.keys(patch).join(','),
+        });
+        return context.json(settings);
+      },
+    )
+    .get(
+      '/api/watchers/history',
+      requireAdmin,
+      zValidator('query', streamWatchHistorySchema),
+      async (context) => {
+        const to = new Date();
+        const from = new Date(
+          to.getTime() - context.req.valid('query').hours * 60 * 60 * 1_000,
+        );
+        return context.json(await getStreamWatchHistory(from, to));
+      },
+    )
+    .patch(
+      '/api/stream-watch',
+      requireAdmin,
+      zValidator('json', streamWatchSchema),
+      async (context) => {
+        const settings = await updateStreamWatchSettings(
+          context.req.valid('json'),
+          context.get('user').id,
+        );
+        await watchTracker.refresh();
+        captureServerEvent(context.get('user').id, 'stream_watch_changed', {
+          enabled: settings.enabled,
+          platform: settings.platform,
+        });
+        return context.json(await watchTracker.status());
+      },
     )
     .get('/api/regions', requireAdmin, async (context) =>
       context.json({ regions: await listPlaybackRegions() }),

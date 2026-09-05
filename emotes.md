@@ -41,6 +41,8 @@ Repeats are louder than singles. Rules under `:nth-of-type(2n)` add a rainbow `d
 
 Their declared sizes are the originals on purpose. `catJAM` and `RaveDoge` animate by stepping `background-position` across one long strip, so their frame offsets are tied to the declared width: changing `background-size`, or the width itself, would desynchronise every frame. Resizing one of these is only safe through a transform, which scales the painted result and leaves both the box and the offsets alone.
 
+`scale` keeps the sprite intact but not the layout: it is painted, so the box stays the declared size while the picture grows, and a row of scaled emotes overlaps itself. Where the layout has to grow too — the watchers overlay draws them at twice size, side by side — `zoom` is the one that works, because it scales every length in the subtree together and the frame offsets stay in step.
+
 That is why each emote declares its size as the two plain numbers `--emote-w` and `--emote-h`, with `.emote` turning them into pixels. An avatar frame names its own size in `--avatar-box`, and `.avatar-frame .emote` scales the emote to fit inside it with the `scale` property. `scale` rather than a `transform` shorthand, because `pepeJAM` and `YAM` animate `transform` themselves and would overwrite it; the two properties compose instead.
 
 The frame also resets `transform-origin`. `pepeJAM` pivots on a point 20 pixels outside its own left edge and `YAM` on one below itself, which is a wide sway in a chat line and a swing halfway out of view in a 28-pixel frame.

@@ -1,0 +1,20 @@
+---
+import WatchersOverlay from '../../components/WatchersOverlay';
+import EmbedLayout from '../../layouts/EmbedLayout.astro';
+
+const apiUrl = import.meta.env.PUBLIC_API_URL;
+if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
+---
+
+<EmbedLayout title="DGG Radio watchers embed">
+  {/*
+    The whole destiny.gg emote catalogue, from their CDN rather than mirrored
+    here. Its background-image URLs are relative, so they resolve against the
+    CDN's own directory and need nothing from this origin; CSS images are not
+    CORS-gated, so the header on those files does not apply. This page carries
+    neither the local emotes.css nor its avatar rules — EmbedLayout imports
+    neither — so there is nothing for these rules to collide with.
+  */}
+  <link slot="head" rel="stylesheet" href="https://cdn.destiny.gg/emotes/emotes.css" />
+  <WatchersOverlay client:load apiUrl={apiUrl} />
+</EmbedLayout>

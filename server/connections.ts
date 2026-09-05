@@ -28,6 +28,21 @@ export class ConnectionRegistry<Client> {
     return this.connections.keys();
   }
 
+  /** The clients of one kind, for a broadcast only they should receive. */
+  *clientsOfKind(kind: ConnectionKind): Generator<Client> {
+    for (const [client, connection] of this.connections) {
+      if (connection.kind === kind) yield client;
+    }
+  }
+
+  countOfKind(kind: ConnectionKind): number {
+    let count = 0;
+    for (const connection of this.connections.values()) {
+      if (connection.kind === kind) count += 1;
+    }
+    return count;
+  }
+
   listenerCount(): number {
     const listeners = new Set<Client | string>();
 

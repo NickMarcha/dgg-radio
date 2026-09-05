@@ -50,12 +50,33 @@ vi.mock('./playlists', async (importOriginal) => ({
   queuePlaylistTrack: vi.fn(),
 }));
 
+vi.mock('./watchers', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./watchers')>()),
+  getStreamWatchHistory: vi.fn().mockResolvedValue({
+    from: '2026-09-04T12:00:00.000Z',
+    to: '2026-09-05T12:00:00.000Z',
+    samples: [],
+  }),
+}));
+
+vi.mock('./watcher-embeds', () => ({
+  findWatcherEmbedSettings: vi.fn(),
+  getOrCreateWatcherEmbedSettings: vi.fn(),
+  updateWatcherEmbedSettings: vi.fn(),
+}));
+
 const { getSessionUser } = await import('./auth');
 const { setUserRole } = await import('./admins');
 const { reorderRules } = await import('./rules');
 const { getStorageSnapshot } = await import('./storage');
 const { resetRateLimits } = await import('./rate-limit');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
+const { getStreamWatchHistory } = await import('./watchers');
+const {
+  findWatcherEmbedSettings,
+  getOrCreateWatcherEmbedSettings,
+  updateWatcherEmbedSettings,
+} = await import('./watcher-embeds');
 const {
   blockQueueItemMedia,
   removeQueuedTrack,
@@ -71,6 +92,17 @@ const QUEUE_ID = '00000000-0000-4000-8000-000000000002';
 const RULE_ID = '00000000-0000-4000-8000-000000000003';
 const PLAYLIST_ID = '00000000-0000-4000-8000-000000000004';
 const MEDIA_ID = '00000000-0000-4000-8000-000000000005';
+
+const watcherEmbedSettings = {
+  ownerId: USER_ID,
+  show: 'speakers' as const,
+  window: 10,
+  max: 12,
+  layout: 'float' as const,
+  names: 'under' as const,
+  enter: 'fade' as const,
+  updatedAt: '2026-09-05T21:00:00.000Z',
+};
 
 function user(role: AuthenticatedUser['role']): AuthenticatedUser {
   return {
@@ -276,6 +308,99 @@ describe('the operations endpoint', () => {
     expect(response.status).toBe(403);
     expect(operationsSnapshot).not.toHaveBeenCalled();
     expect(getStorageSnapshot).not.toHaveBeenCalled();
+  });
+});
+
+describe('watcher history', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns a bounded period to an admin', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const response = await app.request('/api/watchers/history?hours=6');
+
+    expect(response.status).toBe(200);
+    const [from, to] = vi.mocked(getStreamWatchHistory).mock.calls[0]!;
+    expect(to.getTime() - from.getTime()).toBe(6 * 60 * 60 * 1_000);
+  });
+
+  it('does not expose the history to a listener', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+
+    expect((await app.request('/api/watchers/history')).status).toBe(403);
+    expect(getStreamWatchHistory).not.toHaveBeenCalled();
+  });
+
+  it('rejects periods that would return more than a week of minute samples', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    expect((await app.request('/api/watchers/history?hours=169')).status).toBe(400);
+    expect(getStreamWatchHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe('personal watcher sources', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(findWatcherEmbedSettings).mockResolvedValue(watcherEmbedSettings);
+    vi.mocked(getOrCreateWatcherEmbedSettings).mockResolvedValue(watcherEmbedSettings);
+    vi.mocked(updateWatcherEmbedSettings).mockResolvedValue(watcherEmbedSettings);
+  });
+
+  it('lets an OBS source read settings without a session or a cache', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(null);
+
+    const response = await app.request(`/api/watcher-embeds/${USER_ID}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(await response.json()).toEqual(watcherEmbedSettings);
+    expect(findWatcherEmbedSettings).toHaveBeenCalledWith(USER_ID);
+  });
+
+  it('does not create a row for an invented public source id', async () => {
+    vi.mocked(findWatcherEmbedSettings).mockResolvedValue(null);
+
+    const response = await app.request(`/api/watcher-embeds/${USER_ID}`);
+
+    expect(response.status).toBe(404);
+    expect(getOrCreateWatcherEmbedSettings).not.toHaveBeenCalled();
+  });
+
+  it('creates and returns the signed-in admin source', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const response = await app.request('/api/watcher-embed');
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toContain('no-store');
+    expect(getOrCreateWatcherEmbedSettings).toHaveBeenCalledWith(USER_ID);
+  });
+
+  it('saves only the signed-in admin source', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const response = await request('/api/watcher-embed', 'PATCH', {
+      layout: 'climb',
+      max: 10,
+    });
+
+    expect(response.status).toBe(200);
+    expect(updateWatcherEmbedSettings).toHaveBeenCalledWith(USER_ID, {
+      layout: 'climb',
+      max: 10,
+    });
+  });
+
+  it('does not let a listener create or edit a source', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+
+    expect((await app.request('/api/watcher-embed')).status).toBe(403);
+    expect((await request('/api/watcher-embed', 'PATCH', { layout: 'safe' })).status).toBe(403);
+    expect(getOrCreateWatcherEmbedSettings).not.toHaveBeenCalled();
+    expect(updateWatcherEmbedSettings).not.toHaveBeenCalled();
   });
 });
 
