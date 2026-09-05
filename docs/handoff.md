@@ -5,19 +5,22 @@ Session narrative belongs in git history; what belongs here is the state of the
 room, what is waiting on a person, and the things that are true but not visible
 in the code.
 
-Last updated 2026-09-03.
+Last updated 2026-09-05.
 
 ## Where things stand
 
-`npm run check` is clean. 281 Vitest pass across 28 files, run against the local
-Postgres:
+`astro check` and `tsc --noEmit` are both clean. 293 Vitest pass across 31 files,
+run against the local Postgres:
 
 ```
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything below is on `recover-queup-import-and-genre-research` and **none of it
-is deployed**. `npm run build` succeeds.
+Everything below is on `main` and **deployed**. `npm run build` succeeds.
+
+Run the two halves of `npm run check` separately, or at least do not truncate
+their output: it is `astro check && tsc --noEmit`, and piping the pair through
+`tail` shows only the first summary. A type error reached `main` that way.
 
 ### The archive is part of the room now
 
@@ -107,11 +110,34 @@ last time. It reads the newest pages and stops at the first page it already
 knows, so pressing it twice finds nothing the second time. Measured: 71 plays
 across 5 pages, then 0 across 1.
 
+### The stats page stopped being the slow one
+
+`/api/stats` was 450ms, and `pg_stat_statements` put 435 of them in the genre
+counts. It ran per play; genre is a property of the track. Labelling each track
+once and weighting by its play count, and grouping where it used to `distinct
+on`, took the page to 246ms and its month-filtered view from 86ms to 36ms.
+Byte-identical over all 925 genres, not only the twenty a page shows.
+
+`pg_stat_statements` is not in the repo. It was enabled on the local database
+with `ALTER SYSTEM SET shared_preload_libraries` and a restart, which persists in
+that volume; `ALTER SYSTEM RESET` and another restart undoes it. Worth the two
+minutes before guessing at any query again — it named the query immediately, and
+both standing theories about that query were wrong.
+
+### A slow request now says so
+
+`src/server/app.ts` times `/api/*` and writes `api_request_slow` when a request
+takes more than a second, and nothing otherwise. That is the whole design: a
+healthy server is silent, so `/api/room` at a poll every fifteen seconds per open
+room costs nothing. In PostHog, insight `qz51WBuF` counts the event hourly and an
+alert fires on any value above zero.
+
+It measures the time the server spent producing a response, not the time anyone
+waited for one.
+
 ## Waiting on a person
 
-1. **Nothing is deployed.** Merging to `main` builds the frontend on Netlify,
-   rebuilds the API, applies migrations `0016` and `0017` at startup, and then
-   applies both seeds. No new environment variables are required.
+1. **The archive is deployed**, as of 2026-09-05. Nothing is waiting to ship.
 2. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
    therefore still disposable data by the rule in `AGENTS.md`.
 3. **Nothing here is unverified any more.** The admin archive button was
@@ -151,6 +177,15 @@ across 5 pages, then 0 across 1.
 - **`CF-Connecting-IP` is believed only because the API publishes no port and
   answers nothing but the tunnel.** If a port is ever published, this stops
   being safe.
+- **No Cloudflare limit is anywhere near.** The tunnel gives up on an origin
+  after 125 seconds, refuses request bodies over 100 MB, and does not cap
+  response bodies at all. The slowest endpoint is a quarter of a second and the
+  largest response is the `archive` export at 11.66 MB. Checked because a
+  timeout would make the server record a delivery nobody received — which it
+  would, but nothing here comes close enough for it to happen.
+- **`exportCsv` builds the whole CSV as one string in memory.** 11.66 MB for the
+  archive today, and it grows with the room. Memory is what will bite first,
+  well before anything Cloudflare enforces.
 - **`/api/room` is deliberately exempt from rate limiting.** Every open room
   polls it every 15 seconds.
 - **A dead session can be recovered from its own transcript.** Codex writes
@@ -195,7 +230,7 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 
 ## Next
 
-Deploy it. Then the one thing that moves 42% upward: the per-track pass in
+The one thing that moves 37% upward: the per-track pass in
 `scripts/enrich-genres.ts`, which identifies a track from its YouTube Music card
 rather than a parsed upload title and so reaches what the dumps could not. About
 three requests a track against a one-a-second limit, most played first, safe to
@@ -210,3 +245,7 @@ dumps are newer, not when the archive is.
 
 The prototypes under `scripts/*.prototype.ts` are superseded by the shipped
 modules and can go.
+
+Two smaller things the query work left on the table, both in stats and both
+visible in `pg_stat_statements` once it is on: a track aggregate at 72ms and a
+count at 55ms. Neither is worth the change on its own yet.
