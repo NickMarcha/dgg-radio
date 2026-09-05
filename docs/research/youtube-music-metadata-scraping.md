@@ -8,6 +8,13 @@ YouTube still sends the structured data behind the visible **Music** section in 
 
 The technical result is strong enough to keep as an admin-run experiment, but the policy risk makes it a poor production dependency. If that risk is accepted, use it only as cached enrichment, never as playback-critical data or DGG Radio's independent source of truth.
 
+**Update, 2026-09-05.** The room's operator accepted that risk, and the shape it
+took is recorded in "What shipped" below. Two things use this and they are not
+the same thing: the room reads one watch page when it first stores a track, and
+a one-time backfill read 25,220 of them on a workstation. The first is what this
+note's guidance was written for. The second is not, and it is what taught us
+what the limit actually is.
+
 ## Exact live result
 
 I requested the public watch page for `MiQgZRLQpVs` with no cookies, login, API key, or YouTube Data API call. The `ytInitialData` document contained a `horizontalCardListRenderer` whose header was `Music`. Its single `videoAttributeViewModel` exposed:
@@ -86,13 +93,57 @@ The technical test does not establish permission. YouTube's general terms prohib
 
 This is not legal advice, but it rules out describing the approach as compliant merely because the page is public or the project is non-commercial. YouTube can also rate-limit, challenge, or block the server, and either of the two observed `ytInitialData` delivery forms can change.
 
+## What shipped
+
+**In the room, automatically, one page at a time.** `src/server/enrichment.ts`
+runs when a track is first stored — queued in the room, or brought across by the
+admin archive button. It reads that video's Music card, then asks MusicBrainz
+and Discogs, and stores what they say. It is queued, bounded, and never on the
+request path. This is the only place server code touches a watch page, and its
+volume is one page per track the room has never seen — a rate no different from
+a person opening the video.
+
+**Once, on a workstation, in bulk.** `scripts/youtube-music-identities.ts` read
+25,220 pages over about nine hours to backfill the archive, because the dumps
+match on a name and half the uploads are not named `Artist - Title`. 20,093
+carried a card (79.7%), and feeding those names to the two dump importers took
+genre coverage from 42.4% to 63.4%. It writes a file; nothing about it runs in
+production and the deployment never fetches a page.
+
+### What the rate limit actually is
+
+Measured the hard way, twice.
+
+Eight requests at a time drew 429s on about 600 of 1,000 pages. One request a
+second — which the hundred-page sample above had suggested was safe — then
+looked like it failed at about 400 pages, and the conclusion drawn from that,
+that the limit was on volume rather than rate, was wrong. What had actually
+happened is that four copies of the script were running at once: each `[killed]`
+notice had stopped the shell and left the process behind, and nothing checked.
+Four copies do not share a rate limiter, so a script written for one request a
+second was making four.
+
+That earned a `google.com/sorry` challenge on the whole address — a block, not a
+429, and not something to route around. It cleared by itself in minutes once the
+processes stopped.
+
+A single instance then read all 25,220 pages at one every two seconds with no
+refusal of any kind. So the limit is on concurrency and rate, as it appeared to
+be from the start. The script now writes a PID lock and refuses to start beside
+a live copy of itself, because the instance that causes this is also the one
+that cannot see it: each reads only its own log.
+
 ## If retained as an experiment
 
 Keep the smallest possible boundary:
 
-1. Fetch the public watch page only after an explicit admin request.
+1. Fetch the public watch page for one track at a time, in response to
+   something real — a track entering the room, or an admin asking. Never on a
+   schedule, and never for a list of videos from inside the API.
 2. Cache each raw response by full URL and request options. Never refetch a cached success during the same run.
-3. Rate-limit globally, back off on failures, and stop on blocking or challenge pages.
+3. Rate-limit globally, back off on failures, honour `Retry-After`, and stop on
+   blocking or challenge pages. A bulk run must also refuse to start beside
+   another copy of itself; see above for what that costs when it does not.
 4. Parse both observed initial-data forms: the JavaScript assignment and the `script#yt-initial-data` JSON element.
 5. Find Music lists by renderer type and semantic header, not by array position.
 6. Store every card and every label/value credit, plus the raw source, checked time, parser version, and parse outcome.
