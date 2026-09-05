@@ -254,8 +254,15 @@ Three things only using it revealed:
   stylesheet, it carries `position: relative` and `overflow: hidden`, and some
   emotes decorate themselves with absolutely positioned pseudo-elements that
   need both — GSN's dolphins are drawn on `::before` and `::after` and swim
-  *through* the frame, which only works when the frame clips them. Their
-  animations need looping as well, for the same reason the dances do.
+  *through* the frame, which only works when the frame clips them.
+- **Looping every emote was wrong.** A dance stops after a dozen or so
+  iterations upstream because a chat message settles down once it has been
+  read, and an overlay has nothing to settle into — so the overlay looped them.
+  Applied to every emote, that also caught the 42 destiny.gg declares to run
+  exactly once: OBJECTION slams in and GIGACHAD arrives, and both did it
+  forever. Only what the CDN already repeats is looped now, read out of its own
+  stylesheet by `scripts/dgg-emote-loops.ts`. GSN's dolphins swim past once
+  again, which is what they do in chat.
 - **The Astro dev toolbar renders into a browser source.** `EmbedLayout` hides
   it, because a source is captured as it is drawn and in development that
   included a cropped toolbar in the corner.

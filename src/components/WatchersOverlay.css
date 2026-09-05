@@ -175,25 +175,56 @@
 }
 
 /*
- * Three things that have to beat the CDN's own `.emote.<prefix>` rules, which
+ * Two things that have to beat the CDN's own `.emote.<prefix>` rules, which
  * sit at the same specificity as the base rule above — so which of them won
  * would otherwise depend on the order the two stylesheets happen to load in.
  * The class is named twice to outrank them outright, the same trick flairs.css
  * uses, rather than with `!important`.
  *
- * Upstream every dance stops after a dozen or so iterations, because a chat
- * message settles down once it has been read; an overlay has nothing to settle
- * into. The pseudo-elements are the same story — GSN's dolphins swim past once
- * and are never seen again. And pepeJAM pivots on a point 20px outside its own
- * left edge, YAM on one below itself, which at this size swings them across
- * their neighbours.
+ * A dance stops after a dozen or so iterations upstream, because a chat message
+ * settles down once it has been read and an overlay has nothing to settle into.
+ * Looping those only removes the cut-off. It is not a thing to do to every
+ * emote: destiny.gg declares as many again to run exactly once — OBJECTION
+ * slams in, GIGACHAD arrives — and repeating one of those turns an entrance
+ * into a twitch that never stops.
+ *
+ * So only what upstream already repeats is looped. The names are every
+ * `.emote.<prefix>` rule in cdn.destiny.gg/emotes/emotes.css — the stylesheet
+ * this page draws with — whose animation carries an iteration count above one.
+ * `npx tsx scripts/dgg-emote-loops.ts` prints both lists again when the
+ * catalogue moves; an emote it has never heard of is left as the CDN wrote it.
  */
-.watcher .emote.emote,
-.watcher .emote.emote::before,
-.watcher .emote.emote::after {
+.watcher .emote.emote:is(
+  .Askers, .BEARSLEEP, .BLADE, .BLICKY, .BONK, .catJAM, .CHEERSTINY, .ChokeDank,
+  .Clap, .COOMER, .CuckCrab, .DANKMEMES, .gachiGASM, .JAMSTINY, .Klappa, .KYSNOW,
+  .MiyanoHype, .MLADY, .monkaGun, .monkaSMEGA, .MonkeyListening, .NOOOO,
+  .NoTears, .OOOO, .OverRustle, .peepoRiot, .pepeJAM, .PepeLaugh, .PepeSteer,
+  .PepoPunch, .POPPERS, .RaveDoge, .REE, .SHRUGSTINY, .SICKO, .SideEye, .SMASHit,
+  .SNAP, .SpookerZ, .WooYeah, .YAM, .YAP, .YeeLaugh
+) {
   animation-iteration-count: infinite;
 }
 
+/*
+ * The same, for the emotes that decorate themselves with an animated
+ * pseudo-element. GSN's dolphins are not among them: they swim past once
+ * upstream and that is the whole joke.
+ */
+.watcher .emote.emote:is(
+  .BEARSLEEP, .BibleThump, .BLUBSTINY, .gachiGASM, .HACKERMAN, .NoTears,
+  .PepeHands, .Slumlord, .SNAP, .TRUELOVE
+)::before,
+.watcher .emote.emote:is(
+  .BEARSLEEP, .BibleThump, .BLUBSTINY, .gachiGASM, .HACKERMAN, .NoTears,
+  .PepeHands, .Slumlord, .SNAP, .TRUELOVE
+)::after {
+  animation-iteration-count: infinite;
+}
+
+/*
+ * pepeJAM pivots on a point 20px outside its own left edge and YAM on one below
+ * itself, which at this size swings them across their neighbours.
+ */
 .watcher .emote.emote {
   transform-origin: center;
 }
