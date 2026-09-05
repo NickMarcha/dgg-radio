@@ -12,7 +12,7 @@ import { getDatabase, type Database } from './db/client';
 import { legacyPlays, media } from './db/schema';
 import { listGenres, matchesGenre, trackKey } from './genre';
 import { MediaLookupError, soundCloudPermalink } from './media';
-import { enqueueMedia } from './room';
+import { enqueueMedia, resolveMediaForLibrary } from './room';
 import { ALL_TIME, withinPeriod } from './period';
 import { likePattern } from './search';
 
@@ -30,6 +30,46 @@ import { likePattern } from './search';
  */
 function canonicalUrl(provider: LegacyPlay['provider'], providerMediaId: string): string | null {
   return provider === 'youtube' ? `https://www.youtube.com/watch?v=${providerMediaId}` : null;
+}
+
+/**
+ * Finding out where an archived SoundCloud track actually lives.
+ *
+ * A YouTube id is an address. A SoundCloud numeric id is not: only SoundCloud
+ * knows the permalink, so 297 archived tracks had no link at all and rendered
+ * as plain text beside YouTube rows that linked out. Asking costs one request,
+ * and the answer is a `media` row, which is the same thing the first person to
+ * queue one would have created.
+ *
+ * So the page asks on their behalf. Nothing waits for it: the request that
+ * triggered it is already answered, and the link appears on the next load.
+ * Whatever is left over is asked for the next time somebody looks, and there
+ * are only a few hundred of them in total.
+ */
+const resolving = new Set<string>();
+const MAX_RESOLVING = 20;
+
+function resolveSoundCloudLinks(entries: LegacyPlay[], db: Database): void {
+  for (const entry of entries) {
+    if (entry.canonicalUrl || entry.provider !== 'soundcloud') continue;
+    const key = `${entry.provider}:${entry.providerMediaId}`;
+    if (resolving.has(key) || resolving.size >= MAX_RESOLVING) continue;
+
+    resolving.add(key);
+    void (async () => {
+      const url = await queupTrackUrl(entry.provider, entry.providerMediaId);
+      await resolveMediaForLibrary(url, db);
+    })()
+      .catch((error) => {
+        // A deleted or private track never resolves, and asking again on every
+        // page load is the cost of not remembering that. It is a few hundred
+        // tracks, so that cost is small and the alternative is a table.
+        console.error(`Could not find where ${key} lives`, error);
+      })
+      .finally(() => {
+        resolving.delete(key);
+      });
+  }
 }
 
 /**
@@ -188,7 +228,7 @@ export async function listLegacyHistory(
   );
   const [rows, [counted]] = await Promise.all([
     db
-      .select({ play: legacyPlays, mediaId: media.id })
+      .select({ play: legacyPlays, mediaId: media.id, mediaUrl: media.canonicalUrl })
       .from(legacyPlays)
       // The archive stores a provider and an id, not a media row. Most of those
       // ids name nothing here, but a track the room has since played has a row
@@ -220,12 +260,14 @@ export async function listLegacyHistory(
     db,
   );
 
-  const entries: LegacyPlay[] = rows.map(({ play, mediaId }) => ({
+  const entries: LegacyPlay[] = rows.map(({ play, mediaId, mediaUrl }) => ({
     id: play.sourceId,
     provider: play.provider,
     providerMediaId: play.providerMediaId,
     title: play.title,
-    canonicalUrl: canonicalUrl(play.provider, play.providerMediaId),
+    // The room's own row knows the real address, which for a SoundCloud track
+    // is the only way there is to know it.
+    canonicalUrl: mediaUrl ?? canonicalUrl(play.provider, play.providerMediaId),
     durationSeconds: play.durationSeconds,
     thumbnailUrl: play.thumbnailUrl,
     mediaId,
@@ -236,6 +278,11 @@ export async function listLegacyHistory(
     downvotes: play.downvotes,
     skipped: play.skipped,
   }));
+
+  // Anything still without an address is a SoundCloud track nobody has
+  // reached for yet. Go and find out, so that the next person to open this
+  // page gets a link where this one got plain text.
+  resolveSoundCloudLinks(entries, db);
 
   return { entries, total: counted?.total ?? 0 };
 }

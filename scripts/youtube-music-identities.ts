@@ -170,10 +170,14 @@ async function remember(videoId: string, answer: Answer): Promise<void> {
   await writeFile(join(CACHE, `${videoId}.json`), JSON.stringify(answer), 'utf8');
 }
 
-interface Track {
+/**
+ * A row as the query hands it back. `db.execute` needs something indexable by
+ * string, which an interface is not and a type alias is.
+ */
+type Track = {
   provider_media_id: string;
   title: string;
-}
+};
 
 /**
  * The tracks with no answer from this source yet, most played first, so that
