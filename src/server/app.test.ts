@@ -339,11 +339,11 @@ describe('watcher history', () => {
     expect(getStreamWatchHistory).not.toHaveBeenCalled();
   });
 
-  it('rejects periods that would return more than a week of minute samples', async () => {
+  it('reads a month, and refuses to be asked for more', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    expect((await app.request('/api/watchers/history?hours=169')).status).toBe(400);
-    expect(getStreamWatchHistory).not.toHaveBeenCalled();
+    expect((await app.request('/api/watchers/history?hours=720')).status).toBe(200);
+    expect((await app.request('/api/watchers/history?hours=721')).status).toBe(400);
   });
 });
 

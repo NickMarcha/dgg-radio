@@ -19,10 +19,12 @@
   font: inherit;
 }
 
+/* One line per channel, so the legend is the only thing naming them. Each key
+   takes its colour from the line's own `color`, set on the element. */
 .admin-watch-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1rem;
+  gap: 0.4rem 1rem;
   margin: 0.75rem 0;
   color: var(--muted);
   font-size: 0.78rem;
@@ -34,18 +36,17 @@
   gap: 0.35rem;
 }
 
-.admin-watch-legend i {
+.admin-watch-key {
   display: block;
   width: 1.5rem;
-  height: 2px;
+  height: 0;
+  border-top: 2px solid currentColor;
 }
 
-.admin-watch-key-site {
-  background: var(--accent-soft);
-}
-
-.admin-watch-key-chat {
-  background: var(--success);
+/* The followed channel's roster, in that channel's own colour: the same
+   entity measured a second way, not a second entity. */
+.admin-watch-key-dashed {
+  border-top-style: dashed;
 }
 
 .admin-watch-chart {
@@ -54,37 +55,23 @@
   border-top: 1px solid var(--line);
 }
 
-.admin-watch-chart + .admin-watch-chart {
-  margin-top: 1rem;
-}
-
-.admin-watch-chart figcaption {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.admin-watch-chart figcaption span {
-  color: var(--faint);
-  font-size: 0.75rem;
-  text-align: right;
-}
-
 .admin-watch-chart-scroll {
   overflow-x: auto;
+}
+
+.admin-watch-plot {
+  position: relative;
+  min-width: 32rem;
 }
 
 .admin-watch-chart svg {
   display: block;
   width: 100%;
-  min-width: 32rem;
   height: auto;
   background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: 6px;
+  touch-action: none;
 }
 
 .admin-watch-grid line,
@@ -101,38 +88,101 @@
   font-size: 10px;
 }
 
+.admin-watch-crosshair {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
 .admin-watch-line {
   fill: none;
+  stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
-.admin-watch-line-site {
-  stroke: var(--accent-soft);
+.admin-watch-line-dashed {
+  stroke-dasharray: 5 4;
 }
 
-.admin-watch-line-chat {
-  stroke: var(--success);
+.admin-watch-point {
+  fill: currentColor;
+  /* A ring of the surface, so two lines crossing stay two lines. */
+  stroke: var(--surface-raised);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 
-.admin-watch-point-site {
-  fill: var(--accent-soft);
+.admin-watch-tooltip {
+  position: absolute;
+  top: 0.5rem;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 18rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.72rem;
+  pointer-events: none;
 }
 
-.admin-watch-point-chat {
-  fill: var(--success);
+.admin-watch-tooltip strong {
+  color: var(--text);
+  font-size: 0.74rem;
 }
 
-@media (max-width: 620px) {
-  .admin-watch-chart figcaption {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
+.admin-watch-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
 
-  .admin-watch-chart figcaption span {
-    text-align: left;
-  }
+.admin-watch-tooltip b {
+  margin-left: auto;
+  padding-left: 0.6rem;
+  color: var(--text);
+}
+
+/* The same figures as the chart, for anyone the colours do not reach. */
+.admin-watch-table {
+  width: 100%;
+  margin-top: 0.75rem;
+  border-collapse: collapse;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.admin-watch-table caption {
+  margin-bottom: 0.35rem;
+  color: var(--faint);
+  font-size: 0.72rem;
+  text-align: left;
+}
+
+.admin-watch-table th,
+.admin-watch-table td {
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.admin-watch-table th[scope='row'] {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+  font-weight: normal;
+  text-align: left;
+}
+
+.admin-watch-table thead th:first-child {
+  text-align: left;
 }

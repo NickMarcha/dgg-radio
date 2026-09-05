@@ -245,6 +245,8 @@ describe.skipIf(!connectionString)('stream watch settings', () => {
       from: '2026-09-05T19:00:00.000Z',
       to: '2026-09-05T19:30:00.000Z',
       bucketMinutes: 1,
+      other: [],
+      otherChannels: 0,
       samples: [
         {
           sampledAt: '2026-09-05T19:00:00.000Z',

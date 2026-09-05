@@ -157,7 +157,7 @@ const statsQuerySchema = z.object({
 });
 
 const streamWatchHistorySchema = z.object({
-  hours: z.coerce.number().int().min(1).max(168).default(24),
+  hours: z.coerce.number().int().min(1).max(720).default(24),
 });
 
 const exportParamSchema = z.object({

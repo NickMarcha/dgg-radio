@@ -172,10 +172,15 @@ export function bucketMinutesFor(from: Date, to: Date): number {
   if (hours <= 6) return 1;
   if (hours <= 24) return 5;
   if (hours <= 72) return 15;
-  return 30;
+  if (hours <= 168) return 30;
+  return 120;
 }
 
-/** How many channels one period is drawn for, busiest first. */
+/**
+ * How many channels are drawn as themselves. Eight is the number of hues that
+ * can be told apart on one chart, so it is a limit of the drawing rather than
+ * of the query; everything past it is summed into one line.
+ */
 const HISTORY_TARGETS = 8;
 
 export async function getStreamWatchHistory(
@@ -225,21 +230,36 @@ export async function getStreamWatchHistory(
       .map(([key]) => key),
   );
 
-  const samples: StreamWatchSample[] = rows
-    .filter((row) => drawn.has(`${row.platform}/${row.channel}`))
-    .map((row) => ({
-      sampledAt: new Date(row.sampledAt).toISOString(),
-      platform: row.platform,
-      channel: row.channel,
-      siteCount: row.siteCount === null ? null : Number(row.siteCount),
-      chatCount: row.chatCount === null ? null : Number(row.chatCount),
-    }));
+  const samples: StreamWatchSample[] = [];
+  const otherByBucket = new Map<string, number>();
+  const otherChannels = new Set<string>();
+
+  for (const row of rows) {
+    const key = `${row.platform}/${row.channel}`;
+    const sampledAt = new Date(row.sampledAt).toISOString();
+    if (drawn.has(key)) {
+      samples.push({
+        sampledAt,
+        platform: row.platform,
+        channel: row.channel,
+        siteCount: row.siteCount === null ? null : Number(row.siteCount),
+        chatCount: row.chatCount === null ? null : Number(row.chatCount),
+      });
+      continue;
+    }
+    otherChannels.add(key);
+    otherByBucket.set(sampledAt, (otherByBucket.get(sampledAt) ?? 0) + Number(row.siteCount ?? 0));
+  }
 
   return {
     from: from.toISOString(),
     to: to.toISOString(),
     bucketMinutes,
     samples,
+    other: [...otherByBucket.entries()]
+      .map(([sampledAt, siteCount]) => ({ sampledAt, siteCount }))
+      .sort((left, right) => left.sampledAt.localeCompare(right.sampledAt)),
+    otherChannels: otherChannels.size,
   };
 }
 

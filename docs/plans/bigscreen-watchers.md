@@ -1,6 +1,6 @@
 # Bigscreen watchers plan
 
-Status: all seven slices are built and committed.
+Status: all eight slices are built and committed.
 
 ## Outcome
 
@@ -565,3 +565,36 @@ The bucket width is written into the statement rather than bound as a parameter.
 A bound parameter makes the copy in `group by` a different expression from the
 one in `select`, and Postgres answers by asking for the raw column to be grouped
 instead — which reads as a bug in the query rather than in how it was built.
+
+### Slice 8: one chart, every channel — done
+
+A chart per channel was fine while there was one channel. Over a week the site
+lists hundreds, and as separate charts that is a page nobody scrolls — worse, it
+answers the wrong question. Who was watched, and when, against everybody else,
+only has an answer when the lines share an axis. So it is one chart now, with
+every drawn channel on it.
+
+The eight hues are a categorical palette stepped for this dark surface and
+checked against `#1f2023` by the validator in the `dataviz` skill — lightness
+band, chroma floor, contrast, and colour-vision separation, all passing. Eight is
+what can be told apart, which is what fixes the number of channels drawn: the
+server sums everything past it into one grey line and says how many channels
+that is, rather than reaching for a ninth colour.
+
+A channel's colour comes from its own name, not from where it ranked. Ranking
+would repaint every surviving line whenever the period changed or a channel went
+quiet, and a colour that moves is worse than no colour. Two names wanting the
+same hue is settled by taking the next free one, the same probe the overlay uses
+to seat watchers.
+
+The followed channel's roster is a second line for the same channel — its own
+colour, dashed — because it is the same entity measured a second way rather than
+a second entity.
+
+Under the chart is a table of every line, its peak and its latest reading. That
+is the accessible half of a chart whose identity is carried by colour, and it is
+also the thing to read when two lines sit on top of each other.
+
+The period selector goes to 30 days, in two-hour buckets. Hovering anywhere on
+the plot puts a crosshair on the nearest bucket and lists what every line read
+there, busiest first.

@@ -1012,7 +1012,17 @@ export interface StreamWatchHistory {
   from: string;
   to: string;
   bucketMinutes: number;
+  /** The channels worth drawing on their own, busiest first. */
   samples: StreamWatchSample[];
+  /**
+   * Everything else on the site, summed per bucket. A week has hundreds of
+   * channels in it and only a few can be told apart on one chart, so the rest
+   * is one line rather than nothing: it says how much of the site the drawn
+   * channels actually are.
+   */
+  other: { sampledAt: string; siteCount: number }[];
+  /** How many channels that one line covers. */
+  otherChannels: number;
 }
 
 export interface WatchSocketState {

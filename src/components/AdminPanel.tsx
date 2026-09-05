@@ -1102,6 +1102,7 @@ const STREAM_WATCH_PERIODS = [
   { hours: 24, label: '24 hours' },
   { hours: 72, label: '3 days' },
   { hours: 168, label: '7 days' },
+  { hours: 720, label: '30 days' },
 ] as const;
 
 type StreamWatchHours = (typeof STREAM_WATCH_PERIODS)[number]['hours'];
@@ -1288,12 +1289,12 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
             ) : history ? (
               <>
                 <p className="admin-help">
-                  Every embed destiny.gg listed while tracking was on, busiest first, up to
-                  eight of them.{' '}
+                  Every embed destiny.gg listed while tracking was on, on one axis. The eight
+                  busiest are drawn as themselves and the rest as one line together.{' '}
                   {history.bucketMinutes === 1
                     ? 'One point a minute.'
                     : `One point every ${history.bucketMinutes} minutes.`}{' '}
-                  Only the channel above is also counted in chat.
+                  Only the channel above is also counted in chat, drawn dashed in its colour.
                 </p>
                 <StreamWatchChart history={history} />
               </>
