@@ -1,27 +1,6 @@
-.admin-watch-history {
-  margin-top: 1.25rem;
-}
-
-.admin-watch-history-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--faint);
-  font-size: 0.78rem;
-}
-
-.admin-watch-history-toolbar select {
-  padding: 0.3rem 0.45rem;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font: inherit;
-}
-
 /* One line per channel, so the legend is the only thing naming them. Each key
    takes its colour from the line's own `color`, set on the element. */
-.admin-watch-legend {
+.embed-chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 1rem;
@@ -30,41 +9,36 @@
   font-size: 0.78rem;
 }
 
-.admin-watch-legend span {
+.embed-chart-legend span {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
 }
 
-.admin-watch-key {
+.embed-chart-key {
   display: block;
   width: 1.5rem;
   height: 0;
   border-top: 2px solid currentColor;
 }
 
-/* The followed channel's roster, in that channel's own colour: the same
-   entity measured a second way, not a second entity. */
-.admin-watch-key-dashed {
-  border-top-style: dashed;
-}
-
-.admin-watch-chart {
+.embed-chart {
   margin: 0;
   padding: 0.85rem 0 0;
   border-top: 1px solid var(--line);
 }
 
-.admin-watch-chart-scroll {
+.embed-chart-scroll {
   overflow-x: auto;
 }
 
-.admin-watch-plot {
+.embed-chart-plot {
   position: relative;
   min-width: 32rem;
 }
 
-.admin-watch-chart svg {
+.embed-chart svg,
+.embed-chart-overview svg {
   display: block;
   width: 100%;
   height: auto;
@@ -74,28 +48,28 @@
   touch-action: none;
 }
 
-.admin-watch-grid line,
-.admin-watch-baseline {
+.embed-chart-grid line,
+.embed-chart-baseline {
   stroke: var(--line-strong);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
-.admin-watch-grid text,
-.admin-watch-axis text {
+.embed-chart-grid text,
+.embed-chart-axis text {
   fill: var(--faint);
   font-family: var(--font-mono);
   font-size: 10px;
 }
 
-.admin-watch-crosshair {
+.embed-chart-crosshair {
   stroke: var(--line-strong);
   stroke-width: 1;
   stroke-dasharray: 3 3;
   vector-effect: non-scaling-stroke;
 }
 
-.admin-watch-line {
+.embed-chart-line {
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -104,11 +78,7 @@
   vector-effect: non-scaling-stroke;
 }
 
-.admin-watch-line-dashed {
-  stroke-dasharray: 5 4;
-}
-
-.admin-watch-point {
+.embed-chart-point {
   fill: currentColor;
   /* A ring of the surface, so two lines crossing stay two lines. */
   stroke: var(--surface-raised);
@@ -116,7 +86,7 @@
   vector-effect: non-scaling-stroke;
 }
 
-.admin-watch-tooltip {
+.embed-chart-tooltip {
   position: absolute;
   top: 0.5rem;
   z-index: 1;
@@ -133,26 +103,65 @@
   pointer-events: none;
 }
 
-.admin-watch-tooltip strong {
+.embed-chart-tooltip strong {
   color: var(--text);
   font-size: 0.74rem;
 }
 
-.admin-watch-tooltip span {
+.embed-chart-tooltip span {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   white-space: nowrap;
 }
 
-.admin-watch-tooltip b {
+.embed-chart-tooltip b {
   margin-left: auto;
   padding-left: 0.6rem;
   color: var(--text);
 }
 
+/* The whole period, drawn small enough that the window over it is the subject
+   and the lines under it are only a hint of where to drag. */
+.embed-chart-overview {
+  margin-top: 0.5rem;
+  min-width: 32rem;
+}
+
+.embed-chart-overview .embed-chart-line {
+  stroke-width: 1.25;
+  opacity: 0.75;
+}
+
+.embed-chart-overview .embed-chart-point {
+  display: none;
+}
+
+.embed-chart-hint {
+  margin: 0.4rem 0 0;
+  color: var(--faint);
+  font-size: 0.72rem;
+}
+
+/* d3-brush draws these itself, so they are styled rather than authored. */
+.embed-chart-brush .selection {
+  fill: var(--text);
+  fill-opacity: 0.1;
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  shape-rendering: auto;
+}
+
+.embed-chart-brush .handle {
+  fill: var(--line-strong);
+}
+
+.embed-chart-brush .overlay {
+  cursor: crosshair;
+}
+
 /* The same figures as the chart, for anyone the colours do not reach. */
-.admin-watch-table {
+.embed-chart-table {
   width: 100%;
   margin-top: 0.75rem;
   border-collapse: collapse;
@@ -160,21 +169,21 @@
   font-size: 0.76rem;
 }
 
-.admin-watch-table caption {
+.embed-chart-table caption {
   margin-bottom: 0.35rem;
   color: var(--faint);
   font-size: 0.72rem;
   text-align: left;
 }
 
-.admin-watch-table th,
-.admin-watch-table td {
+.embed-chart-table th,
+.embed-chart-table td {
   padding: 0.25rem 0.5rem;
   border-bottom: 1px solid var(--line);
   text-align: right;
 }
 
-.admin-watch-table th[scope='row'] {
+.embed-chart-table th[scope='row'] {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -183,6 +192,6 @@
   text-align: left;
 }
 
-.admin-watch-table thead th:first-child {
+.embed-chart-table thead th:first-child {
   text-align: left;
 }

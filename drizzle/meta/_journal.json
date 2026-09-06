@@ -176,6 +176,27 @@
       "when": 1788645989632,
       "tag": "0024_ambitious_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788679157049,
+      "tag": "0025_daily_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788682740193,
+      "tag": "0026_skinny_archangel",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1788682751742,
+      "tag": "0027_magenta_garia",
+      "breakpoints": true
     }
   ]
 }

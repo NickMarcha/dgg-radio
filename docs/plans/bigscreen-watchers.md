@@ -109,24 +109,22 @@ Singleton on `id = 1`, the shape `room_settings` already uses.
 
 | column | meaning |
 | --- | --- |
-| `enabled` | whether the tracker connects at all |
+| `enabled` | whether one channel's chat roster is read, which is what the overlay draws |
 | `platform` | `kick`, `youtube`, `twitch`, `angelthump` |
 | `channel` | the id as it appears in `watching`, stored lowercase |
 | `updated_at`, `updated_by_user_id` | the audit pair the room settings carry |
 
 ### `stream_watch_samples`
 
-One row a minute per embed while tracking is on, keyed on the minute and the
-target. Every embed the site listed gets a row, not only the one the room
+One row a quarter of an hour per embed, keyed on that interval and the target. Every embed the site listed gets a row, not only the one the room
 follows: the list arrives twice a minute anyway, and throwing away everything
 but one line of it was the only reason the rest was not recorded.
 
 | column | meaning |
 | --- | --- |
-| `sampled_at` | truncated to the minute |
-| `platform`, `channel` | the embed this row is about, channel lowercased |
-| `site_count` | `count` from `dggApi:embeds`, null when the followed channel is absent |
-| `chat_count` | watchers in the roster, null for every channel but the followed one |
+| `sampled_at` | truncated to the quarter hour it was taken in |
+| `channel_id` | into `stream_watch_channels`, which names it once |
+| `site_count` | the mean of that interval's readings of `dggApi:embeds` |
 
 `platform` is text here rather than the enum the settings use. The room can
 only be pointed at platforms it knows about; the site lists whatever it lists,
@@ -164,10 +162,17 @@ meaning — counting how somebody talks, through polecat — and is not touched.
 
 ```
 GET   /api/watchers          public snapshot for the overlay and the admin page
-GET   /api/watchers/history  admin, samples over a period, for the graph
+GET   /api/watchers/channels admin, every channel a window saw, for the picker
+GET   /api/watchers/history  admin, samples over a window, for the chart
 GET   /api/stream-watch      admin, current settings and socket state
 PATCH /api/stream-watch      admin, enable or disable, set platform and channel
 ```
+
+Both history routes take the window as `from` and `to` rather than a length,
+because the chart and the strip under it are the same query over two different
+windows. `history` also takes `channels`, up to eight `platform/channel` keys;
+without it the server ranks and picks the busiest, and either way it says in
+`channels` which ones it drew.
 
 The snapshot:
 
@@ -451,7 +456,7 @@ would have hit within a second.
 
 ### Slice 4: completed graph
 
-`stream_watch_samples` stores the two counts once a minute with the platform
+`stream_watch_samples` stores the site's count once a quarter hour with the platform
 and channel that produced them. Its key is the minute plus that target, so a
 quick switch does not overwrite either reading. A repeat for the same target
 and minute updates the row with the latest figures.
@@ -540,8 +545,8 @@ hidden in that sense.
 
 The live socket sends the whole list twice a minute and always did; only one
 line of it was ever written down. Now every embed in that list is stored each
-minute, and the followed channel is simply the row that also carries a chat
-count — the roster is read for one channel, so nobody else can have one.
+minute. (The followed channel carried a chat count too until slice 10, which
+took that back out.)
 
 That makes the graph a picture of what destiny.gg was watching rather than of
 one channel, which is worth having for the same reason the room keeps any
@@ -551,10 +556,9 @@ Two things had to change to survive the extra rows.
 
 The history is grouped before it is sent. A week of minutes is 10,080 points per
 channel and there are as many channels as the site is listing, so a period picks
-a bucket — a minute up to six hours, then five, fifteen and thirty — and each
+a bucket — never finer than the sampling interval, then thirty and 120 — and each
 bucket keeps the busiest reading in it, which is the thing worth seeing at that
-width. Only the eight busiest channels are drawn, and the followed one is always
-among them however quiet it is.
+width. Only the eight busiest channels are drawn.
 
 The chart's rule for breaking a line was written for one-minute samples: points
 more than ninety seconds apart were treated as a gap in the record. Half-hour
@@ -565,6 +569,132 @@ The bucket width is written into the statement rather than bound as a parameter.
 A bound parameter makes the copy in `group by` a different expression from the
 one in `select`, and Postgres answers by asking for the raw column to be grouped
 instead — which reads as a bug in the query rather than in how it was built.
+
+### Slice 11: what a reading is, and how long it stays one — done
+
+Three changes to the same table, all about it being a record that runs forever
+rather than a picture of today.
+
+**A reading is now the mean of an interval, not an instant in it.** The list is
+read every minute into a running total in memory and one row is written when the
+interval rolls over. A channel missing from a reading counts as zero — the site
+lists an embed only while somebody has it open, so absence is a measurement —
+and the divisor is how many times the list was read, not how many times that
+channel was in it. That is what keeps a channel watched by four hundred people
+for one minute of the quarter hour from reading as four hundred, while also not
+punishing a channel for the minutes nobody was looking. Nothing is written until
+an interval ends, so a restart loses the part-interval it was accumulating: a
+gap rather than a wrong number, and one write per interval instead of fifteen
+updates to the same row.
+
+**The channel is named once.** `stream_watch_channels` holds `(platform,
+channel)` and the samples hold an integer into it. Measured on synthetic rows —
+a year of seventeen channels at a quarter-hour — text on every row is 65 MB and
+the reference is 44 MB. On the real table it took a row from 129.6 bytes to
+84.4, visible only after a `vacuum full`: `drop column` does not return the
+space, and the backfill rewrote every row besides. Migration `0026` creates and
+backfills, `0027` drops the text columns and moves the primary key, split that
+way because one migration doing both makes drizzle-kit ask whether it is a
+rename.
+
+**Detail expires.** `downsampleStreamWatchSamples` averages readings older than
+`DETAIL_DAYS` down to one an hour, in place, at startup and once a day. It is
+two statements rather than a data-modifying CTE, which would not see its own
+delete and would aggregate an on-the-hour row while removing it; averaging first
+and then deleting only what is not on the hour is also idempotent, which matters
+for something that runs at every startup. Steady state is about 11 MB for the
+rolling ninety days plus 11 MB a year of hourly history.
+
+Ninety days is chosen against the UI: the longest period the chart offers is
+thirty days, drawn at two-hour buckets, so quarter-hour detail beyond about
+thirty-five days cannot be displayed at all.
+
+### Slice 10: the roster stops being history — done
+
+The stored chat count went out, and with it every trace of a followed channel in
+this half of the feature. `stream_watch_samples` holds one number per embed now:
+destiny.gg's own count of who has it open. Migration `0025` drops `chat_count`,
+and `site_count` becomes `not null` in the same breath — it was nullable only to
+carry the followed channel through a minute the site did not list it, which was
+a row that existed to hold a roster count and measured nothing else. Those rows
+are deleted first, which the beta badge allows.
+
+The reason is that the two numbers were never the same measurement. The site's
+count is a fact about the site, sampled every minute for every channel. The
+roster is who is in Destiny chat with an embed selected — a live thing the
+overlay draws from a socket, for one channel, and only while somebody is
+following it. Keeping a broken record of the second inside a complete record of
+the first made the followed channel a special row, gave it priority in the
+ranking, gave it a second dashed line, and put a badge in the picker — four
+distinctions across the chart and its controls, all of them carrying one thing
+nobody wanted to look at over time.
+
+What went with it: the dashed line and its styles, the `followed` flag on a
+listed channel and the badge that drew it, the followed-first ranking, the
+`WatchersSnapshot` argument to `recordStreamWatchSample`, the metric parameter
+threaded through the chart's series code, and the "record the followed channel
+in a minute the site did not list it" branch. The overlay is untouched: it reads
+the roster live, the way it always did.
+
+### Slice 9: the history is its own tab, and its own question — done
+
+Three things moved at once because they are one change.
+
+**The recording stopped depending on the overlay.** `enabled` used to gate both
+sockets, so the room's record of destiny.gg existed only while somebody was
+being followed — and a minute nobody was connected is a minute that cannot be
+recovered afterwards. The live socket is now held for the life of the process
+and the sampler runs beside it; `enabled` names the one channel whose chat
+roster is also read, which is the only part that needs a chat connection and
+the only part the overlay can draw. The cost is that a fresh deployment now
+connects to destiny.gg's live socket without being asked, which is a real change
+from "nothing connects until an admin switches it on" and was made deliberately:
+the alternative is a second switch for a thing nobody would ever want off.
+
+**The chart is its own tab.** It had been a block at the bottom of the OBS card,
+which is where it belonged while it was a picture of the room's own stream. It
+is not that any more, so `/admin#embeds` holds the chart, the channel picker and
+the live socket's state, and `/admin#obs` keeps what configures the overlay: the
+followed channel, the roster counts, the chat socket and the sources.
+
+**The controls became a way of looking rather than a period selector.** A period
+dropdown is fine for "what happened lately" and useless for "what happened at
+half past two". So the period is now drawn twice: the whole of it as a strip at
+the bottom, and whatever window is brushed on that strip as the chart above.
+Brushing refetches only the brushed window, which the server then buckets at
+whatever detail that window has stored — an hour picked out of a month arrives
+at full detail rather than per two hours. With nothing brushed there is one request
+and the chart is the strip drawn large.
+
+Beside it is a picker listing every channel the window saw, ranked by peak, with
+search. Choosing sends those keys to the server, which draws them and sums
+everything else into the same one line as before — so a narrow choice still says
+how much of the site it is a part of. The list is deliberately uncapped: a chart
+can only tell eight channels apart, but the reason to choose at all is to reach
+a quiet channel, and a list cut to the busiest could never offer one. The eight
+the server picked when nobody chose come back in `channels`, and the strip and
+the chart are always asked for the same ones, so brushing never silently swaps
+which lines are drawn.
+
+One thing the picker broke and had to fix. A channel's colour comes from its
+own name, but eight hues and any number of channels means collisions, and
+resolving one by taking the next free hue made the answer depend on who else was
+drawn — so switching a channel off repainted its neighbours. That was invisible
+while the drawn set only changed with the period; with a picker beside the chart
+it is the main thing anybody does. The hues are held above the charts now: a
+channel keeps its colour for as long as it is drawn, and one is handed on only
+once nothing is using it. Found by toggling the real page and reading the
+computed colours back, not by reasoning about the function.
+
+**The chart is d3 now**, and TypeScript throughout. d3 does the arithmetic —
+`scaleTime`, `scaleLinear().nice()`, `line().defined()` for the breaks, tick
+choice and time formatting, `bisectCenter` for the crosshair — and React does
+the DOM, so the chart still renders identically on the server and is asserted
+against as markup. The one exception is `brushX`, which owns the handful of
+nodes it drags; it lives in an effect against a ref and React owns nothing under
+it. `line().defined()` replaced the hand-rolled segment splitting outright: a
+break is now a null point in one array rather than a second array, and one path
+carries a channel however often it stops.
 
 ### Slice 8: one chart, every channel — done
 
@@ -586,10 +716,6 @@ would repaint every surviving line whenever the period changed or a channel went
 quiet, and a colour that moves is worse than no colour. Two names wanting the
 same hue is settled by taking the next free one, the same probe the overlay uses
 to seat watchers.
-
-The followed channel's roster is a second line for the same channel — its own
-colour, dashed — because it is the same entity measured a second way rather than
-a second entity.
 
 Under the chart is a table of every line, its peak and its latest reading. That
 is the accessible half of a chart whose identity is carried by colour, and it is

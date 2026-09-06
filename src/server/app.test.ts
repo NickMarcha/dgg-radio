@@ -57,6 +57,7 @@ vi.mock('./watchers', async (importOriginal) => ({
     to: '2026-09-05T12:00:00.000Z',
     samples: [],
   }),
+  listStreamWatchChannels: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('./watcher-embeds', () => ({
@@ -71,7 +72,7 @@ const { reorderRules } = await import('./rules');
 const { getStorageSnapshot } = await import('./storage');
 const { resetRateLimits } = await import('./rate-limit');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
-const { getStreamWatchHistory } = await import('./watchers');
+const { getStreamWatchHistory, listStreamWatchChannels } = await import('./watchers');
 const {
   findWatcherEmbedSettings,
   getOrCreateWatcherEmbedSettings,
@@ -322,14 +323,33 @@ describe('watcher history', () => {
     vi.clearAllMocks();
   });
 
-  it('returns a bounded period to an admin', async () => {
+  const window = (from: string, to: string) => `from=${from}&to=${to}`;
+
+  it('reads the window it was given, and the channels asked for', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    const response = await app.request('/api/watchers/history?hours=6');
+    const response = await app.request(
+      `/api/watchers/history?${window('2026-09-05T12:00:00.000Z', '2026-09-05T18:00:00.000Z')}` +
+        '&channels=kick/destiny,youtube/quiet',
+    );
 
     expect(response.status).toBe(200);
-    const [from, to] = vi.mocked(getStreamWatchHistory).mock.calls[0]!;
+    const [from, to, channels] = vi.mocked(getStreamWatchHistory).mock.calls[0]!;
     expect(to.getTime() - from.getTime()).toBe(6 * 60 * 60 * 1_000);
+    expect(channels).toEqual(['kick/destiny', 'youtube/quiet']);
+  });
+
+  it('ranks the channels itself when none were named', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const response = await app.request(
+      `/api/watchers/history?${window('2026-09-05T12:00:00.000Z', '2026-09-05T18:00:00.000Z')}`,
+    );
+
+    expect(response.status).toBe(200);
+    // Null rather than an empty list: asking for nothing in particular and
+    // asking for no channels at all are different questions.
+    expect(vi.mocked(getStreamWatchHistory).mock.calls[0]![2]).toBeNull();
   });
 
   it('does not expose the history to a listener', async () => {
@@ -339,11 +359,37 @@ describe('watcher history', () => {
     expect(getStreamWatchHistory).not.toHaveBeenCalled();
   });
 
+  it('offers an admin every channel a window saw, and nobody else any', async () => {
+    const day = window('2026-09-05T12:00:00.000Z', '2026-09-05T18:00:00.000Z');
+
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+    expect((await app.request(`/api/watchers/channels?${day}`)).status).toBe(403);
+    expect(listStreamWatchChannels).not.toHaveBeenCalled();
+
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+    const response = await app.request(`/api/watchers/channels?${day}`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ channels: [] });
+  });
+
   it('reads a month, and refuses to be asked for more', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    expect((await app.request('/api/watchers/history?hours=720')).status).toBe(200);
-    expect((await app.request('/api/watchers/history?hours=721')).status).toBe(400);
+    const month = window('2026-08-06T12:00:00.000Z', '2026-09-05T12:00:00.000Z');
+    const more = window('2026-08-01T12:00:00.000Z', '2026-09-05T12:00:00.000Z');
+    expect((await app.request(`/api/watchers/history?${month}`)).status).toBe(200);
+    expect((await app.request(`/api/watchers/history?${more}`)).status).toBe(400);
+  });
+
+  it('refuses a window that ends before it starts, and more channels than it can draw', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const backwards = window('2026-09-05T18:00:00.000Z', '2026-09-05T12:00:00.000Z');
+    expect((await app.request(`/api/watchers/history?${backwards}`)).status).toBe(400);
+
+    const nine = Array.from({ length: 9 }, (_, index) => `kick/c${index}`).join(',');
+    const day = window('2026-09-05T12:00:00.000Z', '2026-09-05T18:00:00.000Z');
+    expect((await app.request(`/api/watchers/history?${day}&channels=${nine}`)).status).toBe(400);
   });
 });
 

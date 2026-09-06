@@ -3,6 +3,7 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   Ban,
+  ChartSpline,
   Check,
   ChevronDown,
   ChevronUp,
@@ -26,7 +27,6 @@ import {
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
 import type {
   ArchiveRefresh,
-  StreamWatchHistory,
   StreamWatchStatus,
   WatchPlatform,
   RoomMember,
@@ -55,8 +55,8 @@ import {
   watcherShows,
   watchPlatforms,
 } from '../shared/contracts';
+import { EmbedHistorySection } from './EmbedHistorySection';
 import { moveItem, type MoveDestination } from './reorder';
-import { StreamWatchChart } from './StreamWatchChart';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -72,6 +72,7 @@ const TABS = [
   { id: 'people', label: 'People', icon: Users },
   { id: 'log', label: 'Log', icon: ScrollText },
   { id: 'server', label: 'Server', icon: Activity },
+  { id: 'embeds', label: 'Embeds', icon: ChartSpline },
   { id: 'obs', label: 'OBS', icon: MonitorPlay },
 ] as const;
 
@@ -367,6 +368,8 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           <ExportsSection apiUrl={apiUrl} />
         </>
       )}
+
+      {tab === 'embeds' && <EmbedHistorySection call={call} />}
 
       {tab === 'obs' && <StreamWatchSection busy={busy} act={act} call={call} />}
       {tab === 'obs' && <ObsSources busy={busy} act={act} call={call} />}
@@ -861,7 +864,9 @@ function OperationsSection({
           <p className="admin-help">
             What PostgreSQL reports for its own tables and indexes. Nothing else on the volume is in
             this figure: the write-ahead log, PostgreSQL's fixed files and container logs sit outside
-            it, it says nothing about free disk, and there is no backup job behind it.
+            it, it says nothing about free disk, and there is no backup job behind it. Sizes are
+            exact; row counts are PostgreSQL's own estimate, because an exact one means reading
+            every row and this page is here to show what is growing, not to be counted on.
           </p>
           <ul className="admin-storage-list">
             {snapshot.storage.groups.map((group) => (
@@ -877,7 +882,7 @@ function OperationsSection({
                 </div>
                 <dl className="admin-storage-figures">
                   <div>
-                    <dt>Rows</dt>
+                    <dt>Rows (approx.)</dt>
                     <dd>{group.rowCount.toLocaleString()}</dd>
                   </div>
                   <div>
@@ -894,8 +899,10 @@ function OperationsSection({
             ))}
           </ul>
           <p className="admin-help">
-            These groups hold {formatShare(measuredShare(snapshot.storage))} of the database. The rest
-            is PostgreSQL's own catalogues and the room it keeps inside its files.
+            Every table the room has is in one of these groups, and they hold{' '}
+            {formatShare(measuredShare(snapshot.storage))} of the database. The rest is PostgreSQL's
+            own catalogues and the room it keeps inside its files — a fixed few megabytes rather
+            than a share of the data, so it shrinks as a proportion as the room fills up.
           </p>
         </>
       )}
@@ -1097,16 +1104,6 @@ interface StreamWatchDraft {
   channel: string;
 }
 
-const STREAM_WATCH_PERIODS = [
-  { hours: 6, label: '6 hours' },
-  { hours: 24, label: '24 hours' },
-  { hours: 72, label: '3 days' },
-  { hours: 168, label: '7 days' },
-  { hours: 720, label: '30 days' },
-] as const;
-
-type StreamWatchHours = (typeof STREAM_WATCH_PERIODS)[number]['hours'];
-
 /**
  * Watching a destiny.gg embed, so the room knows who is on its own stream.
  *
@@ -1117,9 +1114,6 @@ type StreamWatchHours = (typeof STREAM_WATCH_PERIODS)[number]['hours'];
 function StreamWatchSection({ busy, act, call }: SectionProps) {
   const [status, setStatus] = useState<StreamWatchStatus | null>(null);
   const [draft, setDraft] = useState<StreamWatchDraft | null>(null);
-  const [historyHours, setHistoryHours] = useState<StreamWatchHours>(24);
-  const [history, setHistory] = useState<StreamWatchHistory | null>(null);
-  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const next: StreamWatchStatus = await call('/api/stream-watch');
@@ -1135,22 +1129,6 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  const loadHistory = useCallback(async () => {
-    try {
-      const next: StreamWatchHistory = await call(`/api/watchers/history?hours=${historyHours}`);
-      setHistory(next);
-      setHistoryError(null);
-    } catch {
-      setHistoryError('Watcher history could not be loaded.');
-    }
-  }, [call, historyHours]);
-
-  useEffect(() => {
-    void loadHistory();
-    const timer = window.setInterval(() => void loadHistory(), 60_000);
-    return () => window.clearInterval(timer);
-  }, [loadHistory]);
-
   function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!draft) return;
@@ -1165,7 +1143,11 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
   return (
     <section className="admin-card">
       <h2>Stream watch</h2>
-      <p className="admin-help">Which destiny.gg embed to follow.</p>
+      <p className="admin-help">
+        Which destiny.gg embed the overlay draws. Every embed on the site is recorded either way —
+        that is the Embeds tab, and it runs on its own. What following a channel adds is its chat
+        roster, which is the only part with names in it.
+      </p>
 
       {draft && (
         <form className="admin-form admin-form-inline" onSubmit={submit}>
@@ -1203,7 +1185,10 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
               onChange={(event) => setDraft({ ...draft, enabled: event.currentTarget.checked })}
             />
             Follow this channel
-            <small>Nothing connects to destiny.gg while this is off.</small>
+            <small>
+              The chat socket is only held while this is on. The embed history keeps recording
+              regardless.
+            </small>
           </label>
 
           <button type="submit" disabled={busy}>
@@ -1224,11 +1209,8 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
               <dd>{snapshot.chatCount}</dd>
             </div>
             <div>
-              <dt>Sockets</dt>
-              <dd>
-                {status?.sockets.live.connected ? 'live' : 'live off'} ·{' '}
-                {status?.sockets.chat.connected ? 'chat' : 'chat off'}
-              </dd>
+              <dt>Chat socket</dt>
+              <dd>{status?.sockets.chat.connected ? 'connected' : 'down'}</dd>
             </div>
           </dl>
 
@@ -1263,45 +1245,6 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
             </p>
           )}
 
-          <div className="admin-watch-history">
-            <div className="admin-section-subheading">
-              <h3>Embed history</h3>
-              <label className="admin-watch-history-toolbar">
-                Show
-                <select
-                  aria-label="Watcher history period"
-                  value={historyHours}
-                  onChange={(event) => {
-                    setHistory(null);
-                    setHistoryHours(Number(event.currentTarget.value) as StreamWatchHours);
-                  }}
-                >
-                  {STREAM_WATCH_PERIODS.map((period) => (
-                    <option key={period.hours} value={period.hours}>
-                      {period.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            {historyError ? (
-              <p className="admin-empty">{historyError}</p>
-            ) : history ? (
-              <>
-                <p className="admin-help">
-                  Every embed destiny.gg listed while tracking was on, on one axis. The eight
-                  busiest are drawn as themselves and the rest as one line together.{' '}
-                  {history.bucketMinutes === 1
-                    ? 'One point a minute.'
-                    : `One point every ${history.bucketMinutes} minutes.`}{' '}
-                  Only the channel above is also counted in chat, drawn dashed in its colour.
-                </p>
-                <StreamWatchChart history={history} />
-              </>
-            ) : (
-              <p className="admin-empty">Loading watcher history…</p>
-            )}
-          </div>
         </>
       )}
     </section>

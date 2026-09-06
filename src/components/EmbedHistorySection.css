@@ -1,0 +1,176 @@
+.embed-history-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.9rem;
+  margin-top: 1rem;
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
+.embed-history-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.embed-history-toolbar select {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.embed-history-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.embed-history-toolbar button:hover {
+  border-color: var(--text);
+}
+
+.embed-history-window {
+  margin: 0;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The picker beside the chart rather than above it: choosing a channel and
+   seeing the line appear is one motion, and a list this long above the chart
+   would push the thing it changes off the screen. */
+.embed-history-body {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 60rem) {
+  .embed-history-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.embed-history-picker {
+  min-width: 0;
+}
+
+.embed-history-charts {
+  min-width: 0;
+}
+
+.embed-history-search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--faint);
+}
+
+.embed-history-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.embed-history-search input:focus {
+  outline: none;
+}
+
+.embed-history-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.embed-history-channels {
+  max-height: 22rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  list-style: none;
+}
+
+.embed-history-channels li + li {
+  border-top: 1px solid var(--line);
+}
+
+.embed-history-channels label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.embed-history-channels label:hover {
+  background: var(--surface-raised);
+}
+
+.embed-history-channels input:disabled {
+  cursor: not-allowed;
+}
+
+.embed-history-channels label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.embed-history-channel-on {
+  color: var(--text);
+}
+
+.embed-history-channel-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.embed-history-peak {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.embed-history-seen {
+  min-width: 4.4rem;
+  color: var(--faint);
+  font-size: 0.7rem;
+  text-align: right;
+}

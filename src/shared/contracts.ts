@@ -935,7 +935,14 @@ export const streamWatchSchema = z.object({
   channel: z.string().trim().max(120).optional(),
 });
 
-/** Which stream the room watches, and whether it is watching at all. */
+/**
+ * Which stream the room follows for its overlay.
+ *
+ * Every embed the site lists is sampled whatever this says: the live socket is
+ * the room's own record of the site and runs on its own. `enabled` names the
+ * one channel whose chat roster is also read, which is the only part that needs
+ * a chat connection and the only part the overlay can draw.
+ */
 export interface StreamWatchSettings {
   enabled: boolean;
   platform: WatchPlatform;
@@ -990,18 +997,35 @@ export interface WatchersSnapshot {
 }
 
 /**
- * One stored minute of one embed. Every embed destiny.gg listed gets a row, not
- * only the one the room follows, so `platform` is whatever the site called it.
+ * One stored minute of one embed. Every embed destiny.gg listed gets a row, and
+ * they are all alike — the channel the overlay follows is not recorded any
+ * differently — so `platform` is whatever the site called it.
  */
 export interface StreamWatchSample {
   sampledAt: string;
   platform: string;
   channel: string;
-  /** People with the embed open, or null in a minute the site did not list it. */
-  siteCount: number | null;
-  /** People in chat with it selected. Only the followed channel has one. */
-  chatCount: number | null;
+  /** People with the embed open. A minute with no row is what a gap is drawn from. */
+  siteCount: number;
 }
+
+/**
+ * One channel the sampler saw in a period, for choosing what to draw.
+ *
+ * Every channel it saw is offered, not only the ones a chart could fit: the
+ * point of choosing is to reach a quiet channel that the busiest eight bury.
+ */
+export interface StreamWatchChannel {
+  platform: string;
+  channel: string;
+  /** The most embeds open on it at once, which is what the list is ranked by. */
+  peak: number;
+  /** The last minute it was sampled, so a channel long gone reads as one. */
+  lastSeenAt: string;
+}
+
+/** How many channels one chart can tell apart, which is how many hues it has. */
+export const STREAM_WATCH_MAX_CHANNELS = 8;
 
 /**
  * The exact period returned with the samples, so every graph uses one time
@@ -1023,6 +1047,12 @@ export interface StreamWatchHistory {
   other: { sampledAt: string; siteCount: number }[];
   /** How many channels that one line covers. */
   otherChannels: number;
+  /**
+   * The channels drawn as themselves, `platform/channel`, busiest first. Sent
+   * back even where a chosen channel has no reading in the window, so a chart
+   * of nothing is still a chart of the channels that were asked for.
+   */
+  channels: string[];
 }
 
 export interface WatchSocketState {

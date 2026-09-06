@@ -1,5 +1,6 @@
 import { and, asc, eq, gte, lte, sql } from 'drizzle-orm';
 import type {
+  StreamWatchChannel,
   StreamWatchHistory,
   StreamWatchSample,
   StreamWatchSettings,
@@ -7,30 +8,51 @@ import type {
   Watcher,
   WatchersSnapshot,
 } from '../shared/contracts';
+import { STREAM_WATCH_MAX_CHANNELS } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
-import { streamWatch, streamWatchSamples, users } from './db/schema';
+import { streamWatch, streamWatchChannels, streamWatchSamples, users } from './db/schema';
 import { ChatTracker, type WatchedChannel } from './dgg-chat';
 import { EmbedsTracker, type EmbedEntry } from './dgg-embeds';
 import { ensureEmoteCatalogue, lastEmoteIn, type EmoteCatalogue } from './dgg-emotes';
 
 /**
- * Watching one destiny.gg embed: how many people the site says are on it, and
- * which chatters they are.
+ * Watching destiny.gg's embeds: how many people the site says are on each, and,
+ * for the one channel the room follows, which chatters they are.
  *
- * The live socket is held whenever tracking is on, because it is one message
- * every half minute and it is the only way to know whether anybody is there.
- * The chat socket is held only while somebody is, and dropped again after a
- * grace period. Its stream is small — about 1.6 events a second — so this is
- * about not sitting on somebody else's chat connection for nothing rather than
- * about the cost of reading it.
+ * The two sockets answer different questions and so are held on different
+ * terms. The live socket is held for the life of the process: its list is the
+ * room's record of what the site was watching, one message every half minute,
+ * and a minute nobody was connected is a minute of history that cannot be
+ * recovered afterwards. The chat socket is held only while there is a followed
+ * channel and somebody on it, and dropped again after a grace period — its
+ * stream is small, about 1.6 events a second, so that is about not sitting on
+ * somebody else's chat connection for nothing rather than about the cost.
  */
 const CHAT_IDLE_GRACE_MS = 2 * 60 * 1_000;
 
 /** How often the gate is reconsidered. The embed list only moves every 30 seconds. */
 const REFRESH_MS = 15_000;
 
-/** Counts are stored at this cadence, in minute buckets. */
-const SAMPLE_MS = 60_000;
+/**
+ * How often a row is stored, and the width of the bucket it is stored in.
+ *
+ * A row was once kept for every minute, which is a row per listed channel per
+ * minute — some nine million rows a year that nobody would ever read at that
+ * resolution. A quarter of an hour answers every question this history is
+ * opened to answer at a fifteenth of the rows.
+ */
+const SAMPLE_MS = 15 * 60_000;
+
+/**
+ * How often the list is read into the running average.
+ *
+ * The stored number is the mean of these rather than whatever the list happened
+ * to say when the interval ended. It costs nothing — the readings are added up
+ * in memory and one row is written per interval either way — and it is the
+ * difference between a quarter-hour point that describes the quarter hour and
+ * one that describes the instant it was taken.
+ */
+const OBSERVE_MS = 60_000;
 
 /** Enough for any overlay, and it keeps the response small on a busy channel. */
 const WATCHER_LIMIT = 100;
@@ -105,87 +127,246 @@ export async function updateStreamWatchSettings(
   return getStreamWatchSettings(db);
 }
 
+/** The start of the interval an instant falls in, which is how a row is keyed. */
+export function intervalStart(at: Date): Date {
+  return new Date(Math.floor(at.getTime() / SAMPLE_MS) * SAMPLE_MS);
+}
+
 /**
- * Store this minute's reading of every embed the site listed, plus the followed
- * channel, which is the only one with a chat roster behind it. Repeating a
- * write inside the same minute updates those rows rather than adding more, so a
- * restart costs nothing and a channel appearing mid-minute is simply recorded.
+ * One interval's readings, added up as they arrive.
+ *
+ * A channel missing from a reading counts as zero rather than being skipped,
+ * because the site only lists an embed somebody has open — so its absence is a
+ * measurement. The divisor is how many times the list was read, not how many
+ * times this channel was in it, which is what keeps a channel watched by four
+ * hundred people for one minute of the quarter hour from reading as four
+ * hundred, while also not punishing a channel for the minutes nobody looked.
+ */
+export class SampleAverage {
+  private readonly totals = new Map<string, { platform: string; channel: string; total: number }>();
+  private observations = 0;
+
+  constructor(readonly startedAt: Date) {}
+
+  add(entries: EmbedEntry[]): void {
+    this.observations += 1;
+    for (const entry of entries) {
+      const channel = entry.id.toLowerCase();
+      const key = `${entry.platform}/${channel}`;
+      const seen = this.totals.get(key) ?? { platform: entry.platform, channel, total: 0 };
+      seen.total += entry.count;
+      this.totals.set(key, seen);
+    }
+  }
+
+  /** The mean per channel, rounded, for every channel seen at least once. */
+  means(): { platform: string; channel: string; siteCount: number }[] {
+    if (this.observations === 0) return [];
+    return [...this.totals.values()].map((seen) => ({
+      platform: seen.platform,
+      channel: seen.channel,
+      siteCount: Math.round(seen.total / this.observations),
+    }));
+  }
+}
+
+/**
+ * The id for every channel named, creating the ones that are new.
+ *
+ * The whole table is read back rather than only the ids just asked for: it is
+ * one row per channel the sampler has ever seen, so it is tens of rows, and one
+ * unfiltered select is cheaper than building a predicate over pairs.
+ */
+async function channelIds(
+  named: { platform: string; channel: string }[],
+  db: Database,
+): Promise<Map<string, number>> {
+  if (named.length > 0) {
+    await db.insert(streamWatchChannels).values(named).onConflictDoNothing();
+  }
+  const rows = await db
+    .select({
+      id: streamWatchChannels.id,
+      platform: streamWatchChannels.platform,
+      channel: streamWatchChannels.channel,
+    })
+    .from(streamWatchChannels);
+  return new Map(rows.map((row) => [keyOf(row), row.id]));
+}
+
+/**
+ * Store one interval's average for every embed the site listed in it.
+ *
+ * Every channel is recorded the same way, the followed one included: what is
+ * kept here is destiny.gg's own count of open embeds, and the chat roster the
+ * overlay draws is a live thing that is never written down. Writing the same
+ * interval twice updates those rows rather than adding more, so a restart
+ * cannot double up.
  */
 export async function recordStreamWatchSample(
-  entries: EmbedEntry[],
-  tracked: WatchersSnapshot,
-  at: Date = new Date(),
+  average: SampleAverage,
   db: Database = getDatabase(),
 ): Promise<void> {
-  const sampledAt = new Date(Math.floor(at.getTime() / SAMPLE_MS) * SAMPLE_MS);
-  const rows = new Map<string, typeof streamWatchSamples.$inferInsert>();
+  const means = average.means();
+  if (means.length === 0) return;
 
-  for (const entry of entries) {
-    const channel = entry.id.toLowerCase();
-    rows.set(`${entry.platform}/${channel}`, {
-      sampledAt,
-      platform: entry.platform,
-      channel,
-      siteCount: entry.count,
-      chatCount: null,
-    });
-  }
-
-  // The followed channel carries its roster count, and is recorded even in a
-  // minute the site did not list it — that absence is a reading too.
-  if (tracked.channel) {
-    const key = `${tracked.channel.platform}/${tracked.channel.id}`;
-    rows.set(key, {
-      sampledAt,
-      platform: tracked.channel.platform,
-      channel: tracked.channel.id,
-      siteCount: rows.get(key)?.siteCount ?? tracked.siteCount,
-      chatCount: tracked.chatCount,
-    });
-  }
-
-  if (rows.size === 0) return;
+  const ids = await channelIds(
+    means.map(({ platform, channel }) => ({ platform, channel })),
+    db,
+  );
 
   await db
     .insert(streamWatchSamples)
-    .values([...rows.values()])
+    .values(
+      means.map((mean) => ({
+        sampledAt: average.startedAt,
+        channelId: ids.get(keyOf(mean))!,
+        siteCount: mean.siteCount,
+      })),
+    )
     .onConflictDoUpdate({
-      target: [
-        streamWatchSamples.sampledAt,
-        streamWatchSamples.platform,
-        streamWatchSamples.channel,
-      ],
-      set: {
-        siteCount: sql`excluded.site_count`,
-        chatCount: sql`excluded.chat_count`,
-      },
+      target: [streamWatchSamples.sampledAt, streamWatchSamples.channelId],
+      set: { siteCount: sql`excluded.site_count` },
     });
 }
 
 /**
- * How wide one point of the graph is. A week of minutes is 10,080 points per
- * channel and there are as many channels as the site is listing, so a longer
- * period is grouped more coarsely rather than sent in full.
+ * How long a reading is kept at the interval it was taken at. Past this it is
+ * averaged down to one point an hour, in place, which is a quarter of the rows
+ * for a period no chart can draw at finer than two hours anyway.
  */
+export const DETAIL_DAYS = 90;
+
+/** How often the window is swept. It moves by a day; there is no hurry. */
+const DOWNSAMPLE_MS = 24 * 3_600_000;
+
+/**
+ * Roll readings older than the detail window down to one an hour.
+ *
+ * Two statements rather than one: a data-modifying CTE would not see its own
+ * delete, so an on-the-hour row would be aggregated and removed in the same
+ * breath. Averaging first and deleting only what is not on the hour is also
+ * idempotent — run twice, the second pass groups each hourly row alone, which
+ * is itself.
+ *
+ * @returns how many rows it removed, for the log.
+ */
+export async function downsampleStreamWatchSamples(
+  now: Date = new Date(),
+  db: Database = getDatabase(),
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - DETAIL_DAYS * 24 * 3_600_000);
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`
+      insert into ${streamWatchSamples} (sampled_at, channel_id, site_count)
+      select date_trunc('hour', ${streamWatchSamples.sampledAt}),
+             ${streamWatchSamples.channelId},
+             round(avg(${streamWatchSamples.siteCount}))::int
+      from ${streamWatchSamples}
+      where ${streamWatchSamples.sampledAt} < ${cutoff}
+      group by 1, 2
+      on conflict (sampled_at, channel_id) do update set site_count = excluded.site_count
+    `);
+
+    const removed = await tx.execute<{ count: string }>(sql`
+      with gone as (
+        delete from ${streamWatchSamples}
+        where ${streamWatchSamples.sampledAt} < ${cutoff}
+          and ${streamWatchSamples.sampledAt} <> date_trunc('hour', ${streamWatchSamples.sampledAt})
+        returning 1
+      )
+      select count(*)::bigint as count from gone
+    `);
+
+    return Number(removed.rows[0]?.count ?? 0);
+  });
+}
+
+/**
+ * How wide one point of the graph is.
+ *
+ * The floor is the sampling interval, because a narrower bucket cannot hold
+ * more than one reading and would only draw the same points further apart. Past
+ * that a longer period is grouped more coarsely rather than sent in full: a
+ * month at quarter-hour points is 2,880 per channel, and there are as many
+ * channels as the site is listing.
+ */
+export const SAMPLE_MINUTES = SAMPLE_MS / 60_000;
+
 export function bucketMinutesFor(from: Date, to: Date): number {
   const hours = (to.getTime() - from.getTime()) / 3_600_000;
-  if (hours <= 6) return 1;
-  if (hours <= 24) return 5;
-  if (hours <= 72) return 15;
+  if (hours <= 72) return SAMPLE_MINUTES;
   if (hours <= 168) return 30;
   return 120;
 }
 
-/**
- * How many channels are drawn as themselves. Eight is the number of hues that
- * can be told apart on one chart, so it is a limit of the drawing rather than
- * of the query; everything past it is summed into one line.
- */
-const HISTORY_TARGETS = 8;
+/** `platform/channel`, the way every caller names one. */
+function keyOf(row: { platform: string; channel: string }): string {
+  return `${row.platform}/${row.channel}`;
+}
 
+/**
+ * Every channel sampled in a period, busiest first, for choosing what to draw.
+ *
+ * One grouped pass over the period. It is deliberately not capped: a chart can
+ * only tell eight channels apart, but the reason to choose at all is to reach a
+ * quiet channel, and a list cut to the busiest could never offer one.
+ */
+export async function listStreamWatchChannels(
+  from: Date,
+  to: Date,
+  db: Database = getDatabase(),
+): Promise<StreamWatchChannel[]> {
+  const rows = await db
+    .select({
+      platform: streamWatchChannels.platform,
+      channel: streamWatchChannels.channel,
+      peak: sql<number>`max(${streamWatchSamples.siteCount})`,
+      lastSeenAt: sql<Date>`max(${streamWatchSamples.sampledAt})`,
+    })
+    .from(streamWatchSamples)
+    .innerJoin(streamWatchChannels, eq(streamWatchChannels.id, streamWatchSamples.channelId))
+    .where(and(gte(streamWatchSamples.sampledAt, from), lte(streamWatchSamples.sampledAt, to)))
+    .groupBy(streamWatchChannels.platform, streamWatchChannels.channel);
+
+  return rows
+    .map((row) => ({
+      platform: row.platform,
+      channel: row.channel,
+      peak: Number(row.peak),
+      lastSeenAt: new Date(row.lastSeenAt).toISOString(),
+    }))
+    .sort(
+      (left, right) => right.peak - left.peak || keyOf(left).localeCompare(keyOf(right)),
+    );
+}
+
+/** Which channels a chart draws when nobody has chosen: simply the busiest. */
+function busiestChannels(
+  rows: { platform: string; channel: string; siteCount: number | null }[],
+): string[] {
+  const peaks = new Map<string, number>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    peaks.set(key, Math.max(peaks.get(key) ?? 0, row.siteCount ?? 0));
+  }
+
+  return [...peaks.entries()]
+    .sort(([, left], [, right]) => right - left)
+    .slice(0, STREAM_WATCH_MAX_CHANNELS)
+    .map(([key]) => key);
+}
+
+/**
+ * @param channels the `platform/channel` keys to draw as themselves, or null to
+ * take the busiest. Everything not in it is summed into the single other line,
+ * so a narrow choice still says how much of the site it is a part of.
+ */
 export async function getStreamWatchHistory(
   from: Date,
   to: Date,
+  channels: string[] | null = null,
   db: Database = getDatabase(),
 ): Promise<StreamWatchHistory> {
   const bucketMinutes = bucketMinutesFor(from, to);
@@ -199,56 +380,37 @@ export async function getStreamWatchHistory(
   const rows = await db
     .select({
       sampledAt: bucket,
-      platform: streamWatchSamples.platform,
-      channel: streamWatchSamples.channel,
-      siteCount: sql<number | null>`max(${streamWatchSamples.siteCount})`,
-      chatCount: sql<number | null>`max(${streamWatchSamples.chatCount})`,
+      platform: streamWatchChannels.platform,
+      channel: streamWatchChannels.channel,
+      siteCount: sql<number>`max(${streamWatchSamples.siteCount})`,
     })
     .from(streamWatchSamples)
+    .innerJoin(streamWatchChannels, eq(streamWatchChannels.id, streamWatchSamples.channelId))
     .where(and(gte(streamWatchSamples.sampledAt, from), lte(streamWatchSamples.sampledAt, to)))
-    .groupBy(bucket, streamWatchSamples.platform, streamWatchSamples.channel)
-    .orderBy(asc(bucket), asc(streamWatchSamples.platform), asc(streamWatchSamples.channel));
+    .groupBy(bucket, streamWatchChannels.platform, streamWatchChannels.channel)
+    .orderBy(asc(bucket), asc(streamWatchChannels.platform), asc(streamWatchChannels.channel));
 
-  // The busiest channels, and always the followed one: it is the only row with
-  // a chat count, which is the half of this nobody else can be drawn with.
-  const peaks = new Map<string, { peak: number; followed: boolean }>();
-  for (const row of rows) {
-    const key = `${row.platform}/${row.channel}`;
-    const seen = peaks.get(key) ?? { peak: 0, followed: false };
-    peaks.set(key, {
-      peak: Math.max(seen.peak, row.siteCount ?? 0),
-      followed: seen.followed || row.chatCount !== null,
-    });
-  }
-  const drawn = new Set(
-    [...peaks.entries()]
-      .sort(
-        ([, left], [, right]) =>
-          Number(right.followed) - Number(left.followed) || right.peak - left.peak,
-      )
-      .slice(0, HISTORY_TARGETS)
-      .map(([key]) => key),
-  );
+  const chosen = channels?.slice(0, STREAM_WATCH_MAX_CHANNELS) ?? busiestChannels(rows);
+  const drawn = new Set(chosen);
 
   const samples: StreamWatchSample[] = [];
   const otherByBucket = new Map<string, number>();
   const otherChannels = new Set<string>();
 
   for (const row of rows) {
-    const key = `${row.platform}/${row.channel}`;
+    const key = keyOf(row);
     const sampledAt = new Date(row.sampledAt).toISOString();
     if (drawn.has(key)) {
       samples.push({
         sampledAt,
         platform: row.platform,
         channel: row.channel,
-        siteCount: row.siteCount === null ? null : Number(row.siteCount),
-        chatCount: row.chatCount === null ? null : Number(row.chatCount),
+        siteCount: Number(row.siteCount),
       });
       continue;
     }
     otherChannels.add(key);
-    otherByBucket.set(sampledAt, (otherByBucket.get(sampledAt) ?? 0) + Number(row.siteCount ?? 0));
+    otherByBucket.set(sampledAt, (otherByBucket.get(sampledAt) ?? 0) + Number(row.siteCount));
   }
 
   return {
@@ -260,6 +422,7 @@ export async function getStreamWatchHistory(
       .map(([sampledAt, siteCount]) => ({ sampledAt, siteCount }))
       .sort((left, right) => left.sampledAt.localeCompare(right.sampledAt)),
     otherChannels: otherChannels.size,
+    channels: chosen,
   };
 }
 
@@ -281,11 +444,13 @@ class WatchTracker {
   private timer: NodeJS.Timeout | null = null;
   private sampleTimer: NodeJS.Timeout | null = null;
   private sampleBusy = false;
+  private average: SampleAverage | null = null;
+  private retentionTimer: NodeJS.Timeout | null = null;
   private members = new Map<string, string | null>();
   private overlayCount: () => number = () => 0;
   private catalogue: EmoteCatalogue | null = null;
 
-  /** Reads the settings again and brings both sockets in line with them. */
+  /** Reads the settings again and brings the chat socket in line with them. */
   async refresh(db: Database = getDatabase()): Promise<void> {
     this.settings = await getStreamWatchSettings(db);
     const channel = channelOf(this.settings);
@@ -296,17 +461,6 @@ class WatchTracker {
       this.chatWantedAt = null;
     }
     this.channel = channel;
-
-    if (!this.settings.enabled) {
-      this.embeds.stop();
-      this.stopChat();
-      return;
-    }
-
-    // The live socket is held for the whole of tracking, not for one channel:
-    // its list is what the graph records for every embed on the site, and the
-    // followed channel is only the one that also gets a chat roster.
-    this.embeds.start();
 
     if (!channel) {
       this.stopChat();
@@ -350,27 +504,70 @@ class WatchTracker {
   /** @param overlayCount how many overlays are connected, which keeps chat open on its own. */
   async start(overlayCount: () => number = () => 0): Promise<void> {
     this.overlayCount = overlayCount;
+    // The embed list is recorded whether or not a channel is followed, so this
+    // starts before the settings are read and stays up until the process ends.
+    this.embeds.start();
     await this.refresh();
     this.timer ??= setInterval(() => {
       void this.refresh().catch((error) => console.error('Stream watch refresh failed', error));
     }, REFRESH_MS);
-    this.sampleTimer ??= setInterval(() => {
-      if (this.sampleBusy) return;
-      this.sampleBusy = true;
-      void recordStreamWatchSample(this.embeds.all(), this.snapshot())
-        .catch((error) => console.error('Stream watch sample failed', error))
-        .finally(() => {
-          this.sampleBusy = false;
-        });
-    }, SAMPLE_MS);
+    this.sampleTimer ??= setInterval(() => this.observe(), OBSERVE_MS);
+    this.observe();
+    // Once a day is often enough for a window measured in months, and once at
+    // startup means a room that was off for a while catches up when it returns.
+    this.retentionTimer ??= setInterval(() => this.roll(), DOWNSAMPLE_MS);
+    this.roll();
+  }
+
+  private roll(): void {
+    void downsampleStreamWatchSamples()
+      .then((removed) => {
+        if (removed > 0) {
+          console.log(
+            `Stream watch: rolled ${removed.toLocaleString()} readings older than ` +
+              `${DETAIL_DAYS} days down to one an hour`,
+          );
+        }
+      })
+      .catch((error) => console.error('Stream watch downsample failed', error));
+  }
+
+  /**
+   * Read the list into the running average, and write the last one out when the
+   * clock crosses into a new interval.
+   *
+   * Nothing is written until an interval has ended, so a process that restarts
+   * more often than that loses the part-interval it was accumulating. That is a
+   * gap in the graph rather than a wrong number, and it costs one write every
+   * quarter of an hour instead of fifteen updates to the same row.
+   */
+  private observe(): void {
+    const startedAt = intervalStart(new Date());
+    const finished =
+      this.average !== null && this.average.startedAt.getTime() !== startedAt.getTime()
+        ? this.average
+        : null;
+    if (this.average === null || finished !== null) this.average = new SampleAverage(startedAt);
+    this.average.add(this.embeds.all());
+
+    if (finished === null || this.sampleBusy) return;
+    this.sampleBusy = true;
+    void recordStreamWatchSample(finished)
+      .catch((error) => console.error('Stream watch sample failed', error))
+      .finally(() => {
+        this.sampleBusy = false;
+      });
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     if (this.sampleTimer) clearInterval(this.sampleTimer);
+    if (this.retentionTimer) clearInterval(this.retentionTimer);
     this.timer = null;
     this.sampleTimer = null;
+    this.retentionTimer = null;
     this.sampleBusy = false;
+    this.average = null;
     this.embeds.stop();
     this.stopChat();
   }

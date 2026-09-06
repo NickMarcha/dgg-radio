@@ -11,6 +11,7 @@ import {
   pgSequence,
   pgTable,
   primaryKey,
+  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -425,7 +426,12 @@ export const streamWatch = pgTable(
   'stream_watch',
   {
     id: integer('id').primaryKey().default(1),
-    /** Nothing connects to destiny.gg at all while this is false. */
+    /**
+     * Whether one channel's chat roster is read, which is what the overlay
+     * draws. The site's embed list is sampled either way: that runs on the live
+     * socket alone and is the room's own record of what destiny.gg was
+     * watching, which a minute switched off could never be recovered.
+     */
     enabled: boolean('enabled').notNull().default(false),
     platform: watchPlatform('platform').notNull().default('kick'),
     channel: text('channel').notNull().default(''),
@@ -492,37 +498,53 @@ export const watcherEmbedSettings = pgTable(
  * be pointed at platforms it knows, but the site lists whatever it lists, and a
  * platform nobody here has heard of is worth recording rather than dropping.
  */
+/**
+ * Every channel the sampler has ever seen, named once.
+ *
+ * The samples used to carry `platform` and `channel` as text on every row,
+ * which is two strings repeated for each reading of each channel forever. A
+ * year of quarter-hours measured 65 MB in that shape and 44 MB with an integer
+ * pointing here instead, so this table exists to be joined, not to be read.
+ */
+export const streamWatchChannels = pgTable(
+  'stream_watch_channels',
+  {
+    id: serial('id').primaryKey(),
+    platform: text('platform').notNull(),
+    channel: text('channel').notNull(),
+  },
+  (table) => [
+    uniqueIndex('stream_watch_channels_platform_channel').on(table.platform, table.channel),
+    check(
+      'stream_watch_channels_channel_lowercase',
+      sql`${table.channel} = lower(${table.channel})`,
+    ),
+  ],
+);
+
 export const streamWatchSamples = pgTable(
   'stream_watch_samples',
   {
     sampledAt: timestamp('sampled_at', { withTimezone: true }).notNull(),
-    platform: text('platform').notNull(),
-    channel: text('channel').notNull(),
+    channelId: integer('channel_id')
+      .notNull()
+      .references(() => streamWatchChannels.id, { onDelete: 'cascade' }),
     /**
-     * People with this embed open on destiny.gg. Null only for the followed
-     * channel in a minute the site did not list it at all, which is what makes
-     * the graph break its line rather than draw a measured zero.
+     * The mean of the readings taken in this row's interval. Every row comes
+     * from embeds the site actually listed, so this is always a measurement; an
+     * interval with no row is what a gap in the graph is drawn from.
+     *
+     * Rows older than the detail window hold an hour rather than a quarter of
+     * one, averaged down in place, so the column means the same thing at every
+     * age and only the spacing changes.
      */
-    siteCount: integer('site_count'),
-    /**
-     * People in chat with this embed selected. Only the followed channel has
-     * one: the chat roster is read for that channel alone.
-     */
-    chatCount: integer('chat_count'),
+    siteCount: integer('site_count').notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.sampledAt, table.platform, table.channel] }),
-    check(
-      'stream_watch_samples_channel_lowercase',
-      sql`${table.channel} = lower(${table.channel})`,
-    ),
+    primaryKey({ columns: [table.sampledAt, table.channelId] }),
     check(
       'stream_watch_samples_site_count_nonnegative',
-      sql`${table.siteCount} is null or ${table.siteCount} >= 0`,
-    ),
-    check(
-      'stream_watch_samples_chat_count_nonnegative',
-      sql`${table.chatCount} is null or ${table.chatCount} >= 0`,
+      sql`${table.siteCount} >= 0`,
     ),
   ],
 );
