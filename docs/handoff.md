@@ -601,6 +601,16 @@ and moved coverage by 30 tracks, because the importers reconsider every track
 every time — the same dumps re-derive the same answers. Rerun them when the
 dumps are newer, not when the archive is.
 
+**Last.fm is researched and parked**, decided 2026-09-06. Not planned, not
+queued, nobody waiting on it. `docs/research/lastfm-api-capabilities.md` has the
+measurements, and the short version is that Last.fm has no playlist API at all,
+that its track-level tags answer 3.3% of what the room cannot already label, and
+that its artist-level tags answer 91.0% for eighty minutes of requests. A
+username-only importer of loved and top tracks resolved 95.0% of 80 real tracks
+to playable videos. `LASTFM_API_KEY` and `LASTFM_API_SECRET` are in `.env` and
+the production callback is registered, so the flow is verified and idle rather
+than half-built. Nothing in the repository imports either variable.
+
 The prototypes under `scripts/*.prototype.ts` are superseded by the shipped
 modules and can go.
 
