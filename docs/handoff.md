@@ -9,29 +9,38 @@ Last updated 2026-09-06.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 414 Vitest pass across 42 files,
+`astro check` and `tsc --noEmit` are both clean. 431 Vitest pass across 42 files,
 run against the local Postgres:
 
 ```
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything is on `main` and pushed, through `952619a` on 2026-09-06.
+Everything is committed on `main` through `6a24679` on 2026-09-06, and **not yet
+pushed** — the deploy has not run, so nothing in this session is live.
 `npm run build` succeeds. Both halves of the build are worth running before a
 push: neither `astro build` nor `tsup` type-checks, so a build failure is a
 different failure from a failing `check`.
 
 **Both halves deploy themselves.** Netlify builds the frontend from `main`, and
 a webhook rebuilds and redeploys the API stack, which applies migrations
-`0019` through `0024` on startup. `docs/deployment.md` describes the setup and
-the settings it depends on. Verified against the deployed API minutes after this
-push: `/api/watchers` answers with an idle snapshot, `/api/watcher-embed` answers
-401 rather than 404, and an unknown source id comes back as the route's own
-`WATCHER_EMBED_NOT_FOUND` — which only happens if the new columns are there.
+`0019` through `0027` on startup. `docs/deployment.md` describes the setup and
+the settings it depends on. That was verified against the deployed API after the
+**previous** session's push, not this one: `/api/watchers` answered with an idle
+snapshot and an unknown source id came back as the route's own
+`WATCHER_EMBED_NOT_FOUND`, which only happens if the new columns are there. The
+same check is worth repeating once this session is pushed, because three
+migrations run with it.
 
 Run the two halves of `npm run check` separately, or at least do not truncate
 their output: it is `astro check && tsc --noEmit`, and piping the pair through
 `tail` shows only the first summary. A type error reached `main` that way.
+
+`drizzle-kit generate` needs a TTY the moment a table both gains and loses a
+column, because it stops to ask whether that is a rename. It cannot be piped an
+answer. Split the change into two migrations that are each unambiguous —
+`0026` and `0027` are that, additive then destructive — or ask the operator to
+run it with `!` in the session.
 
 ### The room can see who is watching its stream
 
@@ -42,10 +51,11 @@ overlay.
 
 `docs/plans/bigscreen-watchers.md` is the plan and the record of every decision;
 `docs/research/dgg-embed-watchers-websockets.md` is the measured behaviour of
-both destiny.gg sockets. Eight slices: the tracker and its admin section, the
+both destiny.gg sockets. Ten slices: the tracker and its admin section, the
 overlay, the emote somebody last used, the history graph, a source that keeps
-its settings, the motion options, every embed rather than one, and one chart
-with all of them on it.
+its settings, the motion options, every embed rather than one, one chart with
+all of them on it, the history becoming its own tab with its own question, and
+the chat roster ceasing to be history at all.
 
 **Two ways to configure the overlay, both meant.** A query string configures a
 source that will then be left alone. `?profile=<the admin's own uuid>` reads
@@ -63,14 +73,87 @@ the only layout with a `requestAnimationFrame` loop behind it, because where
 somebody goes next depends on where everybody else is; `src/components/bumperMotion.ts`
 is the step, pure and tested without a browser.
 
-`stream_watch_samples` stores a row a minute for **every embed destiny.gg
-listed**, not only the one the room follows. The followed channel is the row
-that also carries a chat count, because the roster is read for one channel.
-`/api/watchers/history` groups a period into buckets — a minute up to six hours,
-then 5, 15, 30 and 120 — draws the eight busiest channels on one axis, and sums
-everything else into one line that says how many channels it covers. Missing
-source counts and missing minutes break a line instead of being drawn as
-measured zeroes.
+`stream_watch_samples` stores a row **every quarter of an hour for every embed
+destiny.gg listed**, one number each — the site's own count of who has that
+embed open — and every channel is stored alike. **The stored number is the mean
+of the minute readings in that quarter hour**, not whatever the list said when
+the timer fired: the list is read every minute into a running total in memory
+and one row is written when the interval rolls over. A channel missing from a
+reading counts as zero, because the site lists an embed only while somebody has
+it open; the divisor is how many times the list was read, so a channel watched
+by four hundred people for one minute of the quarter hour reads as about
+twenty-seven rather than four hundred, and a quarter hour nobody was looking
+does not drag every channel down. Nothing is written until an interval ends, so
+a process restarting more often than that loses the part-interval it was
+accumulating — a gap in the graph rather than a wrong number.
+
+It was a row a minute until the arithmetic was done: seventeen channels a minute
+is nine million rows a year that nobody would read at that resolution.
+
+**What the table costs, measured rather than argued.** A year of seventeen
+channels at a quarter-hour, built as synthetic rows and measured:
+
+| shape | rows | size |
+| --- | --- | --- |
+| text platform and channel on every row | 595,680 | 65 MB |
+| an integer pointing at `stream_watch_channels` | 595,680 | 44 MB |
+| hourly instead of quarter-hourly | 148,920 | 11 MB |
+| one row per channel per day, an array of 96 | 6,205 | 1.8 MB |
+
+Both of the middle two are built. `stream_watch_samples` holds
+`(sampled_at, channel_id, site_count)` and joins `stream_watch_channels` for the
+names, and readings older than `DETAIL_DAYS` (90) are averaged down to one an
+hour in place by `downsampleStreamWatchSamples`, which runs at startup and
+daily. Steady state is roughly 11 MB for the rolling three months plus 11 MB a
+year of hourly history. Real rows went from 129.6 to 84.4 bytes each, which
+needed a `vacuum full` to see: `drop column` does not return the space, and the
+migration's backfill rewrote every row on top of that.
+
+The array shape is the dramatic one and was not built. Postgres cannot update an
+array element in place, so each of the ninety-six daily writes would rewrite the
+whole row, turning cheap appends into churn, and reading it means unnesting with
+computed timestamps. The live socket is held for the life of the
+process; `enabled` names the one channel whose chat roster is read, which is the
+only part needing a chat connection and the only part the overlay draws. That is
+a deliberate change from "nothing connects until an admin switches it on": a
+minute nobody was connected is a minute of the site's history that cannot be
+recovered afterwards, and the alternative was a second switch for a thing nobody
+would want off.
+
+**The roster is never written down** (migration `0025`). It was stored for the
+followed channel and drawn as a dashed second line, which made that channel a
+special row, gave it priority in the ranking and a badge in the picker. The two
+numbers were never the same measurement: the site's count is complete and per
+minute, the roster exists only while somebody is followed. `site_count` is `not
+null` now, because the nullable case existed only to carry a roster.
+
+**The chart is `/admin#embeds`, its own tab.** It stopped being a picture of the
+room's own stream when the recording stopped depending on the overlay. That tab
+holds the chart, the channel picker and the live socket's state; `/admin#obs`
+keeps what configures the overlay — the followed channel, the roster counts, the
+chat socket and the sources.
+
+Both history routes take a window as `from` and `to` rather than a length,
+because the chart and the strip beneath it are the same query over two windows.
+The period is drawn small as that strip, and brushing it refetches only the
+brushed part, which the server buckets at whatever detail that window has stored
+— never finer than the quarter hour it samples at, then 30 and 120. So an hour
+picked out of a
+month arrives at full detail rather than per two hours. `/api/watchers/channels`
+lists every channel a window saw, ranked by peak and uncapped, because the
+reason to choose is to reach a quiet channel; `/api/watchers/history` takes up
+to eight of those keys, draws them, and sums everything else into the one line
+that says how many channels it covers. It returns the keys it drew, so the strip
+and the chart always ask for the same ones. A minute with no row breaks the line
+instead of being drawn as a measured zero.
+
+**The charts are d3 7.9 and TypeScript.** d3 does the arithmetic — scales,
+`line().defined()` for the breaks, tick choice, time formatting, `bisectCenter`
+for the crosshair — and React does the DOM, so the chart renders the same thing
+on the server and is asserted against as markup. `brushX` is the one exception,
+in an effect against a ref, owning nothing but the nodes it drags. The repo's
+own `d3-viz` skill in `.claude/skills/` and `.agents/skills/` carries the rest,
+including why `d3.schemeCategory10` is the wrong palette for this surface.
 
 Try it without the room at all:
 
@@ -83,9 +166,9 @@ of the time and a dark channel correctly shows nothing at all.
 
 `stream_watch` is **switched on** in the local database for testing, pointed at
 `kick/dariusirl`. Both sockets, the overlay, the minute sampler and the embed
-history were live on 2026-09-06. The switch at the top of `/admin#obs` turns it
-off again, and nothing connects to destiny.gg while it is off — which is also
-how a fresh deployment arrives.
+history were live on 2026-09-06. The switch at the top of `/admin#obs` turns the
+chat socket off again; the live socket and the sampler stay up either way, which
+is also how a fresh deployment now arrives.
 
 ### The archive is part of the room now
 
@@ -224,25 +307,38 @@ include development data unless each remembered to filter.
    timeline — and the tab this session can open is always hidden. An OBS source
    is not hidden in that sense, so it should simply work; it has still never been
    seen working.
-2. **The overlay has been judged by one pair of eyes.** How it reads over a real
+2. **Nothing in this session has been deployed.** It is committed and not
+   pushed. The first deploy runs migrations `0025` to `0027`: `0025` deletes
+   the sample rows that carried only a chat count, and `0027` drops the
+   `platform` and `channel` columns after `0026` has copied them into
+   `stream_watch_channels`. All three were run against the local database with
+   real rows in it and lost none, but they have not met production data.
+3. **`drop column` does not return the space.** After `0027` the table measured
+   larger than before — the backfill rewrote every row and the dropped columns
+   stay in the heap. `vacuum full stream_watch_samples` took it from 129.6 to
+   84.4 bytes a row, which is the shape the projection promised. Production has
+   not had that run on it; autovacuum will reclaim the space for reuse rather
+   than returning it, which at this size is fine, and new rows are the narrow
+   shape from the moment the migration lands either way.
+4. **The overlay has been judged by one pair of eyes.** How it reads over a real
    stream, at a real size, is one operator's opinion so far. The four destiny.gg
    socket clients likewise have had one reviewer.
-3. **The slow-request alert has never seen real data.** `api_request_slow` has
+5. **The slow-request alert has never seen real data.** `api_request_slow` has
    not been emitted anywhere, so `qz51WBuF` reads zero and the alert reads
    "Not firing" because there is nothing to fire on, not because it was
    checked. Its threshold was chosen against local timings and production adds
    the tunnel hop; if it nags on ordinary traffic the number to move is
    `SLOW_REQUEST_MS` in `src/server/analytics.ts`. The alert itself needs no
    edit, because it fires on any count above zero.
-4. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
+6. **The beta badge stays**, decided 2026-09-02. The archive and its genre are
    therefore still disposable data by the rule in `AGENTS.md`.
-5. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
+7. **Failed YouTube lookups are not cached.** Successful ones are, so a dead
    video is re-fetched against the metered quota on every playlist import
    containing it. Still a real bug, still unrelated to everything above.
-6. **The seed files drift.** They are a snapshot: regenerate with
+8. **The seed files drift.** They are a snapshot: regenerate with
    `scripts/seed-export.ts` after topping up the archive or running a dump
    import, then commit what changed.
-7. **The README says the Chrome extension cannot open a localhost page.** It
+9. **The README says the Chrome extension cannot open a localhost page.** It
    can: `http://localhost:4321/embed/watchers` opened, screenshotted and
    scripted fine on 2026-09-05. `TEST_HOST` still earns its place for OBS on
    another machine, but that sentence is wrong and cost three rounds of blind
@@ -250,6 +346,21 @@ include development data unless each remembered to filter.
 
 ## True but not visible in the code
 
+- **A row count is an estimate, and had to be the second estimate tried.**
+  There is no stored row count in PostgreSQL: under MVCC how many rows exist is
+  a question about the asking transaction's snapshot, so every exact count is a
+  scan and no index removes that. The storage page reads
+  `pg_class.reltuples`. `pg_stat_user_tables.n_live_tup` was tried first and was
+  wrong here — it is the statistics collector's running tally, a restart had
+  reset it, and the two tables the seeds fill and nothing writes to again read
+  as 0 and 36 rows beside 24 MB and 11 MB. `reltuples` lives in the catalogue,
+  survives a restart, and was within 0.2% of both.
+- **The two ways to make `stream_watch_samples` smaller are not additive.**
+  Referencing the channel instead of repeating its name saves a third; retention
+  bounds the table outright. Doing the second makes the first worth a third of
+  something already small. Both are built because the operator asked for both,
+  but if only one were to be built it is retention, and the reasoning is worth
+  keeping for the next table that grows.
 - **Storing Discogs API answers is a decision, not an oversight.** Their terms
   forbid keeping API content durably, which is why the durable table was built
   from the CC0 dump. The room's operator has confirmed permission, so the live
@@ -418,6 +529,19 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   no handoff, because the next person acts on it. Check `docs/` before writing
   down how something is operated.
 
+- **A page that says what the unmeasured remainder is has to be held to it.**
+  The storage page ended by calling everything it had not measured PostgreSQL's
+  own catalogues. Three features added tables without touching `storage.ts`, so
+  that sentence quietly came to cover a quarter of the database, `track_genres`
+  included — the second largest table in it. The fix that matters is not the
+  grouping but the test that reads the table list out of the schema: a claim
+  about a total needs something that fails when the total stops being true.
+- **Measure the alternative before recommending against it.** "That is a lot of
+  data" was asserted twice before anybody generated a year of synthetic rows and
+  measured the shapes: 65 MB as text, 44 MB referenced, 11 MB hourly, 1.8 MB as
+  an array per channel per day. The recommendation changed once the numbers
+  existed, and so did the advice about which lever to pull first.
+
 ## Suggested skills
 
 - **`diagnosing-bugs`** for anything slow or broken. Its measure-before-theorise
@@ -437,15 +561,27 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 - **`dataviz`** before drawing anything. Its palette validator is what decided
   the eight chart hues against this room's own dark surface, rather than eight
   colours somebody liked.
+- **`d3-viz`**, this repository's own, in `.claude/skills/` and `.agents/skills/`,
+  before touching a chart. Its "In this repository" section is the shortest
+  route to what has already been settled here: d3 for the arithmetic and React
+  for the DOM, why `d3.schemeCategory10` is wrong for this surface, and why a
+  fixed palette has to hold its assignment across renders.
 - **`unslop`** on anything written for a person to read, this file included.
 
 ## Next
 
-Watch the watchers in production, which is deployed and idle: whether both
-sockets stay up for longer than a development session, whether the minute
-sampler keeps pace once it is writing a row per embed rather than one, and how
-the embed history reads after a week of real data rather than a night of it.
-Nothing connects to destiny.gg until an admin switches it on at `/admin#obs`.
+**Push, and then watch what the migrations did.** Nothing here is deployed.
+The first deploy runs `0025` through `0027`, two of which delete or drop, so it
+is worth reading `/admin#server` afterwards: the storage page now files every
+table, which makes it the fastest way to see whether the embed history landed at
+the size it should. Then whether both sockets stay up longer than a development
+session, and how the history reads after a week of real data rather than a night
+of it.
+
+The retention pass has never run against anything old enough to roll. It is
+covered by tests that fabricate a date past the window, and it runs at every
+startup, so the first production run will be a no-op until there are ninety days
+of readings. Worth a look at the log line when there finally are.
 
 The overlay itself wants one honest look over a real stream at real size — the
 bumper layout especially, which no one has seen move.
@@ -467,6 +603,13 @@ dumps are newer, not when the archive is.
 
 The prototypes under `scripts/*.prototype.ts` are superseded by the shipped
 modules and can go.
+
+If `stream_watch_samples` ever needs to be smaller again, the measured option
+left on the table is one row per channel per day holding an array of that day's
+readings: 1.8 MB a year against 44 MB. It was not built because PostgreSQL
+cannot update an array element in place, so each of the day's writes rewrites
+the whole row, and reading it means unnesting against computed timestamps. The
+numbers are in `docs/plans/bigscreen-watchers.md` if the trade ever changes.
 
 Two smaller things the query work left on the table, both in stats and both
 visible in `pg_stat_statements` once it is on: a track aggregate at 72ms and a
