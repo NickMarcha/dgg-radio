@@ -16,8 +16,7 @@ run against the local Postgres:
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything is committed on `main` through `6a24679` on 2026-09-06, and **not yet
-pushed** — the deploy has not run, so nothing in this session is live.
+Everything is on `main` and pushed, through `f59c156` on 2026-09-06.
 `npm run build` succeeds. Both halves of the build are worth running before a
 push: neither `astro build` nor `tsup` type-checks, so a build failure is a
 different failure from a failing `check`.
@@ -25,12 +24,13 @@ different failure from a failing `check`.
 **Both halves deploy themselves.** Netlify builds the frontend from `main`, and
 a webhook rebuilds and redeploys the API stack, which applies migrations
 `0019` through `0027` on startup. `docs/deployment.md` describes the setup and
-the settings it depends on. That was verified against the deployed API after the
-**previous** session's push, not this one: `/api/watchers` answered with an idle
-snapshot and an unknown source id came back as the route's own
-`WATCHER_EMBED_NOT_FOUND`, which only happens if the new columns are there. The
-same check is worth repeating once this session is pushed, because three
-migrations run with it.
+the settings it depends on. Verified against the deployed API 45 seconds after
+this push: `/health` answers 200, `/api/watchers/channels` and the rewritten
+`/api/watchers/history` answer 401 rather than 404, and the shipped
+`AdminPanel` chunk carries both the Embeds tab and d3. That the API serves at
+all is the proof migrations `0025` to `0027` applied — `server/index.ts` awaits
+`migrate()` before it binds a port, so a container that cannot migrate refuses
+to serve rather than starting against a stale schema.
 
 Run the two halves of `npm run check` separately, or at least do not truncate
 their output: it is `astro check && tsc --noEmit`, and piping the pair through
@@ -307,12 +307,12 @@ include development data unless each remembered to filter.
    timeline — and the tab this session can open is always hidden. An OBS source
    is not hidden in that sense, so it should simply work; it has still never been
    seen working.
-2. **Nothing in this session has been deployed.** It is committed and not
-   pushed. The first deploy runs migrations `0025` to `0027`: `0025` deletes
-   the sample rows that carried only a chat count, and `0027` drops the
-   `platform` and `channel` columns after `0026` has copied them into
-   `stream_watch_channels`. All three were run against the local database with
-   real rows in it and lost none, but they have not met production data.
+2. **Nobody has looked at the migrated table in production.** `0025` to `0027`
+   applied on deploy — the API would not be serving otherwise — but the only
+   check that ran was from outside, without a session. Whether the backfill
+   carried every row into `stream_watch_channels`, and how big the table is
+   now, is one look at `/admin#server`, where it is the "Embed history and
+   overlay" group. Locally the same three migrations lost no rows.
 3. **`drop column` does not return the space.** After `0027` the table measured
    larger than before — the backfill rewrote every row and the dropped columns
    stay in the heap. `vacuum full stream_watch_samples` took it from 129.6 to
@@ -570,13 +570,13 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 
 ## Next
 
-**Push, and then watch what the migrations did.** Nothing here is deployed.
-The first deploy runs `0025` through `0027`, two of which delete or drop, so it
-is worth reading `/admin#server` afterwards: the storage page now files every
-table, which makes it the fastest way to see whether the embed history landed at
-the size it should. Then whether both sockets stay up longer than a development
-session, and how the history reads after a week of real data rather than a night
-of it.
+**Read `/admin#server` once, then leave it alone for a week.** The deploy ran
+`0025` through `0027`, two of which delete or drop, and nothing has looked at
+the result from inside. The storage page now files every table, which makes it
+the fastest way to see whether the embed history landed at the size it should.
+After that the questions are slow ones: whether both sockets stay up longer than
+a development session, and how the history reads after a week of real data
+rather than a night of it.
 
 The retention pass has never run against anything old enough to roll. It is
 covered by tests that fabricate a date past the window, and it runs at every
