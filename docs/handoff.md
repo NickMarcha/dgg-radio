@@ -5,11 +5,11 @@ Session narrative belongs in git history; what belongs here is the state of the
 room, what is waiting on a person, and the things that are true but not visible
 in the code.
 
-Last updated 2026-09-06.
+Last updated 2026-09-24.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 431 Vitest pass across 42 files,
+`astro check` and `tsc --noEmit` are both clean. 437 Vitest pass across 42 files,
 run against the local Postgres:
 
 ```
@@ -299,6 +299,42 @@ project per environment is PostHog's own recommendation. One project with an
 environment property is the wrong shape: every insight and alert would silently
 include development data unless each remembered to filter.
 
+### The trackers went blind for days and nothing said so
+
+On 2026-09-24 both destiny.gg sockets were dead in production while working
+locally. It was not the socket code: **tailscaled on the host had an empty
+upstream resolver list** and was answering `no upstream resolvers set, returning
+SERVFAIL` to every public name. `*.ts.net` still resolved, so the box looked
+fine. destiny.gg, PostHog and Cloudflare's own `argotunnel.com` lookups all
+failed together; the tunnel kept serving because it holds established
+connections. `sudo systemctl restart tailscaled` repopulated the list from the
+system's `192.168.1.1` and both sockets recovered on their own within a minute.
+
+Three things worth keeping from it.
+
+**Only one socket was actually broken.** The chat socket being down is the
+designed consequence of the live socket being down — `applyGate()` only holds
+chat open while `embeds.entryFor(channel).count > 0` or an overlay is connected.
+Diagnosing it as two faults wastes time.
+
+**The host is still on the arrangement that failed.** MagicDNS with no tailnet
+resolvers, forwarding to a `192.168.1.1` that tailscaled remembers rather than
+re-reads, in `direct` mode because it could not identify a resolv.conf manager
+(`dns: [rc=unknown ret=direct]`). There is no code path that re-derives that list
+once it is empty, so nothing self-heals; it just serves SERVFAIL until somebody
+restarts the daemon. The durable fixes are the systemd-resolved integration, or
+tailnet-wide nameservers with Override DNS servers on. Neither is done. A
+NextDNS entry exists in the tailnet but is inert while that toggle is off.
+
+**A pushed alert cannot cover this class of failure.** The DNS outage that killed
+the sockets killed PostHog by the same stroke, so any event about it was dropped
+with everything else. `watch_socket_down` now fires once when the live socket has
+been down five minutes, which covers destiny.gg going away or a wedged socket,
+and `/health` carries `liveSocket` for something outside the host to poll, which
+is the half that would have caught this one. **Nothing polls it yet.** That is an
+uptime check somebody has to set up, and until it exists the room can still go
+blind quietly.
+
 ## Waiting on a person
 
 1. **Nobody has watched the bumper layout move.** Its physics is unit-tested and
@@ -323,7 +359,13 @@ include development data unless each remembered to filter.
 4. **The overlay has been judged by one pair of eyes.** How it reads over a real
    stream, at a real size, is one operator's opinion so far. The four destiny.gg
    socket clients likewise have had one reviewer.
-5. **The slow-request alert has never seen real data.** `api_request_slow` has
+5. **Nothing polls `/health` from outside.** `watch_socket_down` covers a socket
+   the room can still report on; the `liveSocket` field on `/health` covers the
+   case where the host cannot reach PostHog at all, which is what happened. It
+   is only useful once something checks it. Any uptime monitor that can assert
+   on a JSON field will do, alerting when `liveSocket.connected` is false or
+   `downSince` is more than a few minutes old.
+10. **The slow-request alert has never seen real data.** `api_request_slow` has
    not been emitted anywhere, so `qz51WBuF` reads zero and the alert reads
    "Not firing" because there is nothing to fire on, not because it was
    checked. Its threshold was chosen against local timings and production adds
@@ -492,6 +534,18 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   project can see, while `docs/handoff.md` went on claiming to be the only one.
   A convention changed in `docs/` and not in the skill that writes it is a
   convention that lasts one session. The skill now updates this file.
+- **A watchdog that cannot tell connecting from connected reports the wrong
+  error.** The silence watch read `lastFrameAt` alone, which survives a
+  reconnect on purpose so the admin page can say when destiny.gg was last heard
+  from. After any outage past 30 seconds that timestamp is already stale when
+  the next attempt begins, so the watch terminated every attempt on its first
+  check five seconds in, mid-handshake. Production therefore logged
+  `live.destiny.gg closed before the connection was established` while the chat
+  socket, which the watch happened not to reach first, logged the `EAI_AGAIN`
+  that was the actual fault. The wrong error was on screen for six days.
+  `shouldTerminateForSilence` is a pure function now, tested like the two delay
+  functions beside it, and a connection still being established is the `ws`
+  handshake timeout's to give up on.
 - **Three fixes were shipped for a layout nobody had looked at.** The row
   overlay was wrong for one reason — a hydration mismatch meant its stylesheet
   never applied — and each round found a real, unrelated fault instead, because

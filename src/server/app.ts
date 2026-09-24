@@ -347,7 +347,19 @@ export function createApp(dependencies: AppDependencies) {
   });
 
   const routes = app
-    .get('/health', (context) => context.json({ ok: true }))
+    /**
+     * `ok` answers the container healthcheck: can this process serve? It stays
+     * true when the live socket is down, deliberately. The socket failed once
+     * because the host could not resolve a name, and restarting the container
+     * would have done nothing about that except take the room down too.
+     *
+     * `liveSocket` is here for something outside the host to poll, because the
+     * push path cannot be trusted for this: the same DNS failure that killed
+     * the socket also killed PostHog, so every event about it was dropped. The
+     * tunnel kept serving throughout, which is why an inbound check is the one
+     * that would have caught it.
+     */
+    .get('/health', (context) => context.json({ ok: true, liveSocket: watchTracker.liveSocket() }))
     .get('/api/auth/login', async (context) => context.redirect(await createAuthorizationUrl()))
     .post('/api/auth/callback', zValidator('json', callbackSchema), async (context) => {
       const { code, state } = context.req.valid('json');

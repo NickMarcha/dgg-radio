@@ -272,7 +272,7 @@ export class ChatTracker {
   }
 
   state() {
-    return this.socket?.state() ?? { connected: false, lastFrameAt: null, attempts: 0 };
+    return this.socket?.state() ?? { connected: false, lastFrameAt: null, downSince: null, attempts: 0 };
   }
 
   watchers(): ChatWatcher[] {

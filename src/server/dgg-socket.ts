@@ -44,6 +44,17 @@ export const SILENCE_MS = 30_000;
 const SILENCE_CHECK_MS = 5_000;
 
 /**
+ * How long a connection may spend being established before it is given up on.
+ *
+ * `ws` does not time a handshake out by itself, so without this a connection
+ * that never completes holds the socket open against a server that will never
+ * answer, and the retry ladder never runs. The silence watch cannot cover this:
+ * it deliberately leaves a connecting socket alone, having once terminated
+ * every attempt five seconds in.
+ */
+const HANDSHAKE_TIMEOUT_MS = 10_000;
+
+/**
  * Full jitter over a window that doubles with each consecutive failed attempt.
  * The jitter matters as much as the backoff: a mass disconnect releases every
  * client at once, and a fixed retry band only reschedules the stampede.
@@ -56,6 +67,29 @@ export function retryDelayMs(attempts: number, random: () => number = Math.rando
 /** Close code 1001 from a healthy connection is routine, so it retries almost at once. */
 export function goingAwayDelayMs(random: () => number = Math.random): number {
   return Math.floor(random() * GOING_AWAY_SPREAD_MS);
+}
+
+/**
+ * Whether an open connection has gone quiet for long enough to be replaced.
+ *
+ * `readyState` is half the answer and was once missing from it. `lastFrameAt`
+ * survives a reconnect on purpose — the admin page asks "when did we last hear
+ * from destiny.gg at all" — so reading it alone also condemns a socket that has
+ * not opened yet. After any outage longer than {@link SILENCE_MS} that is every
+ * attempt, terminated on the first check five seconds in, whatever the
+ * handshake was doing. A DNS failure therefore surfaced as "closed before the
+ * connection was established" rather than the resolver error underneath it, and
+ * stayed that way for six days. A connection still being established is the
+ * handshake timeout's to give up on.
+ */
+export function shouldTerminateForSilence(
+  readyState: number,
+  lastFrameAt: number | null,
+  now: number,
+): boolean {
+  if (readyState !== WebSocket.OPEN) return false;
+  if (lastFrameAt === null) return false;
+  return now - lastFrameAt >= SILENCE_MS;
 }
 
 /**
@@ -85,6 +119,7 @@ export class DggSocket {
   private silenceTimer: NodeJS.Timeout | null = null;
   private connectedAt: number | null = null;
   private lastFrameAt: number | null = null;
+  private downSince: number | null = null;
   private attempts = 0;
   private wanted = false;
 
@@ -94,6 +129,7 @@ export class DggSocket {
     if (this.wanted) return;
     this.wanted = true;
     this.attempts = 0;
+    this.downSince = Date.now();
     this.connect();
   }
 
@@ -101,6 +137,7 @@ export class DggSocket {
     this.wanted = false;
     this.clearTimers();
     this.connectedAt = null;
+    this.downSince = null;
     const socket = this.socket;
     this.socket = null;
     if (socket) {
@@ -117,6 +154,7 @@ export class DggSocket {
     return {
       connected: this.socket?.readyState === WebSocket.OPEN,
       lastFrameAt: this.lastFrameAt === null ? null : new Date(this.lastFrameAt).toISOString(),
+      downSince: this.downSince === null ? null : new Date(this.downSince).toISOString(),
       attempts: this.attempts,
     };
   }
@@ -124,11 +162,15 @@ export class DggSocket {
   private connect(): void {
     this.attempts += 1;
     this.connectedAt = null;
-    const socket = new WebSocket(this.options.url, { headers: { 'User-Agent': USER_AGENT } });
+    const socket = new WebSocket(this.options.url, {
+      headers: { 'User-Agent': USER_AGENT },
+      handshakeTimeout: HANDSHAKE_TIMEOUT_MS,
+    });
     this.socket = socket;
 
     socket.on('open', () => {
       this.connectedAt = Date.now();
+      this.downSince = null;
       this.touch();
       this.options.onOpen?.();
     });
@@ -150,6 +192,7 @@ export class DggSocket {
     this.socket = null;
     this.clearTimers();
     if (!this.wanted) return;
+    this.downSince ??= Date.now();
 
     const stable =
       this.connectedAt !== null && Date.now() - this.connectedAt >= STABLE_CONNECTION_MS;
@@ -166,11 +209,14 @@ export class DggSocket {
 
   private startSilenceWatch(): void {
     this.silenceTimer = setInterval(() => {
-      if (this.lastFrameAt === null || Date.now() - this.lastFrameAt < SILENCE_MS) return;
+      const socket = this.socket;
+      if (!socket || !shouldTerminateForSilence(socket.readyState, this.lastFrameAt, Date.now())) {
+        return;
+      }
       console.warn(`${this.options.url} went quiet, reconnecting`);
       // terminate rather than close: a socket this quiet will not answer a
       // closing handshake either, and close would wait for one.
-      this.socket?.terminate();
+      socket.terminate();
     }, SILENCE_CHECK_MS);
   }
 

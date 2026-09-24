@@ -7,8 +7,10 @@ import type {
   StreamWatchStatus,
   Watcher,
   WatchersSnapshot,
+  WatchSocketState,
 } from '../shared/contracts';
 import { STREAM_WATCH_MAX_CHANNELS } from '../shared/contracts';
+import { captureServerEvent } from './analytics';
 import { getDatabase, type Database } from './db/client';
 import { streamWatch, streamWatchChannels, streamWatchSamples, users } from './db/schema';
 import { ChatTracker, type WatchedChannel } from './dgg-chat';
@@ -32,6 +34,18 @@ const CHAT_IDLE_GRACE_MS = 2 * 60 * 1_000;
 
 /** How often the gate is reconsidered. The embed list only moves every 30 seconds. */
 const REFRESH_MS = 15_000;
+
+/**
+ * How long the live socket may be down before it is an outage rather than a
+ * reconnect.
+ *
+ * destiny.gg closes clients routinely — 1001 Going Away when Cloudflare cycles
+ * a server — and the retry ladder answers those in under a second. Even its cap
+ * is a minute. So five minutes down is nothing the room recovers from by
+ * itself, and a healthy room reports nothing at all, which is what makes this
+ * worth putting in front of an alert.
+ */
+const SOCKET_DOWN_MS = 5 * 60_000;
 
 /**
  * How often a row is stored, and the width of the bucket it is stored in.
@@ -449,6 +463,8 @@ class WatchTracker {
   private members = new Map<string, string | null>();
   private overlayCount: () => number = () => 0;
   private catalogue: EmoteCatalogue | null = null;
+  /** So one outage is one event, rather than one every fifteen seconds. */
+  private liveOutageReported = false;
 
   /** Reads the settings again and brings the chat socket in line with them. */
   async refresh(db: Database = getDatabase()): Promise<void> {
@@ -509,6 +525,10 @@ class WatchTracker {
     this.embeds.start();
     await this.refresh();
     this.timer ??= setInterval(() => {
+      // Outside the refresh, which returns early when no channel is followed.
+      // The live socket is up either way, so its health is asked about either
+      // way.
+      this.reportLiveSocketHealth();
       void this.refresh().catch((error) => console.error('Stream watch refresh failed', error));
     }, REFRESH_MS);
     this.sampleTimer ??= setInterval(() => this.observe(), OBSERVE_MS);
@@ -593,12 +613,56 @@ class WatchTracker {
     };
   }
 
+  /**
+   * The live socket's state, read without touching the database so `/health`
+   * can carry it. Only the live socket: it is the one held for the life of the
+   * process, so it is the only one whose being down is always wrong. The chat
+   * socket is closed whenever nobody is watching, which is correct and would
+   * make an alert on it noise.
+   */
+  liveSocket(): WatchSocketState {
+    return this.embeds.state();
+  }
+
+  /**
+   * Writes one event when the live socket has been down long enough to mean
+   * something, and nothing at all while it is up.
+   *
+   * The blind spot is worth naming. The outage this was written for was a DNS
+   * failure on the host, which took PostHog out by the same stroke — the events
+   * below would have been dropped with everything else. So this covers the
+   * ordinary cases, destiny.gg going away or the socket wedging, and the
+   * `/health` route carries the same state for something outside the host to
+   * poll, which is what catches the case where nothing can get out.
+   */
+  private reportLiveSocketHealth(): void {
+    const { connected, downSince, attempts } = this.embeds.state();
+    if (connected || downSince === null) {
+      this.liveOutageReported = false;
+      return;
+    }
+
+    const downForMs = Date.now() - Date.parse(downSince);
+    if (downForMs < SOCKET_DOWN_MS || this.liveOutageReported) return;
+
+    this.liveOutageReported = true;
+    captureServerEvent('dgg-radio-api', 'watch_socket_down', {
+      socket: 'live',
+      down_for_minutes: Math.round(downForMs / 60_000),
+      attempts,
+      threshold_minutes: SOCKET_DOWN_MS / 60_000,
+    });
+    console.error(
+      `Live socket has been down for ${Math.round(downForMs / 60_000)} minutes over ${attempts} attempts`,
+    );
+  }
+
   async status(db: Database = getDatabase()): Promise<StreamWatchStatus> {
     return {
       settings: this.settings ?? (await getStreamWatchSettings(db)),
       sockets: {
         live: this.embeds.state(),
-        chat: this.chat?.state() ?? { connected: false, lastFrameAt: null, attempts: 0 },
+        chat: this.chat?.state() ?? { connected: false, lastFrameAt: null, downSince: null, attempts: 0 },
       },
       snapshot: this.snapshot(),
     };

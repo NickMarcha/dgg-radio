@@ -1058,6 +1058,12 @@ export interface StreamWatchHistory {
 export interface WatchSocketState {
   connected: boolean;
   lastFrameAt: string | null;
+  /**
+   * When the socket was last wanted but not connected, or null while it is up.
+   * A reconnect is measured in seconds, so anything old here is an outage
+   * rather than the retry ladder doing its job.
+   */
+  downSince: string | null;
   /** Consecutive failed connection attempts, so a struggling socket is visible. */
   attempts: number;
 }
