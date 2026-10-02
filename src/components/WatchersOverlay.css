@@ -226,6 +226,17 @@
 }
 
 /*
+ * Tier 5's rainbow is a gradient clipped to transparent text, and a text-shadow
+ * is painted over an element's background, so the shadow covered the gradient
+ * and the name came out nearly black. A drop-shadow filter is applied to the
+ * finished name instead, which puts the same edge behind the colours.
+ */
+.watcher-name:is(.flair-flair42, .flair-flair33) {
+  text-shadow: none;
+  filter: drop-shadow(0 0 3px #000) drop-shadow(0 1px 2px #000);
+}
+
+/*
  * Motion: one set of paths shared by every layout that moves, scaled by the
  * source's `roam` and by how much room the layout has to wander in. They
  * animate margins rather than `translate` or `transform`, because a layout may
