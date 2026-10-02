@@ -5,7 +5,7 @@ Session narrative belongs in git history; what belongs here is the state of the
 room, what is waiting on a person, and the things that are true but not visible
 in the code.
 
-Last updated 2026-09-24.
+Last updated 2026-09-25.
 
 ## Where things stand
 
@@ -16,7 +16,10 @@ run against the local Postgres:
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything is on `main` and pushed, through `f59c156` on 2026-09-06.
+**Two commits are on `main` and not pushed**: `bba5d5b`, parking the Last.fm
+research, and `8e60c79`, the silence-watch fix and the socket alerting. Pushing
+them deploys them, so the first thing the next session should establish is
+whether that is wanted yet. Everything before them is pushed, through `f59c156`.
 `npm run build` succeeds. Both halves of the build are worth running before a
 push: neither `astro build` nor `tsup` type-checks, so a build failure is a
 different failure from a failing `check`.
@@ -24,13 +27,15 @@ different failure from a failing `check`.
 **Both halves deploy themselves.** Netlify builds the frontend from `main`, and
 a webhook rebuilds and redeploys the API stack, which applies migrations
 `0019` through `0027` on startup. `docs/deployment.md` describes the setup and
-the settings it depends on. Verified against the deployed API 45 seconds after
-this push: `/health` answers 200, `/api/watchers/channels` and the rewritten
-`/api/watchers/history` answer 401 rather than 404, and the shipped
-`AdminPanel` chunk carries both the Embeds tab and d3. That the API serves at
-all is the proof migrations `0025` to `0027` applied — `server/index.ts` awaits
-`migrate()` before it binds a port, so a container that cannot migrate refuses
-to serve rather than starting against a stale schema.
+the settings it depends on. `server/index.ts` awaits `migrate()` before it binds
+a port, so a container that cannot migrate refuses to serve rather than starting
+against a stale schema — which is why an API that answers at all is proof its
+migrations applied.
+
+`8e60c79` changes what `/health` returns. It is still `{ok: true, …}` and the
+container healthcheck only reads the exit code, so nothing about the deploy
+depends on it, but anything that asserts on that body will see a new
+`liveSocket` field.
 
 Run the two halves of `npm run check` separately, or at least do not truncate
 their output: it is `astro check && tsc --noEmit`, and piping the pair through
@@ -337,35 +342,31 @@ blind quietly.
 
 ## Waiting on a person
 
-1. **Nobody has watched the bumper layout move.** Its physics is unit-tested and
-   its wiring is tested in a real DOM with hand-driven frames, but a hidden
-   browser tab runs no animation at all — no `requestAnimationFrame`, no CSS
-   timeline — and the tab this session can open is always hidden. An OBS source
-   is not hidden in that sense, so it should simply work; it has still never been
-   seen working.
-2. **Nobody has looked at the migrated table in production.** `0025` to `0027`
-   applied on deploy — the API would not be serving otherwise — but the only
-   check that ran was from outside, without a session. Whether the backfill
-   carried every row into `stream_watch_channels`, and how big the table is
-   now, is one look at `/admin#server`, where it is the "Embed history and
-   overlay" group. Locally the same three migrations lost no rows.
-3. **`drop column` does not return the space.** After `0027` the table measured
+1. **The bumper layout and the migrated table have both had a glance, and only
+   a glance.** On 2026-09-24 the operator looked at the bumper layout moving and
+   at `/admin#server`, and reported both fine. That retires the question of
+   whether they work at all — a hidden browser tab runs no animation, so the
+   bumper layout had never once been seen running. It does not retire the
+   measurements: nobody has checked that the `0025` to `0027` backfill carried
+   every row into `stream_watch_channels`, or what the table now weighs. Locally
+   those three migrations lost no rows.
+2. **`drop column` does not return the space.** After `0027` the table measured
    larger than before — the backfill rewrote every row and the dropped columns
    stay in the heap. `vacuum full stream_watch_samples` took it from 129.6 to
    84.4 bytes a row, which is the shape the projection promised. Production has
    not had that run on it; autovacuum will reclaim the space for reuse rather
    than returning it, which at this size is fine, and new rows are the narrow
    shape from the moment the migration lands either way.
-4. **The overlay has been judged by one pair of eyes.** How it reads over a real
+3. **The overlay has been judged by one pair of eyes.** How it reads over a real
    stream, at a real size, is one operator's opinion so far. The four destiny.gg
    socket clients likewise have had one reviewer.
-5. **Nothing polls `/health` from outside.** `watch_socket_down` covers a socket
+4. **Nothing polls `/health` from outside.** `watch_socket_down` covers a socket
    the room can still report on; the `liveSocket` field on `/health` covers the
    case where the host cannot reach PostHog at all, which is what happened. It
    is only useful once something checks it. Any uptime monitor that can assert
    on a JSON field will do, alerting when `liveSocket.connected` is false or
    `downSince` is more than a few minutes old.
-10. **The slow-request alert has never seen real data.** `api_request_slow` has
+5. **The slow-request alert has never seen real data.** `api_request_slow` has
    not been emitted anywhere, so `qz51WBuF` reads zero and the alert reads
    "Not firing" because there is nothing to fire on, not because it was
    checked. Its threshold was chosen against local timings and production adds
@@ -437,11 +438,21 @@ blind quietly.
   it won all 24 ties over `background-position` and CuckCrab played 22 frames of
   somebody else's cat followed by 22 of nothing. It is scoped with `:where()`
   now, which is where chat-gui's own sits.
-- **Only what upstream repeats is looped.** destiny.gg declares 44 emotes with an
-  iteration count above one and 42 to run exactly once; looping all of them
-  turned OBJECTION's slam and GIGACHAD's arrival into a twitch that never
-  stopped. `scripts/dgg-emote-loops.ts` prints both lists from the CDN
-  stylesheet when the catalogue moves.
+- **destiny.gg's live emotes are on `r2cdn.destiny.gg`, not `cdn.destiny.gg`.**
+  The chat page names its CDN in the `data-cdn` attribute of its script tag.
+  `cdn.destiny.gg` is an older copy: on 2026-10-02 it still served the normal
+  set while chat showed Halloween. Seasonal sets (Halloween, Pride, Christmas)
+  are the same prefixes with new images and animations swapped in upstream,
+  marked by a different `theme` number in `emotes.json`. The overlay picks them
+  up with no change here.
+- **Only what upstream repeats is looped, and the browser is asked which.**
+  Looping every emote turned OBJECTION's slam and GIGACHAD's arrival into a
+  twitch that never stopped. It used to be a hardcoded list in
+  `WatchersOverlay.css`, but the Halloween swap changed about 25 emotes' answers
+  (BLADE went from repeating to once, GIGACHAD the other way), so a list goes
+  stale twice per event. `loopRepeating.ts` now reads each emote's animations
+  with `getAnimations({ subtree: true })` and loops those with more than one
+  iteration. jsdom has no `getAnimations`, so the DOM test stubs it.
 - **A hidden browser tab runs no animation.** Not `requestAnimationFrame`, and
   not the CSS timeline either — a background tab reports zero frames in 600ms
   and `Animation.currentTime` frozen at 0. Every visual check of motion through
@@ -565,9 +576,9 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   against the frame edge. The test that caught it is the dull one asserting a
   default for every option.
 - **A regex that reads "the selector" reads the first of them.** The emote loop
-  generator tested each rule's whole selector string, so every alternative after
-  a comma was invisible to it — which is how Chatting was classified as
-  unanimated while a rule two commas along said otherwise.
+  generator (since deleted) tested each rule's whole selector string, so every
+  alternative after a comma was invisible to it — which is how Chatting was
+  classified as unanimated while a rule two commas along said otherwise.
 - **The local API container is not rebuilt by editing code.** `astro dev`
   reloads the frontend on save and the Docker API does not, so a route added in
   a session answers 404 until `docker compose … up -d --build api`. It cost a
@@ -600,7 +611,13 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 
 - **`diagnosing-bugs`** for anything slow or broken. Its measure-before-theorise
   order is what caught that both standing theories about the stats query were
-  wrong; guessing has a poor record in this repository.
+  wrong; guessing has a poor record in this repository. It earned its place
+  again on 2026-09-24: its insistence on a red loop before a hypothesis is what
+  established that destiny.gg listed the followed channel while production
+  claimed it did not, which is the comparison the whole diagnosis rested on. Its
+  other rule — no regression test without a correct seam — is why the fix moved
+  the watchdog's decision into a pure function instead of the test growing a
+  WebSocket server to watch the bug indirectly.
 - **`marcoshernanz`** before adding configuration or an abstraction. It is the
   argument against the speculative version of whatever is being built, and it is
   what settled blanking a key over standing up a second PostHog project.
@@ -621,24 +638,47 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   for the DOM, why `d3.schemeCategory10` is wrong for this surface, and why a
   fixed palette has to hold its assignment across renders.
 - **`unslop`** on anything written for a person to read, this file included.
+- **Not `/handoff` from the user's global skills.** There are two, and they say
+  opposite things. The global one at `~/.claude/skills/handoff` writes a new
+  timestamped file under `handoffs/`; this repository's own, in `.claude/skills/`
+  and `.agents/skills/`, says to update this file and to create no second
+  handoff anywhere. The repository's wins — a folder of dated handoffs is
+  exactly what `5c0e547` deleted. The global skill fires on the bare
+  `/handoff`, so the next session will hit this too and should say so rather
+  than quietly writing the second file.
 
 ## Next
 
-**Read `/admin#server` once, then leave it alone for a week.** The deploy ran
-`0025` through `0027`, two of which delete or drop, and nothing has looked at
-the result from inside. The storage page now files every table, which makes it
-the fastest way to see whether the embed history landed at the size it should.
-After that the questions are slow ones: whether both sockets stay up longer than
-a development session, and how the history reads after a week of real data
-rather than a night of it.
+**Push `8e60c79`, then set something to poll `/health`.** The fix is written,
+tested and unpushed, and it is worth having in production before the next
+resolver wobble. On its own it changes nothing an operator would notice, because
+the half of it that would have caught the September outage is the `liveSocket`
+field, and nothing looks at that field yet. An uptime check that alerts when
+`liveSocket.connected` is false, or `downSince` is more than a few minutes old,
+is the smallest thing that closes the loop. Until it exists the room can still
+go dark quietly, which is the actual lesson from that week rather than the
+socket bug.
+
+The DNS arrangement underneath it is also unchanged. See the incident section
+above: the restart cleared the symptom and nothing stops it recurring.
+
+`watch_socket_down` needs an insight and an alert in PostHog, the way
+`api_request_slow` has `qz51WBuF`. Neither event has ever fired in production,
+so both alerts read "not firing" because nothing has tested them.
+
+`/admin#server` has been glanced at and looked fine, but nobody has read the
+numbers on it. The storage page files every table, so it is still the fastest
+way to see whether the embed history landed at the size `0025` through `0027`
+promised.
 
 The retention pass has never run against anything old enough to roll. It is
 covered by tests that fabricate a date past the window, and it runs at every
 startup, so the first production run will be a no-op until there are ninety days
 of readings. Worth a look at the log line when there finally are.
 
-The overlay itself wants one honest look over a real stream at real size — the
-bumper layout especially, which no one has seen move.
+The overlay wants one honest look over a real stream at real size. The bumper
+layout has now been seen moving and looks right, so what is left is how the
+whole thing reads at broadcast size.
 
 After that, the genre work below is still the larger prize.
 

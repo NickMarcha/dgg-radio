@@ -14,7 +14,7 @@ import { z } from 'zod';
  * matches, watchers keep the emote their account gives them, and the next
  * refresh tries again.
  */
-const MANIFEST_URL = 'https://cdn.destiny.gg/emotes/emotes.json';
+const MANIFEST_URL = 'https://r2cdn.destiny.gg/emotes/emotes.json';
 
 /** Emotes change rarely, and a stale catalogue only misses a brand new one. */
 export const CATALOGUE_TTL_MS = 12 * 60 * 60 * 1_000;

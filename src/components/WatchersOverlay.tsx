@@ -19,6 +19,7 @@ import {
 } from '../shared/contracts';
 import { spawnBody, stepBumpers, type BumperBody } from './bumperMotion';
 import { useWatcherEmbedSettings } from './useWatcherEmbedSettings';
+import { loopRepeatingAnimations } from './loopRepeating';
 import { useWatchers } from './useWatchers';
 import '../styles/flairs.css';
 import './WatchersOverlay.css';
@@ -378,6 +379,18 @@ export function mergeRendered(
   ];
 }
 
+/** One emote, looped where destiny.gg already repeats it. */
+function Emote({ prefix }: { prefix: string }) {
+  const element = useRef<HTMLSpanElement>(null);
+
+  // A new class is a new set of CSS animations, so it is asked again each time.
+  useEffect(() => {
+    if (element.current) loopRepeatingAnimations(element.current);
+  }, [prefix]);
+
+  return <span ref={element} className={`emote ${prefix}`} />;
+}
+
 export default function WatchersOverlay({ apiUrl }: { apiUrl: string }) {
   const snapshot = useWatchers(apiUrl);
   // A prerender has no query string. Apply it only after hydration so the
@@ -472,7 +485,7 @@ export default function WatchersOverlay({ apiUrl }: { apiUrl: string }) {
               overlay drew the entire sprite sheet in a row.
             */}
             <span className="text">
-              <span className={`emote ${watcher.lastEmote ?? watcher.emote ?? DEFAULT_EMOTE}`} />
+              <Emote prefix={watcher.lastEmote ?? watcher.emote ?? DEFAULT_EMOTE} />
             </span>
             {options.names !== 'off' && (
               <span

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildEmoteCatalogue, lastEmoteIn } from './dgg-emotes';
 
-/** Shaped like the entries in https://cdn.destiny.gg/emotes/emotes.json. */
+/** Shaped like the entries in https://r2cdn.destiny.gg/emotes/emotes.json. */
 const catalogue = buildEmoteCatalogue([
   { prefix: 'catJAM', twitch: false, minimumSubTier: 0 },
   { prefix: 'pepeJAM', twitch: false, minimumSubTier: 0 },

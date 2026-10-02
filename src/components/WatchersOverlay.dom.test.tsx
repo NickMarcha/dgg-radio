@@ -70,6 +70,11 @@ beforeEach(() => {
     y: 0,
     toJSON: () => ({}),
   });
+  // jsdom runs no CSS animations, and has no way to be asked about them.
+  Object.defineProperty(Element.prototype, 'getAnimations', {
+    configurable: true,
+    value: () => [],
+  });
   for (const property of ['clientWidth', 'clientHeight'] as const) {
     Object.defineProperty(HTMLElement.prototype, property, {
       configurable: true,
