@@ -5,7 +5,7 @@ Session narrative belongs in git history; what belongs here is the state of the
 room, what is waiting on a person, and the things that are true but not visible
 in the code.
 
-Last updated 2026-09-25.
+Last updated 2026-10-02.
 
 ## Where things stand
 
@@ -16,10 +16,11 @@ run against the local Postgres:
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-**Two commits are on `main` and not pushed**: `bba5d5b`, parking the Last.fm
-research, and `8e60c79`, the silence-watch fix and the socket alerting. Pushing
-them deploys them, so the first thing the next session should establish is
-whether that is wanted yet. Everything before them is pushed, through `f59c156`.
+Everything is on `main` and pushed, through `0aebf3c` on 2026-10-02: the
+Last.fm research, the silence-watch fix and socket alerting, and the seasonal
+emotes. Checked after the push: the deployed `/health` carries `liveSocket`
+with the live socket connected, and the deployed `/embed/watchers` links the
+`r2cdn` stylesheet.
 `npm run build` succeeds. Both halves of the build are worth running before a
 push: neither `astro build` nor `tsup` type-checks, so a build failure is a
 different failure from a failing `check`.
@@ -649,11 +650,10 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 
 ## Next
 
-**Push `8e60c79`, then set something to poll `/health`.** The fix is written,
-tested and unpushed, and it is worth having in production before the next
-resolver wobble. On its own it changes nothing an operator would notice, because
-the half of it that would have caught the September outage is the `liveSocket`
-field, and nothing looks at that field yet. An uptime check that alerts when
+**Set something to poll `/health`.** `8e60c79` is deployed, but on its own it
+changes nothing an operator would notice, because the half of it that would have
+caught the September outage is the `liveSocket` field, and nothing looks at that
+field yet. An uptime check that alerts when
 `liveSocket.connected` is false, or `downSince` is more than a few minutes old,
 is the smallest thing that closes the loop. Until it exists the room can still
 go dark quietly, which is the actual lesson from that week rather than the
