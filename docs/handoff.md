@@ -16,11 +16,12 @@ run against the local Postgres:
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything is on `main` and pushed, through `0aebf3c` on 2026-10-02: the
-Last.fm research, the silence-watch fix and socket alerting, and the seasonal
-emotes. Checked after the push: the deployed `/health` carries `liveSocket`
-with the live socket connected, and the deployed `/embed/watchers` links the
-`r2cdn` stylesheet.
+Everything is on `main` and pushed, through `77294b4` on 2026-10-02: the
+Last.fm research, the silence-watch fix and socket alerting, the seasonal
+emotes, and tier 5 names on the overlay. Checked after the pushes: the deployed
+`/health` carries `liveSocket` with the live socket connected, the deployed
+`/embed/watchers` links the `r2cdn` stylesheet, and its CSS carries the tier 5
+drop-shadow rule.
 `npm run build` succeeds. Both halves of the build are worth running before a
 push: neither `astro build` nor `tsup` type-checks, so a build failure is a
 different failure from a failing `check`.
@@ -172,7 +173,9 @@ of the time and a dark channel correctly shows nothing at all.
 
 `stream_watch` is **switched on** in the local database for testing, pointed at
 `kick/dariusirl`. Both sockets, the overlay, the minute sampler and the embed
-history were live on 2026-09-06. The switch at the top of `/admin#obs` turns the
+history were live on 2026-09-06. It had drifted to `kick/destiny` by
+2026-10-02 and was set back to `kick/dariusirl` by hand, because that channel
+had 270 watchers and `destiny` was dark. The switch at the top of `/admin#obs` turns the
 chat socket off again; the live socket and the sampler stay up either way, which
 is also how a fresh deployment now arrives.
 
@@ -424,6 +427,11 @@ blind quietly.
   while its children were built for a row. Twelve absolutely positioned
   watchers with no coordinates stack in the top left corner. Options are read
   in an effect now.
+- **A text-shadow hides a gradient name.** Tier 5 (`flair42`, `flair33`) is a
+  rainbow gradient visible only through transparent text, and a text-shadow is
+  painted over the element's background, so the overlay's black name shadow
+  turned those names nearly black. They use `filter: drop-shadow` instead,
+  which sits behind the colours. Any new gradient flair needs the same.
 - **`zoom` is how an emote grows, not `scale`.** `scale` is painted, so the
   layout box stays 28 pixels and a row of them overlaps itself. `emotes.md` has
   the detail.
