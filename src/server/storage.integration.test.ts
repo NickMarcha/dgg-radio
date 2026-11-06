@@ -22,13 +22,13 @@ const connectionString = testConnectionString();
 
 const GROUP_NAMES = [
   'Accounts and authentication',
-  'Embed history and overlay',
   'Genre labels',
   'History and voting',
   'Personal playlists',
   'QueUp archive',
   'Room state and internal tables',
   'Rules and moderation',
+  'Stream overlay',
   'Track catalogue and provider cache',
 ];
 

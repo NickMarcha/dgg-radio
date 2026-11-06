@@ -996,65 +996,6 @@ export interface WatchersSnapshot {
   watchers: Watcher[];
 }
 
-/**
- * One stored minute of one embed. Every embed destiny.gg listed gets a row, and
- * they are all alike — the channel the overlay follows is not recorded any
- * differently — so `platform` is whatever the site called it.
- */
-export interface StreamWatchSample {
-  sampledAt: string;
-  platform: string;
-  channel: string;
-  /** People with the embed open. A minute with no row is what a gap is drawn from. */
-  siteCount: number;
-}
-
-/**
- * One channel the sampler saw in a period, for choosing what to draw.
- *
- * Every channel it saw is offered, not only the ones a chart could fit: the
- * point of choosing is to reach a quiet channel that the busiest eight bury.
- */
-export interface StreamWatchChannel {
-  platform: string;
-  channel: string;
-  /** The most embeds open on it at once, which is what the list is ranked by. */
-  peak: number;
-  /** The last minute it was sampled, so a channel long gone reads as one. */
-  lastSeenAt: string;
-}
-
-/** How many channels one chart can tell apart, which is how many hues it has. */
-export const STREAM_WATCH_MAX_CHANNELS = 8;
-
-/**
- * The exact period returned with the samples, so every graph uses one time
- * axis, and the width of one stored point: a week of minutes is more than any
- * chart can draw, so longer periods come back grouped into coarser buckets.
- */
-export interface StreamWatchHistory {
-  from: string;
-  to: string;
-  bucketMinutes: number;
-  /** The channels worth drawing on their own, busiest first. */
-  samples: StreamWatchSample[];
-  /**
-   * Everything else on the site, summed per bucket. A week has hundreds of
-   * channels in it and only a few can be told apart on one chart, so the rest
-   * is one line rather than nothing: it says how much of the site the drawn
-   * channels actually are.
-   */
-  other: { sampledAt: string; siteCount: number }[];
-  /** How many channels that one line covers. */
-  otherChannels: number;
-  /**
-   * The channels drawn as themselves, `platform/channel`, busiest first. Sent
-   * back even where a chosen channel has no reading in the window, so a chart
-   * of nothing is still a chart of the channels that were asked for.
-   */
-  channels: string[];
-}
-
 export interface WatchSocketState {
   connected: boolean;
   lastFrameAt: string | null;

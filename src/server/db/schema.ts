@@ -11,7 +11,6 @@ import {
   pgSequence,
   pgTable,
   primaryKey,
-  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -426,12 +425,7 @@ export const streamWatch = pgTable(
   'stream_watch',
   {
     id: integer('id').primaryKey().default(1),
-    /**
-     * Whether one channel's chat roster is read, which is what the overlay
-     * draws. The site's embed list is sampled either way: that runs on the live
-     * socket alone and is the room's own record of what destiny.gg was
-     * watching, which a minute switched off could never be recovered.
-     */
+    /** Whether one channel's chat roster is read, which is what the overlay draws. */
     enabled: boolean('enabled').notNull().default(false),
     platform: watchPlatform('platform').notNull().default('kick'),
     channel: text('channel').notNull().default(''),
@@ -485,67 +479,6 @@ export const watcherEmbedSettings = pgTable(
     check('watcher_embed_settings_size_range', sql`${table.sizePercent} between 25 and 400`),
     check('watcher_embed_settings_roam_range', sql`${table.roamPercent} between 0 and 300`),
     check('watcher_embed_settings_inset_range', sql`${table.insetPercent} between 0 and 25`),
-  ],
-);
-
-/**
- * One reading per minute and stream, for every embed destiny.gg listed in that
- * minute rather than only the one the room follows. The target belongs on every
- * row, and the key is the minute plus that target, so a channel appearing and
- * an admin switching targets are both just more rows.
- *
- * `platform` is text rather than the enum the settings use: the room can only
- * be pointed at platforms it knows, but the site lists whatever it lists, and a
- * platform nobody here has heard of is worth recording rather than dropping.
- */
-/**
- * Every channel the sampler has ever seen, named once.
- *
- * The samples used to carry `platform` and `channel` as text on every row,
- * which is two strings repeated for each reading of each channel forever. A
- * year of quarter-hours measured 65 MB in that shape and 44 MB with an integer
- * pointing here instead, so this table exists to be joined, not to be read.
- */
-export const streamWatchChannels = pgTable(
-  'stream_watch_channels',
-  {
-    id: serial('id').primaryKey(),
-    platform: text('platform').notNull(),
-    channel: text('channel').notNull(),
-  },
-  (table) => [
-    uniqueIndex('stream_watch_channels_platform_channel').on(table.platform, table.channel),
-    check(
-      'stream_watch_channels_channel_lowercase',
-      sql`${table.channel} = lower(${table.channel})`,
-    ),
-  ],
-);
-
-export const streamWatchSamples = pgTable(
-  'stream_watch_samples',
-  {
-    sampledAt: timestamp('sampled_at', { withTimezone: true }).notNull(),
-    channelId: integer('channel_id')
-      .notNull()
-      .references(() => streamWatchChannels.id, { onDelete: 'cascade' }),
-    /**
-     * The mean of the readings taken in this row's interval. Every row comes
-     * from embeds the site actually listed, so this is always a measurement; an
-     * interval with no row is what a gap in the graph is drawn from.
-     *
-     * Rows older than the detail window hold an hour rather than a quarter of
-     * one, averaged down in place, so the column means the same thing at every
-     * age and only the spacing changes.
-     */
-    siteCount: integer('site_count').notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.sampledAt, table.channelId] }),
-    check(
-      'stream_watch_samples_site_count_nonnegative',
-      sql`${table.siteCount} >= 0`,
-    ),
   ],
 );
 

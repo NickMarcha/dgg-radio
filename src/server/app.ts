@@ -19,7 +19,6 @@ import {
   ruleSchema,
   ruleUpdateSchema,
   roomSettingsSchema,
-  STREAM_WATCH_MAX_CHANNELS,
   streamWatchSchema,
   submitRequestSchema,
   userRoleSchema,
@@ -106,8 +105,6 @@ import { limitPerAddress, limitPerUser } from './rate-limit';
 import { exportCsv, exportFilename, EXPORTS } from './export';
 import { getStorageSnapshot } from './storage';
 import {
-  getStreamWatchHistory,
-  listStreamWatchChannels,
   updateStreamWatchSettings,
   watchTracker,
 } from './watchers';
@@ -161,52 +158,6 @@ const statsQuerySchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
 });
-
-/**
- * The window a chart is asking about, as two instants rather than a length.
- *
- * The overview strip and the chart above it are the same query over different
- * windows, so a length would have to be paired with an end anyway. The span is
- * capped because the answer is grouped in memory, and `channels` at eight
- * because that is what a chart can tell apart.
- */
-const WATCH_WINDOW_MAX_MS = 31 * 24 * 60 * 60 * 1_000;
-
-const streamWatchWindowSchema = z
-  .object({
-    from: z.coerce.date(),
-    to: z.coerce.date(),
-  })
-  .refine((window) => window.to > window.from, { message: 'The window ends before it starts.' })
-  .refine((window) => window.to.getTime() - window.from.getTime() <= WATCH_WINDOW_MAX_MS, {
-    message: 'That window is longer than a month.',
-  });
-
-const streamWatchHistorySchema = z.intersection(
-  streamWatchWindowSchema,
-  z.object({
-    /**
-     * `platform/channel`, comma separated. Absent means the busiest, which is
-     * how the chart opens; present and empty is not a question worth asking, so
-     * it reads as absent too.
-     */
-    channels: z
-      .string()
-      .optional()
-      .transform((raw) =>
-        raw === undefined
-          ? null
-          : raw
-              .split(',')
-              .map((key) => key.trim())
-              .filter(Boolean),
-      )
-      .transform((keys) => (keys === null || keys.length === 0 ? null : keys))
-      .refine((keys) => keys === null || keys.length <= STREAM_WATCH_MAX_CHANNELS, {
-        message: `At most ${STREAM_WATCH_MAX_CHANNELS} channels can be drawn at once.`,
-      }),
-  }),
-);
 
 const exportParamSchema = z.object({
   dataset: z.enum([
@@ -945,24 +896,6 @@ export function createApp(dependencies: AppDependencies) {
           fields: Object.keys(patch).join(','),
         });
         return context.json(settings);
-      },
-    )
-    .get(
-      '/api/watchers/channels',
-      requireAdmin,
-      zValidator('query', streamWatchWindowSchema),
-      async (context) => {
-        const { from, to } = context.req.valid('query');
-        return context.json({ channels: await listStreamWatchChannels(from, to) });
-      },
-    )
-    .get(
-      '/api/watchers/history',
-      requireAdmin,
-      zValidator('query', streamWatchHistorySchema),
-      async (context) => {
-        const { from, to, channels } = context.req.valid('query');
-        return context.json(await getStreamWatchHistory(from, to, channels));
       },
     )
     .patch(

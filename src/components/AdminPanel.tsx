@@ -3,7 +3,6 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   Ban,
-  ChartSpline,
   Check,
   ChevronDown,
   ChevronUp,
@@ -55,7 +54,6 @@ import {
   watcherShows,
   watchPlatforms,
 } from '../shared/contracts';
-import { EmbedHistorySection } from './EmbedHistorySection';
 import { moveItem, type MoveDestination } from './reorder';
 import './AdminPanel.css';
 
@@ -72,7 +70,6 @@ const TABS = [
   { id: 'people', label: 'People', icon: Users },
   { id: 'log', label: 'Log', icon: ScrollText },
   { id: 'server', label: 'Server', icon: Activity },
-  { id: 'embeds', label: 'Embeds', icon: ChartSpline },
   { id: 'obs', label: 'OBS', icon: MonitorPlay },
 ] as const;
 
@@ -368,8 +365,6 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           <ExportsSection apiUrl={apiUrl} />
         </>
       )}
-
-      {tab === 'embeds' && <EmbedHistorySection call={call} />}
 
       {tab === 'obs' && <StreamWatchSection busy={busy} act={act} call={call} />}
       {tab === 'obs' && <ObsSources busy={busy} act={act} call={call} />}
@@ -1109,7 +1104,8 @@ interface StreamWatchDraft {
  *
  * The two counts are meant to disagree a little. The site counts embeds open;
  * chat counts people in chat with that embed selected, and only the second one
- * has names behind it. The current values are sampled once a minute below.
+ * has names behind it. Neither is stored; mitchdev.net/dgg/embeds keeps the
+ * site's history of every embed.
  */
 function StreamWatchSection({ busy, act, call }: SectionProps) {
   const [status, setStatus] = useState<StreamWatchStatus | null>(null);
@@ -1186,8 +1182,7 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
             />
             Follow this channel
             <small>
-              The chat socket is only held while this is on. The embed history keeps recording
-              regardless.
+              The chat socket is only held while this is on.
             </small>
           </label>
 
@@ -1221,7 +1216,11 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
             people in Destiny chat have it selected — the number with names behind it, and the one
             the overlay will draw. Somebody watching without being in chat is only in the first;
             somebody who switched away without saying anything stays in the second until they speak
-            or leave.
+            or leave. Neither is kept: for how an embed has done over time, see{' '}
+            <a href="https://mitchdev.net/dgg/embeds/" target="_blank" rel="noreferrer">
+              mitchdev.net/dgg/embeds
+            </a>
+            .
           </p>
 
           <p className="admin-operation-clock">

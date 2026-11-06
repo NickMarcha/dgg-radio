@@ -84,13 +84,14 @@ describe('the tab in the URL hash', () => {
     expect(tabFromHash('#server')).toBe('server');
     expect(tabFromHash('#people')).toBe('people');
     expect(tabFromHash('#obs')).toBe('obs');
-    expect(tabFromHash('#embeds')).toBe('embeds');
   });
 
   it('falls back to the room tab for an empty or unknown hash', () => {
     expect(tabFromHash('')).toBe('room');
     expect(tabFromHash('#')).toBe('room');
     expect(tabFromHash('#storage')).toBe('room');
+    // The embed history tab is gone; an old bookmark opens the room tab.
+    expect(tabFromHash('#embeds')).toBe('room');
   });
 });
 

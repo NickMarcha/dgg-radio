@@ -1,6 +1,10 @@
 # Bigscreen watchers plan
 
-Status: all eight slices are built and committed.
+Status: all eight slices are built and committed. The embed history (the
+samples, the graph, and its routes) was removed on 2026-11-06 in migration
+`0028`: mitchdev.net/dgg/embeds records every destiny.gg embed over time, so
+the room no longer keeps its own copy. The sections below describing it are
+the record of what was built, not of what runs.
 
 ## Outcome
 

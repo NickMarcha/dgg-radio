@@ -197,6 +197,13 @@
       "when": 1788682751742,
       "tag": "0027_magenta_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794000665643,
+      "tag": "0028_drop_embed_history",
+      "breakpoints": true
     }
   ]
 }

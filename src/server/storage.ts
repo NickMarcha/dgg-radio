@@ -30,18 +30,7 @@ const GROUPS: { name: string; tables: string[] }[] = [
     tables: ['users', 'sessions', 'oauth_login_transactions', 'user_chat_counts'],
   },
   { name: 'Rules and moderation', tables: ['rules', 'rule_entries', 'moderation_actions'] },
-  // The one group that grows on its own. A row a minute for every embed the
-  // site lists, whatever anybody does in the room, so it is the table to watch
-  // when this page is opened to ask why the database is bigger than it was.
-  {
-    name: 'Embed history and overlay',
-    tables: [
-      'stream_watch_samples',
-      'stream_watch_channels',
-      'stream_watch',
-      'watcher_embed_settings',
-    ],
-  },
+  { name: 'Stream overlay', tables: ['stream_watch', 'watcher_embed_settings'] },
   {
     name: 'Room state and internal tables',
     tables: ['room_settings', 'room_state', 'seed_state', 'drizzle.__drizzle_migrations'],
