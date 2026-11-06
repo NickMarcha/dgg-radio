@@ -40,7 +40,7 @@ describe.skipIf(!connectionString)('the moderation log', () => {
   async function seed() {
     const [mod] = await db
       .insert(users)
-      .values({ dggUserId: 'dgg-mod', username: 'a_mod', dggStatus: 'active', role: 'mod' })
+      .values({ dggUserId: 'dgg-mod', username: 'a_mod', dggStatus: 'active' })
       .returning({ id: users.id });
     const [listener] = await db
       .insert(users)

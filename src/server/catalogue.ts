@@ -5,6 +5,7 @@ import type {
   TrackDetail,
   TrackPlay,
   TrackSummary,
+  UserRole,
 } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
 import { legacyPlays, media, queueItems } from './db/schema';
@@ -43,7 +44,7 @@ interface PlayRow extends Record<string, unknown> {
   requester_id: string | null;
   requester_name: string;
   requester_avatar: string | null;
-  requester_role: 'listener' | 'mod' | 'admin' | null;
+  requester_role: UserRole | null;
   requester_team: 'pepe' | 'yee' | null;
   requester_flair: string | null;
   requester_emote: string | null;

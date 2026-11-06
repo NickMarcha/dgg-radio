@@ -17,7 +17,9 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-export const userRole = pgEnum('user_role', ['listener', 'mod', 'admin']);
+/** A site-wide role. Moderating a room is a room role, kept in `room_members`. */
+export const userRole = pgEnum('user_role', ['listener', 'admin']);
+export const roomRole = pgEnum('room_role', ['owner', 'mod']);
 export const userTeam = pgEnum('user_team', ['pepe', 'yee']);
 export const mediaProvider = pgEnum('media_provider', ['youtube', 'soundcloud']);
 /**
@@ -86,6 +88,8 @@ export const users = pgTable(
     username: text('username').notNull(),
     avatarUrl: text('avatar_url'),
     role: userRole('role').notNull().default('listener'),
+    /** Whitelisted by a site admin to create a room of their own. */
+    canCreateRooms: boolean('can_create_rooms').notNull().default(false),
     team: userTeam('team'),
     /** The Destiny flair their username takes its colour from, or null for no colour. */
     flair: text('flair'),
@@ -420,6 +424,29 @@ export const ruleEntries = pgTable(
     ),
     index('rule_entries_target_index').on(table.provider, table.entryType, table.providerId),
     index('rule_entries_rule_index').on(table.ruleId),
+  ],
+);
+
+/**
+ * Who runs a room. An owner manages the room and picks its moderators; a mod
+ * moderates it. Site admins act in every room without a row here.
+ */
+export const roomMembers = pgTable(
+  'room_members',
+  {
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: roomRole('role').notNull(),
+    addedByUserId: uuid('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.roomId, table.userId] }),
+    index('room_members_user_index').on(table.userId),
   ],
 );
 

@@ -59,11 +59,6 @@ export function SiteHeaderAccount({ apiUrl, me, busy = false, onLogout }: SiteHe
               <Shield size={13} /> admin
             </a>
           )}
-          {me.role === 'mod' && (
-            <span className="admin-label" title="Room moderator">
-              <Shield size={13} /> mod
-            </span>
-          )}
           <button className="text-button" type="button" onClick={onLogout} disabled={busy}>
             <LogOut size={15} /> Sign out
           </button>

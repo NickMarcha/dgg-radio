@@ -67,10 +67,6 @@ describe.skipIf(!connectionString)('admin management', () => {
   it('promotes and demotes an ordinary user', async () => {
     const id = await createUser('promoted_mod');
 
-    await setUserRole(id, 'mod', db);
-    expect((await listUsers(undefined, db)).find((user) => user.id === id)?.role).toBe('mod');
-    expect(await listAdmins(db)).toEqual([]);
-
     await setUserRole(id, 'admin', db);
     expect((await listAdmins(db)).map(({ username }) => username)).toEqual(['promoted_mod']);
 
@@ -82,7 +78,6 @@ describe.skipIf(!connectionString)('admin management', () => {
     const id = await createUser('picklesnathan', 'admin');
 
     await expect(setUserRole(id, 'listener', db)).rejects.toMatchObject({ code: 'ROOT_ADMIN' });
-    await expect(setUserRole(id, 'mod', db)).rejects.toMatchObject({ code: 'ROOT_ADMIN' });
     await expect(setUserRole(id, 'listener', db)).rejects.toBeInstanceOf(AdminError);
     expect((await listAdmins(db)).map(({ username }) => username)).toEqual(['picklesnathan']);
   });

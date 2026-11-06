@@ -22,6 +22,7 @@ import type {
   TrackGenres,
   TrackStats,
   UserProfile,
+  UserRole,
 } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
 import { media, queueItems, users, votes } from './db/schema';
@@ -97,7 +98,7 @@ type HistoryRow = {
   requesterId: string;
   requesterUsername: string;
   requesterAvatarUrl: string | null;
-  requesterRole: 'listener' | 'mod' | 'admin';
+  requesterRole: UserRole;
   requesterTeam: 'pepe' | 'yee' | null;
   requesterFlair: string | null;
   requesterTopEmote: string | null;

@@ -21,6 +21,8 @@ import {
   roomSettingsSchema,
   streamWatchSchema,
   submitRequestSchema,
+  roomCreatorSchema,
+  roomModeratorSchema,
   userRoleSchema,
   voteSchema,
   watcherEmbedSchema,
@@ -28,7 +30,6 @@ import {
 } from '../shared/contracts';
 import {
   AuthenticationError,
-  canModerate,
   clearSession,
   completeAuthorization,
   createAuthorizationUrl,
@@ -48,13 +49,15 @@ import {
   listRuleEntries,
   listRules,
   removeRuleEntry,
+  roomOfRule,
+  roomOfRuleEntry,
   reorderRules,
   RuleError,
   updateRule,
 } from './rules';
 import { ChatLookupError, requestChatCheck } from './chat';
 import { listPlaybackRegions, RegionLookupError } from './regions';
-import { AdminError, listAdmins, listUsers, setUserRole } from './admins';
+import { AdminError, listAdmins, listUsers, setRoomCreator, setUserRole } from './admins';
 import { CatalogueError, getArtistDetail, getTrackDetail } from './catalogue';
 import {
   CommunityError,
@@ -76,6 +79,7 @@ import {
   reorderRoomQueue,
   getRoomSnapshot,
   removeQueuedTrack,
+  roomOfQueueItem,
   RoomError,
   skipCurrentTrack,
   toRoomUser,
@@ -83,7 +87,15 @@ import {
   voteOnCurrentTrack,
   withdrawQueuedTrack,
 } from './room';
-import { MAIN_ROOM_ID } from './rooms';
+import {
+  canManageRoom,
+  canModerateRoom,
+  findRoomIdBySlug,
+  MAIN_ROOM_ID,
+  RoomAccessError,
+  roomRoleOf,
+  setRoomModerator,
+} from './rooms';
 import {
   addLegacyPlayToPlaylist,
   addPlaylistTrack,
@@ -124,6 +136,8 @@ interface AppDependencies {
 
 type Variables = {
   user: AuthenticatedUser;
+  /** Set by `requireRoomRole`: the room the request acts in. */
+  roomId: string;
 };
 
 const callbackSchema = z.object({
@@ -132,6 +146,7 @@ const callbackSchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.uuid() });
+const roomMemberParamSchema = z.object({ slug: z.string().min(1).max(32), id: z.uuid() });
 const playlistTrackParamSchema = z.object({ id: z.uuid(), mediaId: z.uuid() });
 /** QueUp's own id for a play, which is what the archive is keyed by. */
 const legacySourceId = z.string().trim().min(1).max(64);
@@ -255,15 +270,44 @@ export function createApp(dependencies: AppDependencies) {
     await next();
   };
 
-  const requireModerator = async (context: any, next: () => Promise<void>) => {
-    const user = await getSessionUser(context);
-    if (!user) return context.json(errorBody('AUTH_REQUIRED', 'Sign in with Destiny to do that.'), 401);
-    if (!canModerate(user.role)) {
-      return context.json(errorBody('MODERATOR_REQUIRED', 'Only mods and admins can do that.'), 403);
-    }
-    context.set('user', user);
-    await next();
+  /**
+   * A role in the room the request acts in: `mod` for moderating it, `owner`
+   * for changing it. The room is resolved per route, so an action on a queue
+   * item or a rule is judged by the room that item or rule belongs to, never
+   * by the room the caller happens to moderate.
+   */
+  const requireRoomRole =
+    (level: 'mod' | 'owner', resolveRoom: (context: any) => Promise<string>) =>
+    async (context: any, next: () => Promise<void>) => {
+      // A route whose room comes from its params signs the caller in first,
+      // so a stranger is told to sign in before being told the id is wrong.
+      const user = context.get('user') ?? (await getSessionUser(context));
+      if (!user) {
+        return context.json(errorBody('AUTH_REQUIRED', 'Sign in with Destiny to do that.'), 401);
+      }
+      const roomId = await resolveRoom(context);
+      const role = await roomRoleOf(user, roomId);
+      if (level === 'owner' ? !canManageRoom(role) : !canModerateRoom(role)) {
+        return level === 'owner'
+          ? context.json(errorBody('ROOM_OWNER_REQUIRED', 'Only the room owner can do that.'), 403)
+          : context.json(errorBody('MODERATOR_REQUIRED', 'Only this room\'s mods can do that.'), 403);
+      }
+      context.set('user', user);
+      context.set('roomId', roomId);
+      await next();
+    };
+
+  const mainRoom = async () => MAIN_ROOM_ID;
+  const itemRoom = (context: any) => roomOfQueueItem(context.req.valid('param').id);
+  const ruleRoom = (context: any) => roomOfRule(context.req.valid('param').id);
+  const ruleEntryRoom = (context: any) => roomOfRuleEntry(context.req.valid('param').id);
+  const slugRoom = async (context: any) => {
+    const roomId = await findRoomIdBySlug(context.req.valid('param').slug);
+    if (!roomId) throw new RoomAccessError('ROOM_NOT_FOUND', 'That room does not exist.', 404);
+    return roomId;
   };
+  const requireMainModerator = requireRoomRole('mod', mainRoom);
+  const requireMainOwner = requireRoomRole('owner', mainRoom);
 
   app.onError((error, context) => {
     if (
@@ -276,7 +320,8 @@ export function createApp(dependencies: AppDependencies) {
       error instanceof CommunityError ||
       error instanceof RegionLookupError ||
       error instanceof ChatLookupError ||
-      error instanceof PlaylistError
+      error instanceof PlaylistError ||
+      error instanceof RoomAccessError
     ) {
       if (error.status >= 500) {
         captureServerException(error, context.get('user')?.id, {
@@ -699,7 +744,7 @@ export function createApp(dependencies: AppDependencies) {
     })
     .patch(
       '/api/queue/room-order',
-      requireModerator,
+      requireMainModerator,
       zValidator('json', reorderSchema),
       async (context) => {
         await reorderRoomQueue(
@@ -730,8 +775,10 @@ export function createApp(dependencies: AppDependencies) {
     )
     .post(
       '/api/queue/:id/remove',
-      requireAdmin,
+      requireUser,
+
       zValidator('param', idParamSchema),
+      requireRoomRole('owner', itemRoom),
       zValidator('json', removeQueueItemSchema),
       async (context) => {
         const { id } = context.req.valid('param');
@@ -744,8 +791,10 @@ export function createApp(dependencies: AppDependencies) {
     )
     .post(
       '/api/queue/:id/block',
-      requireModerator,
+      requireUser,
+
       zValidator('param', idParamSchema),
+      requireRoomRole('mod', itemRoom),
       zValidator('json', blockMediaSchema),
       async (context) => {
         const { id } = context.req.valid('param');
@@ -755,14 +804,14 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
-    .post('/api/current/skip', requireModerator, zValidator('json', removeQueueItemSchema), async (context) => {
+    .post('/api/current/skip', requireMainModerator, zValidator('json', removeQueueItemSchema), async (context) => {
       const { reason } = context.req.valid('json');
       await skipCurrentTrack(MAIN_ROOM_ID, reason, context.get('user'));
       captureServerEvent(context.get('user').id, 'track_skipped');
       dependencies.onRoomChanged();
       return context.json({ ok: true });
     })
-    .patch('/api/settings', requireAdmin, zValidator('json', roomSettingsSchema), async (context) => {
+    .patch('/api/settings', requireMainOwner, zValidator('json', roomSettingsSchema), async (context) => {
       const patch = context.req.valid('json');
       await updateRoomSettings(MAIN_ROOM_ID, patch, context.get('user'));
       captureServerEvent(context.get('user').id, 'room_settings_changed', {
@@ -772,22 +821,30 @@ export function createApp(dependencies: AppDependencies) {
       return context.json({ ok: true });
     })
     .get('/api/rules', async (context) => context.json({ rules: await listRules(MAIN_ROOM_ID) }))
-    .get('/api/rules/:id/entries', requireAdmin, zValidator('param', idParamSchema), async (context) =>
-      context.json({ entries: await listRuleEntries(context.req.valid('param').id) }),
+    .get(
+      '/api/rules/:id/entries',
+      requireUser,
+
+      zValidator('param', idParamSchema),
+      requireRoomRole('mod', ruleRoom),
+      async (context) =>
+        context.json({ entries: await listRuleEntries(context.req.valid('param').id) }),
     )
     // Blocking something before anyone requests it. It costs a provider lookup,
     // so it is limited like every other route that spends one.
     .post(
       '/api/rules/:id/entries',
-      requireAdmin,
-      limitPerUser('lookup', 20),
+      requireUser,
+
       zValidator('param', idParamSchema),
+      requireRoomRole('mod', ruleRoom),
+      limitPerUser('lookup', 20),
       zValidator('json', blockByUrlSchema),
       async (context) => {
         const { id } = context.req.valid('param');
         const { url, entryType, note } = context.req.valid('json');
         const blocked = await blockMediaByUrl(
-          MAIN_ROOM_ID,
+          context.get('roomId'),
           url,
           { ruleIds: [id], entryType, note },
           context.get('user'),
@@ -800,21 +857,23 @@ export function createApp(dependencies: AppDependencies) {
         return context.json(blocked, 201);
       },
     )
-    .post('/api/rules', requireAdmin, zValidator('json', ruleSchema), async (context) => {
+    .post('/api/rules', requireMainOwner, zValidator('json', ruleSchema), async (context) => {
       const id = await createRule(MAIN_ROOM_ID, context.req.valid('json'), context.get('user'));
       captureServerEvent(context.get('user').id, 'rule_created');
       dependencies.onRoomChanged();
       return context.json({ id });
     })
-    .patch('/api/rules/order', requireAdmin, zValidator('json', reorderSchema), async (context) => {
+    .patch('/api/rules/order', requireMainOwner, zValidator('json', reorderSchema), async (context) => {
       await reorderRules(MAIN_ROOM_ID, context.req.valid('json').orderedIds);
       dependencies.onRoomChanged();
       return context.json({ ok: true });
     })
     .patch(
       '/api/rules/:id',
-      requireAdmin,
+      requireUser,
+
       zValidator('param', idParamSchema),
+      requireRoomRole('owner', ruleRoom),
       zValidator('json', ruleUpdateSchema),
       async (context) => {
         await updateRule(context.req.valid('param').id, context.req.valid('json'));
@@ -822,15 +881,24 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
-    .delete('/api/rules/:id', requireAdmin, zValidator('param', idParamSchema), async (context) => {
-      await deleteRule(context.req.valid('param').id);
-      dependencies.onRoomChanged();
-      return context.json({ ok: true });
-    })
+    .delete(
+      '/api/rules/:id',
+      requireUser,
+
+      zValidator('param', idParamSchema),
+      requireRoomRole('owner', ruleRoom),
+      async (context) => {
+        await deleteRule(context.req.valid('param').id);
+        dependencies.onRoomChanged();
+        return context.json({ ok: true });
+      },
+    )
     .delete(
       '/api/rules/entries/:id',
-      requireAdmin,
+      requireUser,
+
       zValidator('param', idParamSchema),
+      requireRoomRole('mod', ruleEntryRoom),
       async (context) => {
         await removeRuleEntry(context.req.valid('param').id);
         dependencies.onRoomChanged();
@@ -893,16 +961,16 @@ export function createApp(dependencies: AppDependencies) {
         storage: await getStorageSnapshot(),
       }),
     )
-    .get('/api/stream-watch', requireAdmin, async (context) =>
+    .get('/api/stream-watch', requireMainOwner, async (context) =>
       context.json(await watchTracker.status()),
     )
-    .get('/api/watcher-embed', requireAdmin, async (context) => {
+    .get('/api/watcher-embed', requireMainOwner, async (context) => {
       context.header('Cache-Control', 'no-store, max-age=0');
       return context.json(await getOrCreateWatcherEmbedSettings(context.get('user').id));
     })
     .patch(
       '/api/watcher-embed',
-      requireAdmin,
+      requireMainOwner,
       zValidator('json', watcherEmbedSchema),
       async (context) => {
         const patch = context.req.valid('json');
@@ -915,7 +983,7 @@ export function createApp(dependencies: AppDependencies) {
     )
     .patch(
       '/api/stream-watch',
-      requireAdmin,
+      requireMainOwner,
       zValidator('json', streamWatchSchema),
       async (context) => {
         const settings = await updateStreamWatchSettings(
@@ -930,7 +998,7 @@ export function createApp(dependencies: AppDependencies) {
         return context.json(await watchTracker.status());
       },
     )
-    .get('/api/regions', requireAdmin, async (context) =>
+    .get('/api/regions', requireMainOwner, async (context) =>
       context.json({ regions: await listPlaybackRegions() }),
     )
     .get('/api/admins', requireAdmin, async (context) => context.json({ admins: await listAdmins() }))
@@ -945,6 +1013,40 @@ export function createApp(dependencies: AppDependencies) {
       async (context) => {
         await setUserRole(context.req.valid('param').id, context.req.valid('json').role);
         captureServerEvent(context.get('user').id, 'user_role_changed');
+        return context.json({ ok: true });
+      },
+    )
+    // The whitelist of who may create a room. Only a site admin keeps it.
+    .patch(
+      '/api/users/:id/room-creator',
+      requireAdmin,
+      zValidator('param', idParamSchema),
+      zValidator('json', roomCreatorSchema),
+      async (context) => {
+        await setRoomCreator(
+          context.req.valid('param').id,
+          context.req.valid('json').canCreateRooms,
+        );
+        captureServerEvent(context.get('user').id, 'room_creator_changed');
+        return context.json({ ok: true });
+      },
+    )
+    .put(
+      '/api/rooms/:slug/moderators/:id',
+      requireUser,
+
+      zValidator('param', roomMemberParamSchema),
+      requireRoomRole('owner', slugRoom),
+      zValidator('json', roomModeratorSchema),
+      async (context) => {
+        await setRoomModerator(
+          context.get('roomId'),
+          context.req.valid('param').id,
+          context.req.valid('json').moderator,
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'room_moderator_changed');
+        dependencies.onRoomChanged();
         return context.json({ ok: true });
       },
     );

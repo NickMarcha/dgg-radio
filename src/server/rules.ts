@@ -208,6 +208,27 @@ export async function deleteRule(ruleId: string, db: Database = getDatabase()): 
   if (!deleted) throw new RuleError('RULE_NOT_FOUND', 'That rule does not exist.', 404);
 }
 
+/** The room that keeps a rule, which is whose moderators may edit it. */
+export async function roomOfRule(ruleId: string, db: Database = getDatabase()): Promise<string> {
+  const [rule] = await db.select({ roomId: rules.roomId }).from(rules).where(eq(rules.id, ruleId));
+  if (!rule) throw new RuleError('RULE_NOT_FOUND', 'That rule does not exist.', 404);
+  return rule.roomId;
+}
+
+/** The room that keeps the rule an entry is listed under. */
+export async function roomOfRuleEntry(
+  entryId: string,
+  db: Database = getDatabase(),
+): Promise<string> {
+  const [entry] = await db
+    .select({ roomId: rules.roomId })
+    .from(ruleEntries)
+    .innerJoin(rules, eq(ruleEntries.ruleId, rules.id))
+    .where(eq(ruleEntries.id, entryId));
+  if (!entry) throw new RuleError('ENTRY_NOT_FOUND', 'That entry does not exist.', 404);
+  return entry.roomId;
+}
+
 /**
  * Refuses unless every rule named is one of this room's. A moderator blocks
  * under their own room's rules; a rule kept by another room is edited there.

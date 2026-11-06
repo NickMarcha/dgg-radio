@@ -1,6 +1,6 @@
 # Rooms plan
 
-Status: steps 1 to 3 are built.
+Status: steps 1 to 4 are built.
 
 ## Outcome
 
@@ -83,7 +83,9 @@ Each step leaves a working site.
    refused for now (`QUEUED_ELSEWHERE`); the prompt that moves a queue comes
    with room creation.
 4. **Room-level roles.** `room_members`, the creator whitelist, and moving
-   admin actions to owners and moderators.
+   admin actions to owners and moderators. Until rooms have their own pages
+   the admin page is still site admins only; it manages the main room's mods
+   and the whitelist.
 5. **Room URLs and overlays.** `/r/:slug` through one generated page, the API
    and the room socket take the room, embed pages take the room, saved overlay
    settings keyed by room and owner.

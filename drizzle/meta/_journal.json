@@ -225,6 +225,13 @@
       "when": 1794001674622,
       "tag": "0031_room_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794002168530,
+      "tag": "0032_room_members",
+      "breakpoints": true
     }
   ]
 }

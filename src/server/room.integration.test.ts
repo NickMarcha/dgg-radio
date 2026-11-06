@@ -135,16 +135,17 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     return room.id;
   }
 
+  /** `mod` makes them one of the main room's moderators, which is a room role. */
   async function createUser(
     username: string,
-    role: UserRole = 'listener',
+    role: UserRole | 'mod' = 'listener',
   ): Promise<AuthenticatedUser> {
     const [row] = await db
       .insert(users)
       .values({
         dggUserId: `dgg-${username}`,
         username,
-        role,
+        role: role === 'mod' ? 'listener' : role,
         dggStatus: 'active',
       })
       .returning({
@@ -160,6 +161,11 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
         dggFeatures: users.dggFeatures,
       });
     if (!row) throw new Error('Could not create the test user');
+    if (role === 'mod') {
+      await db
+        .insert(schema.roomMembers)
+        .values({ roomId: MAIN_ROOM_ID, userId: row.id, role: 'mod' });
+    }
     return row;
   }
 

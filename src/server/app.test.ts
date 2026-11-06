@@ -15,6 +15,7 @@ vi.mock('./auth', async (importOriginal) => ({
 
 vi.mock('./room', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./room')>()),
+  roomOfQueueItem: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
   blockQueueItemMedia: vi.fn(),
   removeQueuedTrack: vi.fn(),
   reorderRoomQueue: vi.fn(),
@@ -28,9 +29,17 @@ vi.mock('./rules', async (importOriginal) => ({
   reorderRules: vi.fn(),
 }));
 
+vi.mock('./rooms', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./rooms')>()),
+  roomRoleOf: vi.fn(),
+  setRoomModerator: vi.fn(),
+  findRoomIdBySlug: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
+}));
+
 vi.mock('./admins', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./admins')>()),
   listUsers: vi.fn().mockResolvedValue([]),
+  setRoomCreator: vi.fn(),
   setUserRole: vi.fn(),
 }));
 
@@ -62,7 +71,8 @@ const { reorderRules } = await import('./rules');
 const { getStorageSnapshot } = await import('./storage');
 const { resetRateLimits } = await import('./rate-limit');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
-const { MAIN_ROOM_ID } = await import('./rooms');
+const { MAIN_ROOM_ID, roomRoleOf, setRoomModerator } = await import('./rooms');
+const { setRoomCreator } = await import('./admins');
 const {
   findWatcherEmbedSettings,
   getOrCreateWatcherEmbedSettings,
@@ -116,7 +126,7 @@ function user(role: AuthenticatedUser['role']): AuthenticatedUser {
   };
 }
 
-function request(path: string, method: 'POST' | 'PATCH', body: unknown) {
+function request(path: string, method: 'POST' | 'PATCH' | 'PUT', body: unknown) {
   return app.request(path, {
     method,
     headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:4321' },
@@ -165,10 +175,20 @@ const app = createApp({
 describe('role authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // A site admin owns every room; anyone else holds whatever a test gives them.
+    vi.mocked(roomRoleOf).mockImplementation(async (who) =>
+      who?.role === 'admin' ? 'owner' : null,
+    );
   });
 
+  /** A listener who moderates the main room, which is a room role rather than a site one. */
+  function asRoomMod() {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+    vi.mocked(roomRoleOf).mockResolvedValue('mod');
+  }
+
   it('allows a mod to block, skip, and reorder the room queue', async () => {
-    vi.mocked(getSessionUser).mockResolvedValue(user('mod'));
+    asRoomMod();
 
     expect(
       (await request(`/api/queue/${QUEUE_ID}/block`, 'POST', {
@@ -189,7 +209,7 @@ describe('role authorization', () => {
   });
 
   it('does not let a mod remove tracks or use admin endpoints', async () => {
-    vi.mocked(getSessionUser).mockResolvedValue(user('mod'));
+    asRoomMod();
 
     expect(
       (await request(`/api/queue/${QUEUE_ID}/remove`, 'POST', { reason: 'Remove this track' })).status,
@@ -231,12 +251,46 @@ describe('role authorization', () => {
     expect(voteOnCurrentTrack).toHaveBeenCalledWith(QUEUE_ID, -1, listener, 3);
   });
 
-  it('lets an admin assign the mod role', async () => {
+  it('lets an admin assign the admin role', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+
+    const response = await request(`/api/users/${USER_ID}/role`, 'PATCH', { role: 'admin' });
+    expect(response.status).toBe(200);
+    expect(setUserRole).toHaveBeenCalledWith(USER_ID, 'admin');
+  });
+
+  it('no longer takes mod as a site role', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
     const response = await request(`/api/users/${USER_ID}/role`, 'PATCH', { role: 'mod' });
-    expect(response.status).toBe(200);
-    expect(setUserRole).toHaveBeenCalledWith(USER_ID, 'mod');
+    expect(response.status).toBe(400);
+    expect(setUserRole).not.toHaveBeenCalled();
+  });
+
+  it("lets a room's owner pick its moderators, and nobody below that", async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+    vi.mocked(roomRoleOf).mockResolvedValue('owner');
+    const path = `/api/rooms/main/moderators/${USER_ID}`;
+
+    expect((await request(path, 'PUT', { moderator: true })).status).toBe(200);
+    expect(setRoomModerator).toHaveBeenCalledWith(MAIN_ROOM_ID, USER_ID, true, user('listener'));
+
+    asRoomMod();
+    expect((await request(path, 'PUT', { moderator: true })).status).toBe(403);
+    expect(setRoomModerator).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the room creator whitelist to site admins', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+    vi.mocked(roomRoleOf).mockResolvedValue('owner');
+    const path = `/api/users/${USER_ID}/room-creator`;
+
+    expect((await request(path, 'PATCH', { canCreateRooms: true })).status).toBe(403);
+    expect(setRoomCreator).not.toHaveBeenCalled();
+
+    vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
+    expect((await request(path, 'PATCH', { canCreateRooms: true })).status).toBe(200);
+    expect(setRoomCreator).toHaveBeenCalledWith(USER_ID, true);
   });
 
   it('routes an admin rule reorder past the /api/rules/:id handler', async () => {
@@ -254,7 +308,7 @@ describe('the header session endpoint', () => {
   });
 
   it('names the signed-in listener without the room snapshot behind it', async () => {
-    vi.mocked(getSessionUser).mockResolvedValue(user('mod'));
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
 
     const response = await app.request('/api/me');
 
@@ -267,7 +321,7 @@ describe('the header session endpoint', () => {
         avatarUrl: null,
         flair: null,
         topEmote: null,
-        role: 'mod',
+        role: 'listener',
         team: null,
       },
     });

@@ -40,7 +40,7 @@ import {
   lookupManyCached,
   lookupMediaCached,
 } from './media-cache';
-import { MAIN_ROOM_ID } from './rooms';
+import { MAIN_ROOM_ID, roomRoleOf } from './rooms';
 import {
   addRuleEntry,
   assertRulesInRoom,
@@ -258,6 +258,19 @@ async function cycleRotation(userId: string, db: Executor): Promise<void> {
 /** Leaves the rotation once nothing is left waiting. */
 async function leaveRotationIfEmpty(userId: string, db: Executor): Promise<void> {
   if (!(await hasQueuedTracks(userId, db))) await leaveRotation(userId, db);
+}
+
+/** The room a queue item belongs to, or a 404 when there is no such item. */
+export async function roomOfQueueItem(
+  queueItemId: string,
+  db: Database = getDatabase(),
+): Promise<string> {
+  const [item] = await db
+    .select({ roomId: queueItems.roomId })
+    .from(queueItems)
+    .where(eq(queueItems.id, queueItemId));
+  if (!item) throw new RoomError('QUEUE_ITEM_NOT_FOUND', 'That queue item does not exist.', 404);
+  return item.roomId;
 }
 
 async function getSettings(roomId: string, db: Database) {
@@ -1312,7 +1325,7 @@ export async function getRoomSnapshot(
     await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, me.id));
   }
 
-  const [state, settings, activeRows, stats, rules, myNotices] = await Promise.all([
+  const [state, settings, activeRows, stats, rules, myNotices, myRoomRole] = await Promise.all([
     db
       .select({ revision: roomState.revision, currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
@@ -1323,6 +1336,7 @@ export async function getRoomSnapshot(
     listJammers(10, undefined, db),
     listActiveRules(roomId, db),
     me ? listMyNotices(me.id, db) : [],
+    roomRoleOf(me, roomId, db),
   ]);
 
   if (!state) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
@@ -1349,14 +1363,15 @@ export async function getRoomSnapshot(
 
   /**
    * With the requester hidden, votes are cast on the track alone. The name
-   * comes back as the track runs out, and mods and admins always see it.
+   * comes back as the track runs out, and the room's mods and owners always
+   * see it.
    */
   const secondsLeft =
     current?.startedAt && current.media.durationSeconds
       ? (new Date(current.startedAt).getTime() + current.media.durationSeconds * 1_000 - Date.now()) /
         1_000
       : Number.POSITIVE_INFINITY;
-  const privileged = me?.role === 'admin' || me?.role === 'mod';
+  const privileged = myRoomRole !== null;
   const censor = !settings.revealRequester && !privileged;
   const hide = <T extends { id: string; requestedBy: RoomUser | null }>(item: T, reveal: boolean): T =>
     censor && !reveal && item.requestedBy?.id !== me?.id ? { ...item, requestedBy: null } : item;
@@ -1367,6 +1382,7 @@ export async function getRoomSnapshot(
     listenerCount,
     settings,
     me: toRoomUser(me),
+    myRoomRole,
     current: current ? hide(current, secondsLeft <= REVEAL_REQUESTER_WITHIN_SECONDS) : null,
     currentGenres: current
       ? nowPlayingGenres(

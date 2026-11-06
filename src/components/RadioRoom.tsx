@@ -623,8 +623,9 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     if (await mutate('/api/auth/logout', 'POST')) await refreshRoom();
   };
 
-  const admin = room?.me?.role === 'admin';
-  const moderator = admin || room?.me?.role === 'mod';
+  // Site admins come back as owners, so this is the room's own answer.
+  const owner = room?.myRoomRole === 'owner';
+  const moderator = owner || room?.myRoomRole === 'mod';
 
   return (
     <div className="radio-app">
@@ -924,7 +925,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                   item={item}
                   index={index}
                   canBlock={moderator}
-                  canRemove={admin}
+                  canRemove={owner}
                   busy={busy}
                   onModerate={(action, selected) => void moderateQueueItem(action, selected)}
                   onMove={moderator ? (selected, destination) => void moveRoomTrack(selected, destination) : undefined}

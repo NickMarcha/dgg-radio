@@ -7,8 +7,8 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
 ## What works
 
 - Destiny's custom OAuth flow with one-use, five-minute login state, returning to a frontend callback
-- Database-backed mods and admins, with root admins named in the environment who cannot be demoted
-- A DJ rotation over unlimited per-person queues, reorderable by mods and admins; listeners reorder their own queue and can take a track back out before it plays
+- Database-backed admins and per-room owners and mods, with root admins named in the environment who cannot be demoted
+- A DJ rotation over unlimited per-person queues, reorderable by the room's mods; listeners reorder their own queue and can take a track back out before it plays
 - Synchronized YouTube and SoundCloud playback from the server clock
 - Region, embeddability, age restriction, live status, processing state, and duration checks, cached per track
 - A playback region chosen from YouTube's own list of the countries it recognises
@@ -119,7 +119,7 @@ The callback is a frontend route, not an API route. Destiny redirects the browse
 
 Destiny's flow is not standard PKCE. The backend implements the secret-bound challenge described in the project's [OAuth research](docs/research/dgg-oauth-netlify.md). Keep the client secret on the API host.
 
-Admins assign listener, mod, and admin roles on `/admin`. The only role sign-in grants is admin, to a username in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
+Admins make people admins, main room mods, or room creators on `/admin`. The only role sign-in grants is admin, to a username in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
 
 A blocklist rule can be added to from `/admin` without waiting for somebody to play the thing: paste a link, or search, and choose whether to block the one track or everything by whoever published it. On YouTube that is the channel; on SoundCloud it is the account that uploaded the track. Blocking an artist also drops anything already waiting in the queue that it now covers.
 

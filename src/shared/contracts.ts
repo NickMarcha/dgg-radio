@@ -180,7 +180,16 @@ export const clearQueueSchema = z.object({
 });
 
 export const userRoleSchema = z.object({
-  role: z.enum(['listener', 'mod', 'admin']),
+  role: z.enum(['listener', 'admin']),
+});
+
+/** Whether someone moderates a room. An owner is not made or unmade this way. */
+export const roomModeratorSchema = z.object({
+  moderator: z.boolean(),
+});
+
+export const roomCreatorSchema = z.object({
+  canCreateRooms: z.boolean(),
 });
 
 export const removeQueueItemSchema = z.object({
@@ -204,7 +213,11 @@ export interface PlaybackRegion {
   name: string;
 }
 
-export type UserRole = 'listener' | 'mod' | 'admin';
+/** Site-wide. Running a room is a `RoomRole` in that room. */
+export type UserRole = 'listener' | 'admin';
+
+/** What someone is in one room: its owner, one of its moderators, or neither. */
+export type RoomRole = 'owner' | 'mod';
 
 /** Stands in wherever someone has no counted emote of their own. Never counted itself. */
 export const DEFAULT_EMOTE = 'MMMM';
@@ -684,6 +697,10 @@ export interface RoomMember {
   username: string;
   avatarUrl: string | null;
   role: UserRole;
+  /** Their role in the main room, which is what the admin page manages. */
+  mainRoomRole: RoomRole | null;
+  /** Whitelisted to create a room of their own. */
+  canCreateRooms: boolean;
   team: Team;
   /** Named in the environment, so always an admin and not removable here. */
   isRoot: boolean;
@@ -805,6 +822,8 @@ export interface RoomSnapshot {
     revealRequester: boolean;
   };
   me: RoomUser | null;
+  /** The signed-in user's role in this room, or null for none. Site admins act as owners. */
+  myRoomRole: RoomRole | null;
   current: QueueItem | null;
   /**
    * What the track playing now is. Null while nobody knows, which includes the

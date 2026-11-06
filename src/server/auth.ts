@@ -72,10 +72,6 @@ export function radioRole(username: string, env: ServerEnv): UserRole {
   return getAdminUsernames(env).has(username.toLowerCase()) ? 'admin' : 'listener';
 }
 
-export function canModerate(role: UserRole): boolean {
-  return role === 'mod' || role === 'admin';
-}
-
 export async function createAuthorizationUrl(
   db: Database = getDatabase(),
   env: ServerEnv = getEnv(),

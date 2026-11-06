@@ -618,6 +618,11 @@ function PeopleSection({
                     <Shield size={13} /> {member.isRoot ? 'root admin' : member.role}
                   </span>
                 )}
+                {member.role === 'listener' && member.mainRoomRole && (
+                  <span className="admin-meta">
+                    <Shield size={13} /> main room {member.mainRoomRole}
+                  </span>
+                )}
                 {member.queuedCount > 0 && (
                   <span className="admin-meta">
                     <ListMusic size={13} /> {member.queuedCount} queued
@@ -656,9 +661,45 @@ function PeopleSection({
                   }}
                 >
                   <option value="listener">Listener</option>
-                  <option value="mod">Mod</option>
                   <option value="admin">Admin</option>
                 </select>
+                <label className="admin-check">
+                  <input
+                    type="checkbox"
+                    checked={member.role === 'admin' || member.mainRoomRole !== null}
+                    disabled={busy || member.role === 'admin' || member.mainRoomRole === 'owner'}
+                    title={member.role === 'admin' ? 'Admins moderate every room' : undefined}
+                    onChange={(event) => {
+                      const moderator = event.currentTarget.checked;
+                      void act(
+                        () =>
+                          call(`/api/rooms/main/moderators/${member.id}`, 'PUT', { moderator }),
+                        moderator
+                          ? `${member.username} now moderates the main room.`
+                          : `${member.username} no longer moderates the main room.`,
+                      );
+                    }}
+                  />
+                  Main room mod
+                </label>
+                <label className="admin-check">
+                  <input
+                    type="checkbox"
+                    checked={member.canCreateRooms}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const canCreateRooms = event.currentTarget.checked;
+                      void act(
+                        () =>
+                          call(`/api/users/${member.id}/room-creator`, 'PATCH', { canCreateRooms }),
+                        canCreateRooms
+                          ? `${member.username} can create a room.`
+                          : `${member.username} can no longer create a room.`,
+                      );
+                    }}
+                  />
+                  Can create a room
+                </label>
               </div>
             </div>
           </li>

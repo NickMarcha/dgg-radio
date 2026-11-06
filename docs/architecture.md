@@ -45,13 +45,15 @@ A finished track sends its requester to the back if they still have something wa
 
 The room queue shows one track per person in turn order. A listener's own queue comes down separately in `myQueue`, where they can reorder it or take a track back out before it plays. Withdrawing records no moderation action, refuses anything that is already playing, and gives up the rotation seat when it was the last queued track, the same as finishing one.
 
-Mods and admins can reorder the room queue. This renumbers `room_seats`, not anyone's private track positions. The current DJ's next turn stays last until the playing track ends, preserving one turn per person. Both queue controls support moving one step or straight to the top or bottom.
+A room's mods and owners can reorder its queue. This renumbers `room_seats`, not anyone's private track positions. The current DJ's next turn stays last until the playing track ends, preserving one turn per person. Both queue controls support moving one step or straight to the top or bottom.
 
 ## Identity and permissions
 
 The local user key is Destiny's stable `userId`, not the username. Each login refreshes username, status, roles, and features.
 
-Roles live in the database. Admins can assign listener, mod, or admin on `/admin`. Mods may block tracks, skip the current track, and reorder the room queue, but every admin endpoint still requires the admin role. Names in `ADMIN_DGG_USERNAMES` are root admins, and the API refuses to demote them.
+Roles live in the database, at two levels. `users.role` is site-wide and is listener or admin. Running a room is a room role in `room_members`: an `owner` changes the room's settings, rules, stream and overlays and picks its moderators, and a `mod` blocks tracks, skips the current one, reorders the room queue, and edits the room's rule lists. A site admin acts as an owner in every room without a membership row. `users.can_create_rooms` is the whitelist of who may create a room, and only a site admin changes it. Names in `ADMIN_DGG_USERNAMES` are root admins, and the API refuses to demote them.
+
+A route that acts on a queue item or a rule is judged by the room that item or rule belongs to, not by a room named in the request, so moderating one room never reaches into another. The server, the exports, the archive, the moderation log and the people list stay with site admins.
 
 Sign-in grants exactly one role, admin, and only to a configured root admin. Destiny's own `ADMIN` and `MODERATOR` roles are read from the identity and stored, but not acted on: no login has yet delivered either, so the mapping was never confirmed and is off until it can be. Signing in never overwrites a role granted inside the radio.
 
@@ -73,7 +75,7 @@ Destiny redirects to `/auth/callback` on the frontend, which posts the code to t
 
 ## Rules
 
-A rule is a named reason a mod or admin can block something. A `blocklist` rule accumulates the tracks and artists that broke it, so blocking a song under one teaches the room that rule. Admins alone create, edit, reorder, disable, and delete rules. An `advisory` rule keeps no list and exists to be read on the player.
+A rule belongs to one room and is a named reason that room's mods can block something. A `blocklist` rule accumulates the tracks and artists that broke it, so blocking a song under one teaches the room that rule. The room's owner alone creates, edits, reorders, disables, and deletes its rules; its mods add to and remove from the lists. An `advisory` rule keeps no list and exists to be read on the player.
 
 `rule_entries` is unique on rule, provider, entry type, and provider ID, so one track can be listed under several rules and the room names every reason it was rejected. An `artist` entry covers a whole catalogue by provider artist ID; a collaboration released under someone else's channel needs its own `track` entry.
 
@@ -146,7 +148,7 @@ The public read model is exposed separately from the authenticated room snapshot
 
 The generated `/stats`, `/history`, and `/profile/*` pages consume those endpoints. Netlify rewrites profile paths to the single generated profile shell, so usernames can be linked directly without generating a page for every listener.
 
-When `reveal_requester` is off, requesters are hidden from listeners across the current track and the queue, revealed on the current track in its closing seconds, and always visible to mods, admins, and the requester themselves.
+When `reveal_requester` is off, requesters are hidden from listeners across the current track and the queue, revealed on the current track in its closing seconds, and always visible to the room's mods and owners and to the requester themselves.
 
 ## Project stage
 

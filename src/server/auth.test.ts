@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DGG_ORIGIN, type ServerEnv } from './env';
-import { canModerate, radioRole } from './auth';
+import { radioRole } from './auth';
 
 const env: ServerEnv = {
   DATABASE_URL: 'postgresql://unused',
@@ -20,11 +20,5 @@ describe('radio roles', () => {
     expect(radioRole('picklesnathan', env)).toBe('admin');
     expect(radioRole('PicklesNathan', env)).toBe('admin');
     expect(radioRole('viewer', env)).toBe('listener');
-  });
-
-  it('allows mods and admins to moderate', () => {
-    expect(canModerate('listener')).toBe(false);
-    expect(canModerate('mod')).toBe(true);
-    expect(canModerate('admin')).toBe(true);
   });
 });

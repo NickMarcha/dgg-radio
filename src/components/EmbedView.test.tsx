@@ -36,6 +36,7 @@ function roomSnapshot(): RoomSnapshot {
       revealRequester: true,
     },
     me: null,
+    myRoomRole: null,
     current: {
       id: '11111111-1111-4111-8111-111111111111',
       media: {
