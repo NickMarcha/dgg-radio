@@ -9,14 +9,21 @@ Last updated 2026-11-06.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 406 Vitest pass across 41 files,
+`astro check` and `tsc --noEmit` are both clean. 420 Vitest pass across 42 files,
 run against the local Postgres:
 
 ```
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-Everything is on `main` and pushed, through `77294b4` on 2026-10-02: the
+**Rooms are half built and not pushed.** `docs/plans/rooms.md` is the plan;
+steps 1 to 4 are committed on `main` locally (embed history dropped, `rooms`,
+queue items, seats and rules scoped per room, owners and mods as room roles).
+Pushing deploys migrations `0028` to `0032`, which move every existing row to
+the main room. Each was checked against a database holding rows from before
+it. Step 5 (room URLs, a per-room API and socket, per-room overlays) is next.
+
+Before that, everything was on `main` and pushed, through `77294b4` on 2026-10-02: the
 Last.fm research, the silence-watch fix and socket alerting, the seasonal
 emotes, and tier 5 names on the overlay. Checked after the pushes: the deployed
 `/health` carries `liveSocket` with the live socket connected, the deployed
