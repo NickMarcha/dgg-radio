@@ -13,6 +13,7 @@ import {
   MAX_QUEUE_IMPORT_TRACKS,
   type MediaProvider,
   type QueueItem,
+  type QueueMovePlan,
   type QueueNotice,
   type RoomMedia,
   type RoomSnapshot,
@@ -625,23 +626,17 @@ export async function resolvePlaylistForLibrary(
   return tracks;
 }
 
-export async function enqueueMedia(
+/**
+ * Whether this room takes a track: its length limit, its rules, a copy of it
+ * already waiting or playing here, and the repeat cooldown. Throws the first
+ * reason it would not. A request and a queue moving in both ask this.
+ */
+async function assertAdmissible(
   roomId: string,
-  url: string,
-  user: AuthenticatedUser,
-  db: Database = getDatabase(),
-): Promise<{ id: string; provider: 'youtube' | 'soundcloud'; durationSeconds: number }> {
-  const settings = await getSettings(roomId, db);
-  const seatRoom = await seatRoomOf(user.id, db);
-  if (seatRoom !== null && seatRoom !== roomId) {
-    throw new RoomError(
-      'QUEUED_ELSEWHERE',
-      'You already have tracks waiting in another room. A listener queues in one room at a time.',
-      409,
-    );
-  }
-  const metadata = await lookupMediaCached(url, settings.targetCountry, db);
-
+  metadata: MediaMetadata,
+  settings: Awaited<ReturnType<typeof getSettings>>,
+  db: Database,
+): Promise<void> {
   if (metadata.durationSeconds > settings.maxDurationSeconds) {
     throw new RoomError(
       'TRACK_TOO_LONG',
@@ -678,6 +673,25 @@ export async function enqueueMedia(
     settings.repeatCooldownSeconds,
     db,
   );
+}
+
+export async function enqueueMedia(
+  roomId: string,
+  url: string,
+  user: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<{ id: string; provider: 'youtube' | 'soundcloud'; durationSeconds: number }> {
+  const settings = await getSettings(roomId, db);
+  const seatRoom = await seatRoomOf(user.id, db);
+  if (seatRoom !== null && seatRoom !== roomId) {
+    throw new RoomError(
+      'QUEUED_ELSEWHERE',
+      'You already have tracks waiting in another room. A listener queues in one room at a time.',
+      409,
+    );
+  }
+  const metadata = await lookupMediaCached(url, settings.targetCountry, db);
+  await assertAdmissible(roomId, metadata, settings, db);
 
   const storedMediaId = await storeMedia(metadata, db);
 
@@ -702,6 +716,103 @@ export async function enqueueMedia(
     provider: metadata.provider,
     durationSeconds: metadata.durationSeconds,
   };
+}
+
+/**
+ * What moving someone's waiting tracks into this room would do: the room they
+ * are queued in now, and each track with the reason this room would refuse it,
+ * or null when it would come along. Nothing changes; this is the question the
+ * listener is asked before they confirm.
+ */
+export async function planQueueMove(
+  roomId: string,
+  user: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<QueueMovePlan> {
+  const seatRoom = await seatRoomOf(user.id, db);
+  if (seatRoom === null || seatRoom === roomId) return { from: null, tracks: [] };
+
+  const [from] = await db
+    .select({ slug: rooms.slug, name: rooms.name })
+    .from(rooms)
+    .where(eq(rooms.id, seatRoom));
+  const settings = await getSettings(roomId, db);
+  const waiting = await db
+    .select({
+      id: queueItems.id,
+      provider: media.provider,
+      providerMediaId: media.providerMediaId,
+      providerArtistId: media.providerArtistId,
+      canonicalUrl: media.canonicalUrl,
+      title: media.title,
+      artist: media.artist,
+      durationSeconds: media.durationSeconds,
+      thumbnailUrl: media.thumbnailUrl,
+    })
+    .from(queueItems)
+    .innerJoin(media, eq(queueItems.mediaId, media.id))
+    .where(and(eq(queueItems.requestedByUserId, user.id), eq(queueItems.status, 'queued')))
+    .orderBy(asc(queueItems.position), asc(queueItems.requestedAt));
+
+  const tracks: QueueMovePlan['tracks'] = [];
+  for (const { id, ...metadata } of waiting) {
+    let refused: string | null = null;
+    try {
+      await assertAdmissible(roomId, metadata, settings, db);
+    } catch (error) {
+      if (!(error instanceof RoomError)) throw error;
+      refused = error.message;
+    }
+    tracks.push({ queueItemId: id, title: metadata.title, artist: metadata.artist, refused });
+  }
+  return { from: from ?? null, tracks };
+}
+
+/**
+ * Moves someone's waiting tracks into this room, in their order, and puts them
+ * at the back of its rotation. A track this room refuses is taken out of their
+ * queue with the reason as a notice, because a listener queues in one room and
+ * the old one is no longer theirs. A track already playing elsewhere finishes
+ * there.
+ */
+export async function moveQueue(
+  roomId: string,
+  user: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<QueueMovePlan> {
+  const plan = await planQueueMove(roomId, user, db);
+  const fromRoomId = await seatRoomOf(user.id, db);
+  if (plan.from === null || fromRoomId === null) return plan;
+
+  await db.transaction(async (transaction) => {
+    // Always the same order, so two moves in opposite directions cannot each
+    // hold the lock the other is waiting for.
+    for (const id of [fromRoomId, roomId].sort()) await lockRoom(id, transaction);
+    const now = new Date();
+    for (const track of plan.tracks) {
+      await transaction
+        .update(queueItems)
+        .set(
+          track.refused === null
+            ? { roomId }
+            : {
+                status: 'removed',
+                finishedAt: now,
+                moderationReason: `Not taken to another room: ${track.refused}`,
+                listenerNotice: `Left behind when your queue moved: ${track.refused}`,
+              },
+        )
+        .where(and(eq(queueItems.id, track.queueItemId), eq(queueItems.status, 'queued')));
+    }
+    await leaveRotation(user.id, transaction);
+    if (plan.tracks.some((track) => track.refused === null)) {
+      await joinRotation(user.id, roomId, transaction);
+    }
+    await bumpRevision(fromRoomId, transaction);
+    await bumpRevision(roomId, transaction);
+  });
+  await startNextTrack(roomId, db);
+  return plan;
 }
 
 export interface PlaylistImport {

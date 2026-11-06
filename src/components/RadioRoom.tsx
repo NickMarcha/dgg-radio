@@ -30,6 +30,7 @@ import type {
   ApiErrorBody,
   PublicRule,
   QueueItem,
+  QueueMovePlan,
   RoomSnapshot,
   RoomUser,
   SearchResult,
@@ -55,6 +56,7 @@ class ApiRequestError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly code: string | null = null,
   ) {
     super(message);
     this.name = 'ApiRequestError';
@@ -417,6 +419,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
         throw new ApiRequestError(
           errorBody?.error?.message ?? 'The radio server rejected the request.',
           response.status,
+          errorBody?.error?.code ?? null,
         );
       }
       return body as T;
@@ -482,6 +485,27 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     };
   }, [apiUrl, refreshRoom, roomSlug]);
 
+  /**
+   * Someone queued in another room is asked whether to bring their queue here,
+   * with what this room would leave behind. Answers whether it moved.
+   */
+  const offerQueueMove = async (): Promise<boolean> => {
+    const plan = await apiRequest<QueueMovePlan>(`${roomApi}/queue/move`);
+    if (!plan.from) return false;
+    const coming = plan.tracks.filter((track) => track.refused === null).length;
+    const leaving = plan.tracks.filter((track) => track.refused !== null);
+    const lines = [
+      `You have ${plan.tracks.length} track${plan.tracks.length === 1 ? '' : 's'} waiting in ${plan.from.name}.`,
+      `Move your queue here? ${coming} will come along and you will leave the rotation there.`,
+      ...(leaving.length > 0
+        ? ['', 'This room will not take:', ...leaving.map((track) => `• ${track.title}: ${track.refused}`)]
+        : []),
+    ];
+    if (!window.confirm(lines.join('\n'))) return false;
+    await apiRequest(`${roomApi}/queue/move`, { method: 'POST' });
+    return true;
+  };
+
   /** Returns the response body on success and null on failure, so callers can read it. */
   const mutate = async <T,>(
     path: string,
@@ -490,11 +514,21 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   ): Promise<T | null> => {
     setBusy(true);
     setNotice(null);
+    const send = () =>
+      apiRequest<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) });
     try {
-      const payload = await apiRequest<T>(path, {
-        method,
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      let payload: T;
+      try {
+        payload = await send();
+      } catch (error) {
+        // A listener queues in one room; asking here is how they change which.
+        if (!(error instanceof ApiRequestError && error.code === 'QUEUED_ELSEWHERE')) throw error;
+        if (!(await offerQueueMove())) {
+          setNotice(error.message);
+          return null;
+        }
+        payload = await send();
+      }
       await refreshRoom();
       return payload;
     } catch (error) {

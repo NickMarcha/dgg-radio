@@ -79,6 +79,8 @@ import {
   reorderMyQueue,
   reorderRoomQueue,
   getRoomSnapshot,
+  moveQueue,
+  planQueueMove,
   removeQueuedTrack,
   roomOfQueueItem,
   RoomError,
@@ -750,6 +752,22 @@ export function createApp(dependencies: AppDependencies) {
       zValidator('query', searchSchema),
       async (context) => context.json({ results: await searchMedia(context.req.valid('query').q, 15) }),
     )
+    // Queueing here while queued in another room asks first: this says what
+    // moving would bring and leave behind, and the POST does it.
+    .get('/api/rooms/:slug/queue/move', requireUser, inRoom, async (context) =>
+      context.json(await planQueueMove(context.get('roomId'), context.get('user'))),
+    )
+    .post('/api/rooms/:slug/queue/move', requireUser, inRoom, async (context) => {
+      const plan = await moveQueue(context.get('roomId'), context.get('user'));
+      captureServerEvent(context.get('user').id, 'queue_moved', {
+        moved: plan.tracks.filter((track) => track.refused === null).length,
+        left: plan.tracks.filter((track) => track.refused !== null).length,
+      });
+      dependencies.onRoomChanged(context.get('roomId'));
+      const left = plan.from ? await findRoomIdBySlug(plan.from.slug) : null;
+      if (left) dependencies.onRoomChanged(left);
+      return context.json(plan);
+    })
     .post(
       '/api/rooms/:slug/queue/playlist',
       requireUser,

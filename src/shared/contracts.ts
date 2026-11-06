@@ -227,6 +227,15 @@ export interface RoomListing {
   nowPlaying: { title: string; artist: string } | null;
 }
 
+/**
+ * What moving a listener's waiting tracks into a room would do. `from` is the
+ * room they are queued in, or null when there is nothing to move.
+ */
+export interface QueueMovePlan {
+  from: { slug: string; name: string } | null;
+  tracks: { queueItemId: string; title: string; artist: string; refused: string | null }[];
+}
+
 /** A room someone owns, for linking them to it. */
 export interface OwnedRoom {
   slug: string;

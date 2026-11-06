@@ -1,6 +1,6 @@
 # Rooms plan
 
-Status: steps 1 to 6 are built, and room creation from step 7.
+Status: steps 1 to 6 are built, and from step 7 room creation and moving a queue.
 
 ## Outcome
 
@@ -64,7 +64,10 @@ by user, which makes "one room at a time" a primary key rather than a check.
 Queueing in a second room asks first. Confirming moves the listener's waiting
 tracks to the new room in their order and puts them at the back of its
 rotation. The prompt lists any track the new room would refuse (its rules,
-duration limit, or cooldown); those are left out of the move. A track already
+duration limit, or cooldown); those are left out of the move and dropped from
+the queue with a notice, since the old room is no longer the listener's. The
+history and playlist pages queue into the room this browser last opened and do
+not offer the move; queueing from the room itself does. A track already
 playing in the old room finishes there.
 
 ## Build order

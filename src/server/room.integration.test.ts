@@ -78,6 +78,8 @@ const {
   enqueueMedia,
   ensureRoomExists,
   getRoomSnapshot,
+  moveQueue,
+  planQueueMove,
   RoomError,
   skipCurrentTrack,
   voteOnCurrentTrack,
@@ -950,6 +952,59 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
         ),
       ).rejects.toMatchObject({ code: 'RULE_NOT_FOUND' });
       expect(await findBlockingRules(MAIN_ROOM_ID, blocked, db)).toEqual([]);
+    });
+
+    it('moves a waiting queue to another room in order, leaving behind what that room refuses', async () => {
+      await ensureRoomExists(MAIN_ROOM_ID, db);
+      const other = await createRoom('other');
+      const nathan = await createUser('picklesnathan');
+      const swagy = await createUser('swagy_swagerson');
+      const owner = await createUser('owner', 'admin');
+      const [playing, first, refused, last] = [
+        track('aaaaaaaaaaa'),
+        track('bbbbbbbbbbb'),
+        track('ccccccccccc', 400),
+        track('ddddddddddd'),
+      ];
+      resolveTracks(playing, first, refused, last);
+      // The other room only takes five minutes, so the long track stays behind.
+      await db
+        .update(roomSettings)
+        .set({ maxDurationSeconds: 300 })
+        .where(eq(roomSettings.roomId, other));
+
+      // Somebody else is playing, so all of nathan's tracks are waiting.
+      await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, swagy, db);
+      await enqueueMedia(MAIN_ROOM_ID, first.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_ROOM_ID, refused.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_ROOM_ID, last.canonicalUrl, nathan, db);
+
+      const plan = await planQueueMove(other, nathan, db);
+      expect(plan.from).toEqual({ slug: 'main', name: 'DGG Radio' });
+      expect(plan.tracks.map(({ title, refused: why }) => [title, why !== null])).toEqual([
+        ['Track bbbbbbbbbbb', false],
+        ['Track ccccccccccc', true],
+        ['Track ddddddddddd', false],
+      ]);
+
+      await moveQueue(other, nathan, db);
+
+      const there = await getRoomSnapshot(other, nathan, 1, db);
+      // Nothing was playing there, so the first moved track starts at once.
+      expect(there.current?.media.title).toBe('Track bbbbbbbbbbb');
+      expect(there.myQueue.map((item) => item.media.title)).toEqual(['Track ddddddddddd']);
+      expect(there.myNotices.map((notice) => notice.title)).toEqual(['Track ccccccccccc']);
+      const back = await getRoomSnapshot(MAIN_ROOM_ID, owner, 1, db);
+      expect(back.queue).toEqual([]);
+      expect(back.current?.media.title).toBe('Track aaaaaaaaaaa');
+    });
+
+    it('has nothing to move for somebody queued nowhere else', async () => {
+      await ensureRoomExists(MAIN_ROOM_ID, db);
+      const other = await createRoom('other');
+      const nathan = await createUser('picklesnathan');
+
+      expect(await planQueueMove(other, nathan, db)).toEqual({ from: null, tracks: [] });
     });
 
     it('skips only the room whose track was skipped', async () => {
