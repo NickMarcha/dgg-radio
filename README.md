@@ -414,7 +414,9 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 | Path | |
 | --- | --- |
 | `/` and `/player` | the room: player, room queue, your own queue, request form |
-| `/admin` | room settings, rules with their order and blocklists, roles, clearing queues, CSV exports |
+| `/admin` | room settings, rules with their order and blocklists, moderators, roles and the room creator whitelist, clearing queues, CSV exports |
+| `/admin?room=:slug` | the same for one room, for its owner: settings, rules, moderators, and OBS sources |
+| `/rooms` | every room, and creating one for someone a site admin has allowed |
 | `/stats` | room totals, teams, most played tracks, and top jammers |
 | `/history` | completed and skipped tracks, then the archive imported from QueUp |
 | `/playlists` | your own playlists: create, reorder, and queue saved tracks |

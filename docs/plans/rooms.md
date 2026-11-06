@@ -1,6 +1,6 @@
 # Rooms plan
 
-Status: steps 1 to 6 are built.
+Status: steps 1 to 6 are built, and room creation from step 7.
 
 ## Outcome
 

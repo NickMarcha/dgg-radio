@@ -175,6 +175,9 @@ describe('browser source URLs', () => {
     // The defaults live in the page that reads them, so writing them into the
     // URL would only pin today's value into somebody's OBS scene.
     expect(buildSourcePath('/embed/watchers', watcherOptions, {})).toBe('/embed/watchers');
+    // The main room is what a source shows by default, so only another room is named.
+    expect(buildSourcePath('/embed/queue', [], {}, 'main')).toBe('/embed/queue');
+    expect(buildSourcePath('/embed/queue', [], {}, 'late-night')).toBe('/embed/queue?room=late-night');
     expect(buildSourcePath('/embed/watchers', watcherOptions, { show: 'speakers', max: '24' })).toBe(
       '/embed/watchers',
     );

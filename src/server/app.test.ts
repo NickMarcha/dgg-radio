@@ -32,6 +32,7 @@ vi.mock('./rules', async (importOriginal) => ({
 vi.mock('./rooms', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./rooms')>()),
   roomRoleOf: vi.fn(),
+  roomAccessOf: vi.fn().mockResolvedValue({ owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false }),
   setRoomModerator: vi.fn(),
   findRoomIdBySlug: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
 }));
@@ -270,10 +271,10 @@ describe('role authorization', () => {
   it("lets a room's owner pick its moderators, and nobody below that", async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
     vi.mocked(roomRoleOf).mockResolvedValue('owner');
-    const path = `/api/rooms/main/moderators/${USER_ID}`;
+    const path = '/api/rooms/main/moderators/radio_user';
 
     expect((await request(path, 'PUT', { moderator: true })).status).toBe(200);
-    expect(setRoomModerator).toHaveBeenCalledWith(MAIN_ROOM_ID, USER_ID, true, user('listener'));
+    expect(setRoomModerator).toHaveBeenCalledWith(MAIN_ROOM_ID, 'radio_user', true, user('listener'));
 
     asRoomMod();
     expect((await request(path, 'PUT', { moderator: true })).status).toBe(403);
@@ -342,6 +343,7 @@ describe('the header session endpoint', () => {
         role: 'listener',
         team: null,
       },
+      rooms: { owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false },
     });
   });
 
@@ -351,7 +353,11 @@ describe('the header session endpoint', () => {
     const response = await app.request('/api/me');
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ listenerCount: 1, me: null });
+    expect(await response.json()).toEqual({
+      listenerCount: 1,
+      me: null,
+      rooms: { owned: [], canCreate: false },
+    });
   });
 });
 

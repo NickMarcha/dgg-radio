@@ -22,6 +22,7 @@ import {
   streamWatchSchema,
   submitRequestSchema,
   roomCreatorSchema,
+  createRoomSchema,
   roomModeratorSchema,
   userRoleSchema,
   voteSchema,
@@ -90,8 +91,12 @@ import {
 import {
   canManageRoom,
   canModerateRoom,
+  createRoom,
   findRoomIdBySlug,
+  listRoomModerators,
+  listRooms,
   RoomAccessError,
+  roomAccessOf,
   roomRoleOf,
   setRoomModerator,
 } from './rooms';
@@ -147,7 +152,10 @@ const callbackSchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.uuid() });
-const roomMemberParamSchema = z.object({ slug: z.string().min(1).max(32), id: z.uuid() });
+const roomMemberParamSchema = z.object({
+  slug: z.string().min(1).max(32),
+  username: z.string().trim().min(1).max(64),
+});
 const playlistTrackParamSchema = z.object({ id: z.uuid(), mediaId: z.uuid() });
 /** QueUp's own id for a play, which is what the archive is keyed by. */
 const legacySourceId = z.string().trim().min(1).max(64);
@@ -411,12 +419,28 @@ export function createApp(dependencies: AppDependencies) {
         return context.json(settings);
       },
     )
-    .get('/api/me', async (context) =>
-      context.json({
-        me: toRoomUser(await getSessionUser(context)),
+    .get('/api/me', async (context) => {
+      const user = await getSessionUser(context);
+      return context.json({
+        me: toRoomUser(user),
         listenerCount: dependencies.listenerCount(),
-      }),
-    )
+        rooms: user ? await roomAccessOf(user) : { owned: [], canCreate: false },
+      });
+    })
+    .get('/api/rooms', async (context) => {
+      const rooms = await listRooms();
+      return context.json({
+        rooms: rooms.map(({ id, ...room }) => ({
+          ...room,
+          listenerCount: dependencies.listenerCount(id),
+        })),
+      });
+    })
+    .post('/api/rooms', requireUser, zValidator('json', createRoomSchema), async (context) => {
+      const room = await createRoom(context.req.valid('json'), context.get('user'));
+      captureServerEvent(context.get('user').id, 'room_created', { slug: room.slug });
+      return context.json(room, 201);
+    })
     .get(
       '/api/history',
       limitPerAddress('history', 60),
@@ -1095,17 +1119,19 @@ export function createApp(dependencies: AppDependencies) {
         return context.json({ ok: true });
       },
     )
+    .get('/api/rooms/:slug/moderators', requireRoomOwner, async (context) =>
+      context.json({ moderators: await listRoomModerators(context.get('roomId')) }),
+    )
     .put(
-      '/api/rooms/:slug/moderators/:id',
+      '/api/rooms/:slug/moderators/:username',
       requireUser,
-
       zValidator('param', roomMemberParamSchema),
       requireRoomOwner,
       zValidator('json', roomModeratorSchema),
       async (context) => {
         await setRoomModerator(
           context.get('roomId'),
-          context.req.valid('param').id,
+          context.req.valid('param').username,
           context.req.valid('json').moderator,
           context.get('user'),
         );

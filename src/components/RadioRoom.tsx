@@ -7,6 +7,7 @@ import {
   Clock3,
   ExternalLink,
   ListMusic,
+  Settings,
   SkipForward,
   ThumbsDown,
   ThumbsUp,
@@ -653,7 +654,16 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
       <SiteNav active="room" />
 
-      {room && room.room.slug !== MAIN_ROOM_SLUG && <h1 className="room-name">{room.room.name}</h1>}
+      {room && room.room.slug !== MAIN_ROOM_SLUG && (
+        <div className="room-name">
+          <h1>{room.room.name}</h1>
+          {owner && (
+            <a href={`/admin?room=${encodeURIComponent(room.room.slug)}`}>
+              <Settings size={14} /> Manage
+            </a>
+          )}
+        </div>
+      )}
 
       {notice && <div className="notice" role="alert">{notice}</div>}
 

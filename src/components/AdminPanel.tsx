@@ -29,6 +29,7 @@ import type {
   StreamWatchStatus,
   WatchPlatform,
   RoomMember,
+  RoomModerator,
   RoomSnapshot,
   RuleEntrySummary,
   RuleSummary,
@@ -55,6 +56,8 @@ import {
   watchPlatforms,
 } from '../shared/contracts';
 import { moveItem, type MoveDestination } from './reorder';
+import { roomPath, roomSlugFromSearch } from '../client/room';
+import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
@@ -74,6 +77,9 @@ const TABS = [
 ] as const;
 
 export type AdminTab = (typeof TABS)[number]['id'];
+
+/** What a room's owner sees. The rest is the site's, and a site admin's. */
+const ROOM_TABS = new Set<AdminTab>(['room', 'obs']);
 
 /** The open tab lives in the URL hash, so a reload or a shared link reopens it. */
 export function tabFromHash(hash: string): AdminTab {
@@ -138,11 +144,18 @@ export function elapsedTime(from: string, to: string): string {
 }
 
 export default function AdminPanel({ apiUrl }: AdminPanelProps) {
+  // `/admin?room=<slug>` manages that room; plain `/admin` is the main room.
+  const [room] = useState(() =>
+    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromSearch(window.location.search),
+  );
   const [me, setMe] = useState<RoomSnapshot['me']>(null);
+  const [roomName, setRoomName] = useState<string | null>(null);
+  const [roomRole, setRoomRole] = useState<RoomSnapshot['myRoomRole']>(null);
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [rules, setRules] = useState<RuleSummary[]>([]);
   const [members, setMembers] = useState<RoomMember[]>([]);
+  const [moderators, setModerators] = useState<RoomModerator[]>([]);
   const [regions, setRegions] = useState<PlaybackRegion[]>([]);
   const [operations, setOperations] = useState<OperationsSnapshot | null>(null);
   const [operationsBusy, setOperationsBusy] = useState(false);
@@ -172,17 +185,23 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   );
 
   const refresh = useCallback(async () => {
-    const room: RoomSnapshot = await call('/api/rooms/main');
-    setMe(room.me);
-    setSettings(room.settings);
-    if (room.me?.role !== 'admin') return;
-    const [ruleList, memberList] = await Promise.all([
-      call('/api/rooms/main/rules'),
-      call(`/api/users${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+    const snapshot: RoomSnapshot = await call(`/api/rooms/${room}`);
+    setMe(snapshot.me);
+    setRoomName(snapshot.room.name);
+    setRoomRole(snapshot.myRoomRole);
+    setSettings(snapshot.settings);
+    if (snapshot.myRoomRole !== 'owner') return;
+    const [ruleList, moderatorList] = await Promise.all([
+      call(`/api/rooms/${room}/rules`),
+      call(`/api/rooms/${room}/moderators`),
     ]);
     setRules(ruleList.rules);
+    setModerators(moderatorList.moderators);
+    // The people list is the site's, so only a site admin reads it.
+    if (snapshot.me?.role !== 'admin') return;
+    const memberList = await call(`/api/users${search ? `?search=${encodeURIComponent(search)}` : ''}`);
     setMembers(memberList.users);
-  }, [call, search]);
+  }, [call, room, search]);
 
   const refreshOperations = useCallback(async () => {
     setOperationsBusy(true);
@@ -204,11 +223,11 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   // A region list YouTube would not hand over leaves the field as free text
   // rather than blocking the rest of the panel.
   useEffect(() => {
-    if (me?.role !== 'admin') return;
-    void call('/api/rooms/main/regions')
+    if (roomRole !== 'owner') return;
+    void call(`/api/rooms/${room}/regions`)
       .then((payload) => setRegions(payload.regions))
       .catch(() => setRegions([]));
-  }, [call, me?.role]);
+  }, [call, room, roomRole]);
 
   // The pages are prerendered, so the hash is only readable once this runs in a
   // browser.
@@ -277,22 +296,27 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
     );
   }
 
-  if (me.role !== 'admin') {
+  if (roomRole !== 'owner') {
     return (
       <main className="admin admin-centred">
-        <p>Only admins can access this page.</p>
-        <a className="admin-link" href="/player">
+        <p>Only this room's owner can manage it.</p>
+        <a className="admin-link" href={roomPath(room)}>
           Back to the room
         </a>
       </main>
     );
   }
 
+  // A room owner manages their room; the site's own tabs are a site admin's.
+  const siteAdmin = me.role === 'admin';
+  const tabs = TABS.filter(({ id }) => siteAdmin || ROOM_TABS.has(id));
+  const openTab = tabs.some(({ id }) => id === tab) ? tab : 'room';
+
   return (
     <main className="admin">
       <header className="admin-header">
         <div>
-          <h1>Room admin</h1>
+          <h1>{room === MAIN_ROOM_SLUG ? 'Room admin' : roomName}</h1>
           <p>Signed in as {me.username}</p>
         </div>
         <div className="admin-header-links">
@@ -304,19 +328,19 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           >
             Source on GitHub <ExternalLink size={13} />
           </a>
-          <a className="admin-link" href="/player">
+          <a className="admin-link" href={roomPath(room)}>
             Back to the room
           </a>
         </div>
       </header>
 
       <nav className="admin-tabs" aria-label="Admin sections">
-        {TABS.map(({ id, label, icon: Icon }) => (
+        {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
-            className={id === tab ? 'admin-tab admin-tab-open' : 'admin-tab'}
-            aria-current={id === tab ? 'page' : undefined}
+            className={id === openTab ? 'admin-tab admin-tab-open' : 'admin-tab'}
+            aria-current={id === openTab ? 'page' : undefined}
             onClick={() => {
               window.location.hash = id;
               setTab(id);
@@ -330,12 +354,15 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
       {error && <p className="admin-error">{error}</p>}
       {notice && <p className="admin-notice">{notice}</p>}
 
-      {tab === 'room' && settings && (
-        <SettingsSection settings={settings} regions={regions} busy={busy} act={act} call={call} />
+      {openTab === 'room' && settings && (
+        <SettingsSection settings={settings} regions={regions} busy={busy} act={act} call={call} room={room} />
       )}
-      {tab === 'room' && <RulesSection rules={rules} busy={busy} act={act} call={call} />}
+      {openTab === 'room' && <RulesSection rules={rules} busy={busy} act={act} call={call} room={room} />}
+      {openTab === 'room' && (
+        <ModeratorsSection moderators={moderators} busy={busy} act={act} call={call} room={room} />
+      )}
 
-      {tab === 'people' && (
+      {openTab === 'people' && (
         <PeopleSection
           members={members}
           search={search}
@@ -343,10 +370,11 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           busy={busy}
           act={act}
           call={call}
+          room={room}
         />
       )}
 
-      {tab === 'log' && (
+      {openTab === 'log' && (
         <ModerationSection
           log={moderation}
           busy={moderationBusy}
@@ -354,20 +382,20 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         />
       )}
 
-      {tab === 'server' && (
+      {openTab === 'server' && (
         <>
           <OperationsSection
             snapshot={operations}
             busy={operationsBusy}
             onRefresh={() => void refreshOperations()}
           />
-          <ArchiveSection busy={busy} act={act} call={call} />
+          <ArchiveSection busy={busy} act={act} call={call} room={room} />
           <ExportsSection apiUrl={apiUrl} />
         </>
       )}
 
-      {tab === 'obs' && <StreamWatchSection busy={busy} act={act} call={call} />}
-      {tab === 'obs' && <ObsSources busy={busy} act={act} call={call} />}
+      {openTab === 'obs' && <StreamWatchSection busy={busy} act={act} call={call} room={room} />}
+      {openTab === 'obs' && <ObsSources busy={busy} act={act} call={call} room={room} />}
     </main>
   );
 }
@@ -529,13 +557,13 @@ function ExportsSection({ apiUrl }: { apiUrl: string }) {
   );
 }
 
-function RulesSection({ rules, busy, act, call }: SectionProps & { rules: RuleSummary[] }) {
+function RulesSection({ rules, room, busy, act, call }: SectionProps & { rules: RuleSummary[] }) {
   const [entries, setEntries] = useState<Record<string, RuleEntrySummary[]>>({});
 
   function moveRule(rule: RuleSummary, destination: MoveDestination) {
     const orderedIds = moveItem(rules, rule.id, destination);
     if (!orderedIds) return;
-    void act(() => call('/api/rooms/main/rules/order', 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
+    void act(() => call(`/api/rooms/${room}/rules/order`, 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
   }
 
   async function toggleEntries(ruleId: string) {
@@ -558,7 +586,7 @@ function RulesSection({ rules, busy, act, call }: SectionProps & { rules: RuleSu
         from the player and stops it being enforced, but keeps its list for later.
       </p>
 
-      <NewRuleForm busy={busy} act={act} call={call} />
+      <NewRuleForm busy={busy} act={act} call={call} room={room} />
 
       {rules.length === 0 ? (
         <p className="admin-empty">No rules yet.</p>
@@ -571,6 +599,7 @@ function RulesSection({ rules, busy, act, call }: SectionProps & { rules: RuleSu
               busy={busy}
               act={act}
               call={call}
+              room={room}
               entries={entries[rule.id]}
               index={index}
               total={rules.length}
@@ -663,25 +692,6 @@ function PeopleSection({
                   <option value="listener">Listener</option>
                   <option value="admin">Admin</option>
                 </select>
-                <label className="admin-check">
-                  <input
-                    type="checkbox"
-                    checked={member.role === 'admin' || member.mainRoomRole !== null}
-                    disabled={busy || member.role === 'admin' || member.mainRoomRole === 'owner'}
-                    title={member.role === 'admin' ? 'Admins moderate every room' : undefined}
-                    onChange={(event) => {
-                      const moderator = event.currentTarget.checked;
-                      void act(
-                        () =>
-                          call(`/api/rooms/main/moderators/${member.id}`, 'PUT', { moderator }),
-                        moderator
-                          ? `${member.username} now moderates the main room.`
-                          : `${member.username} no longer moderates the main room.`,
-                      );
-                    }}
-                  />
-                  Main room mod
-                </label>
                 <label className="admin-check">
                   <input
                     type="checkbox"
@@ -1029,13 +1039,18 @@ function optionDefault(option: SourceOption): string {
   return String(option.fallback);
 }
 
-/** The path, carrying whatever has been changed from its default and nothing else. */
+/**
+ * The path, carrying the room when it is not the main one, and whatever has
+ * been changed from its default and nothing else.
+ */
 export function buildSourcePath(
   path: string,
   options: SourceOption[],
   chosen: Record<string, string>,
+  room: string = MAIN_ROOM_SLUG,
 ): string {
   const params = new URLSearchParams();
+  if (room !== MAIN_ROOM_SLUG) params.set('room', room);
   for (const option of options) {
     const value = chosen[option.name] ?? optionDefault(option);
     if (value === '' || value === optionDefault(option)) continue;
@@ -1047,6 +1062,7 @@ export function buildSourcePath(
 
 interface EmbedSourceProps {
   origin: string;
+  room: string;
   path: string;
   name: string;
   size: string;
@@ -1059,9 +1075,9 @@ interface EmbedSourceProps {
  * list of prebuilt variants. One option makes two variants and five make
  * thirty-two, which is not a list anybody reads.
  */
-function EmbedSource({ origin, path, name, size, note, options = [] }: EmbedSourceProps) {
+function EmbedSource({ origin, room, path, name, size, note, options = [] }: EmbedSourceProps) {
   const [chosen, setChosen] = useState<Record<string, string>>({});
-  const sourcePath = buildSourcePath(path, options, chosen);
+  const sourcePath = buildSourcePath(path, options, chosen, room);
   const url = `${origin}${sourcePath}`;
   const set = (option: string, value: string) =>
     setChosen((current) => ({ ...current, [option]: value }));
@@ -1148,12 +1164,12 @@ interface StreamWatchDraft {
  * has names behind it. Neither is stored; mitchdev.net/dgg/embeds keeps the
  * site's history of every embed.
  */
-function StreamWatchSection({ busy, act, call }: SectionProps) {
+function StreamWatchSection({ room, busy, act, call }: SectionProps) {
   const [status, setStatus] = useState<StreamWatchStatus | null>(null);
   const [draft, setDraft] = useState<StreamWatchDraft | null>(null);
 
   const load = useCallback(async () => {
-    const next: StreamWatchStatus = await call('/api/rooms/main/stream-watch');
+    const next: StreamWatchStatus = await call(`/api/rooms/${room}/stream-watch`);
     setStatus(next);
     // The form is only filled once, so a poll never overwrites what is being
     // typed into it.
@@ -1170,7 +1186,7 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
     event.preventDefault();
     if (!draft) return;
     void act(
-      async () => setStatus(await call('/api/rooms/main/stream-watch', 'PATCH', draft)),
+      async () => setStatus(await call(`/api/rooms/${room}/stream-watch`, 'PATCH', draft)),
       draft.enabled ? `Watching ${draft.platform}/${draft.channel.trim().toLowerCase()}.` : 'Stream watch is off.',
     );
   }
@@ -1432,6 +1448,7 @@ const WATCHER_SOURCE_OPTIONS: SourceOption[] = [
 
 function PersonalWatcherSource({
   origin,
+  room,
   busy,
   act,
   call,
@@ -1441,7 +1458,7 @@ function PersonalWatcherSource({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void call('/api/rooms/main/watcher-embed')
+    void call(`/api/rooms/${room}/watcher-embed`)
       .then((settings: WatcherEmbedSettings) => {
         setSaved(settings);
         setDraft(settings);
@@ -1459,7 +1476,9 @@ function PersonalWatcherSource({
     return <p className="admin-empty">Loading your watcher source…</p>;
   }
 
-  const sourcePath = `/embed/watchers?profile=${saved.ownerId}`;
+  const sourcePath = `/embed/watchers?profile=${saved.ownerId}${
+    room === MAIN_ROOM_SLUG ? '' : `&room=${room}`
+  }`;
   const url = `${origin}${sourcePath}`;
   // The same settings written out rather than looked up: a source that will not
   // change again until somebody edits the URL, and the thing to paste into an
@@ -1477,7 +1496,7 @@ function PersonalWatcherSource({
     size: String(saved.size),
     roam: String(saved.roam),
     inset: String(saved.inset),
-  });
+  }, room);
   const fixedUrl = `${origin}${fixedPath}`;
 
   function submit(event: SubmitEvent) {
@@ -1485,7 +1504,7 @@ function PersonalWatcherSource({
     if (!draft) return;
     const current = draft;
     void act(async () => {
-      const next: WatcherEmbedSettings = await call('/api/rooms/main/watcher-embed', 'PATCH', {
+      const next: WatcherEmbedSettings = await call(`/api/rooms/${room}/watcher-embed`, 'PATCH', {
         show: current.show,
         window: current.window,
         max: current.max,
@@ -1681,7 +1700,7 @@ function PersonalWatcherSource({
   );
 }
 
-function ObsSources({ busy, act, call }: SectionProps) {
+function ObsSources({ room, busy, act, call }: SectionProps) {
   // The pages are prerendered, so the host is only known once this runs in a
   // browser. Until then the paths stand in for the full URLs.
   const [origin, setOrigin] = useState('');
@@ -1694,7 +1713,7 @@ function ObsSources({ busy, act, call }: SectionProps) {
         Add any of these as a Browser Source. The player carries the room's audio and stays in sync
         with it; the overlays are transparent and silent.
       </p>
-      <PersonalWatcherSource origin={origin} busy={busy} act={act} call={call} />
+      <PersonalWatcherSource origin={origin} busy={busy} act={act} call={call} room={room} />
 
       <h3>Fixed sources</h3>
       <p className="admin-help">
@@ -1703,6 +1722,7 @@ function ObsSources({ busy, act, call }: SectionProps) {
       <ul className="admin-embed-links">
         <EmbedSource
           origin={origin}
+          room={room}
           path="/embed/player"
           name="Synchronized video player"
           size="1920 × 1080"
@@ -1716,9 +1736,10 @@ function ObsSources({ busy, act, call }: SectionProps) {
             },
           ]}
         />
-        <EmbedSource origin={origin} path="/embed/playing" name="Now-playing overlay" size="1200 × 240" />
+        <EmbedSource origin={origin} room={room} path="/embed/playing" name="Now-playing overlay" size="1200 × 240" />
         <EmbedSource
           origin={origin}
+          room={room}
           path="/embed/queue"
           name="Upcoming queue"
           size="Any width · 600 high"
@@ -1726,6 +1747,7 @@ function ObsSources({ busy, act, call }: SectionProps) {
         />
         <EmbedSource
           origin={origin}
+          room={room}
           path="/embed/watchers"
           name="Who is watching"
           size="1920 × 1080"
@@ -1759,6 +1781,7 @@ function ObsSources({ busy, act, call }: SectionProps) {
 
 interface RuleRowProps {
   rule: RuleSummary;
+  room: string;
   busy: boolean;
   act: (work: () => Promise<unknown>, message: string) => Promise<void>;
   call: (path: string, method?: string, body?: unknown) => Promise<any>;
@@ -1772,6 +1795,7 @@ interface RuleRowProps {
 
 function RuleRow({
   rule,
+  room,
   busy,
   act,
   call,
@@ -1935,6 +1959,7 @@ function RuleRow({
           busy={busy}
           act={act}
           call={call}
+          room={room}
           onBlocked={onEntryRemoved}
         />
       )}
@@ -1970,6 +1995,8 @@ function RuleRow({
 }
 
 interface SectionProps {
+  /** The slug of the room being managed. */
+  room: string;
   busy: boolean;
   act: (work: () => Promise<unknown>, message: string) => Promise<void>;
   call: (path: string, method?: string, body?: unknown) => Promise<any>;
@@ -2135,6 +2162,7 @@ function regionCode(text: string, regions: PlaybackRegion[]): string | null {
 function SettingsSection({
   settings,
   regions,
+  room,
   busy,
   act,
   call,
@@ -2153,7 +2181,7 @@ function SettingsSection({
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    void act(() => call('/api/rooms/main/settings', 'PATCH', draft), 'Room settings saved.');
+    void act(() => call(`/api/rooms/${room}/settings`, 'PATCH', draft), 'Room settings saved.');
   }
 
   return (
@@ -2293,8 +2321,8 @@ function SettingsSection({
           />
           Show who requested each track
           <small>
-            Turn this off to hide requesters from listeners until a track is ending. Admins always see
-            them.
+            Turn this off to hide requesters from listeners until a track is ending. This room's
+            owner and mods always see them.
           </small>
         </label>
 
@@ -2306,7 +2334,7 @@ function SettingsSection({
   );
 }
 
-function NewRuleForm({ busy, act, call }: SectionProps) {
+function NewRuleForm({ room, busy, act, call }: SectionProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [enforcement, setEnforcement] = useState<'blocklist' | 'advisory'>('blocklist');
@@ -2315,7 +2343,7 @@ function NewRuleForm({ busy, act, call }: SectionProps) {
     event.preventDefault();
     if (!name.trim()) return;
     void act(async () => {
-      await call('/api/rooms/main/rules', 'POST', { name: name.trim(), description: description.trim(), enforcement });
+      await call(`/api/rooms/${room}/rules`, 'POST', { name: name.trim(), description: description.trim(), enforcement });
       setName('');
       setDescription('');
     }, `Added "${name.trim()}".`);
@@ -2355,5 +2383,90 @@ function NewRuleForm({ busy, act, call }: SectionProps) {
         Add rule
       </button>
     </form>
+  );
+}
+
+/**
+ * Who runs this room. The owner picks the moderators by the name they sign in
+ * with; somebody who has never signed in to the radio cannot be picked yet.
+ */
+function ModeratorsSection({
+  moderators,
+  room,
+  busy,
+  act,
+  call,
+}: SectionProps & { moderators: RoomModerator[] }) {
+  const [username, setUsername] = useState('');
+
+  const setModerator = (name: string, moderator: boolean) =>
+    call(`/api/rooms/${room}/moderators/${encodeURIComponent(name)}`, 'PUT', { moderator });
+
+  function submit(event: SubmitEvent) {
+    event.preventDefault();
+    const name = username.trim();
+    if (!name) return;
+    void act(async () => {
+      await setModerator(name, true);
+      setUsername('');
+    }, `${name} now moderates this room.`);
+  }
+
+  return (
+    <section className="admin-card">
+      <h2>
+        <Users size={18} /> Moderators
+      </h2>
+      <p className="admin-help">
+        Moderators can skip, block, and reorder the queue here, and edit this room's rule lists.
+      </p>
+      <ul className="admin-list">
+        {moderators.map((member) => (
+          <li key={member.id}>
+            <div className="admin-row">
+              <div>
+                <strong>{member.username}</strong>
+                {member.role === 'owner' && (
+                  <span className="admin-meta">
+                    <Shield size={13} /> owner
+                  </span>
+                )}
+              </div>
+              {member.role === 'mod' && (
+                <div className="admin-row-actions">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        () => setModerator(member.username, false),
+                        `${member.username} no longer moderates this room.`,
+                      )
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+        {moderators.length === 0 && <li className="admin-empty">Nobody yet.</li>}
+      </ul>
+      <form className="admin-form admin-form-inline" onSubmit={submit}>
+        <label>
+          Username
+          <input
+            type="text"
+            value={username}
+            placeholder="As they sign in with Destiny"
+            onChange={(event) => setUsername(event.currentTarget.value)}
+          />
+        </label>
+        <button type="submit" disabled={busy || !username.trim()}>
+          Add moderator
+        </button>
+      </form>
+    </section>
   );
 }

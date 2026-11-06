@@ -219,6 +219,35 @@ export type UserRole = 'listener' | 'admin';
 /** What someone is in one room: its owner, one of its moderators, or neither. */
 export type RoomRole = 'owner' | 'mod';
 
+/** A room as the rooms list shows it. */
+export interface RoomListing {
+  slug: string;
+  name: string;
+  listenerCount: number;
+  nowPlaying: { title: string; artist: string } | null;
+}
+
+/** A room someone owns, for linking them to it. */
+export interface OwnedRoom {
+  slug: string;
+  name: string;
+}
+
+export interface RoomModerator {
+  id: string;
+  username: string;
+  role: RoomRole;
+}
+
+export const createRoomSchema = z.object({
+  name: z.string().trim().min(2).max(40),
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9-]{1,31}$/, 'Use 2 to 32 letters, digits, or dashes, starting with a letter or digit.'),
+});
+
 /** Stands in wherever someone has no counted emote of their own. Never counted itself. */
 export const DEFAULT_EMOTE = 'MMMM';
 
@@ -792,6 +821,8 @@ export interface OperationsSnapshot extends ProcessSnapshot {
 export interface SessionSnapshot {
   me: RoomUser | null;
   listenerCount: number;
+  /** The rooms the signed-in user owns, and whether they may create one now. */
+  rooms: { owned: OwnedRoom[]; canCreate: boolean };
 }
 
 /**

@@ -6,10 +6,25 @@
 .room-name {
   width: min(1320px, calc(100% - 48px));
   margin: 16px auto 0;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.room-name h1 {
+  margin: 0;
   font-family: var(--font-display);
   font-size: 2rem;
   font-weight: 400;
   line-height: 1;
+}
+
+.room-name a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
 }
 
 .notice {

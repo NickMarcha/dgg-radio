@@ -1,0 +1,145 @@
+.rooms-app {
+  min-height: 100vh;
+}
+
+.rooms-main {
+  width: min(1120px, calc(100% - 48px));
+  margin: 32px auto 56px;
+}
+
+.rooms-main h1 {
+  margin: 0 0 24px;
+  font-size: 38px;
+}
+
+.rooms-main h2 {
+  margin: 0 0 12px;
+  font-size: 26px;
+  font-weight: 400;
+}
+
+.rooms-error {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--danger-line);
+  border-bottom: 1px solid var(--danger-line);
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.rooms-muted {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.rooms-list {
+  margin: 0 0 32px;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line-strong);
+}
+
+.rooms-list li {
+  display: grid;
+  grid-template-columns: minmax(8rem, 14rem) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.rooms-list a {
+  font-size: 1.4rem;
+}
+
+.rooms-playing,
+.rooms-listeners {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.rooms-playing {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rooms-listeners {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.rooms-owned,
+.rooms-create {
+  margin-bottom: 32px;
+}
+
+.rooms-owned p {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.rooms-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.rooms-create form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.rooms-create label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.rooms-create input {
+  width: min(19rem, 70vw);
+  padding: 0.5rem 0.65rem;
+}
+
+.rooms-slug {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--faint);
+}
+
+.rooms-create button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+}
+
+@media (max-width: 620px) {
+  .rooms-main {
+    width: calc(100% - 32px);
+  }
+
+  .rooms-list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rooms-playing {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

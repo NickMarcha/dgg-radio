@@ -13,7 +13,16 @@ process.env.DGG_CLIENT_SECRET ??= 'test-secret';
 process.env.DGG_REDIRECT_URI ??= 'http://localhost:4321/auth/callback';
 process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
-const { findRoomIdBySlug, MAIN_ROOM_ID, roomRoleOf, setRoomModerator } = await import('./rooms');
+const {
+  createRoom: createOwnedRoom,
+  findRoomIdBySlug,
+  listRoomModerators,
+  listRooms,
+  MAIN_ROOM_ID,
+  roomAccessOf,
+  roomRoleOf,
+  setRoomModerator,
+} = await import('./rooms');
 const schema = await import('./db/schema');
 const { roomMembers, rooms, users } = schema;
 
@@ -71,11 +80,11 @@ describe.skipIf(!connectionString)('room roles', () => {
     const other = await createRoom('other');
 
     expect(await roomRoleOf(listener, MAIN_ROOM_ID, db)).toBeNull();
-    await setRoomModerator(MAIN_ROOM_ID, listener.id, true, admin, db);
+    await setRoomModerator(MAIN_ROOM_ID, listener.username, true, admin, db);
     expect(await roomRoleOf(listener, MAIN_ROOM_ID, db)).toBe('mod');
     expect(await roomRoleOf(listener, other, db)).toBeNull();
 
-    await setRoomModerator(MAIN_ROOM_ID, listener.id, false, admin, db);
+    await setRoomModerator(MAIN_ROOM_ID, listener.username, false, admin, db);
     expect(await roomRoleOf(listener, MAIN_ROOM_ID, db)).toBeNull();
   });
 
@@ -83,8 +92,8 @@ describe.skipIf(!connectionString)('room roles', () => {
     const admin = await createUser('picklesnathan', 'admin');
     const listener = await createUser('swagy_swagerson');
 
-    await setRoomModerator(MAIN_ROOM_ID, listener.id, true, admin, db);
-    await setRoomModerator(MAIN_ROOM_ID, listener.id, true, admin, db);
+    await setRoomModerator(MAIN_ROOM_ID, listener.username, true, admin, db);
+    await setRoomModerator(MAIN_ROOM_ID, listener.username, true, admin, db);
     expect(await roomRoleOf(listener, MAIN_ROOM_ID, db)).toBe('mod');
   });
 
@@ -94,7 +103,7 @@ describe.skipIf(!connectionString)('room roles', () => {
     const other = await createRoom('other');
     await db.insert(roomMembers).values({ roomId: other, userId: owner.id, role: 'owner' });
 
-    await expect(setRoomModerator(other, owner.id, false, admin, db)).rejects.toMatchObject({
+    await expect(setRoomModerator(other, owner.username, false, admin, db)).rejects.toMatchObject({
       code: 'ROOM_OWNER',
     });
     expect(await roomRoleOf(owner, other, db)).toBe('owner');
@@ -102,5 +111,66 @@ describe.skipIf(!connectionString)('room roles', () => {
 
   it('answers nothing for nobody', async () => {
     expect(await roomRoleOf(null, MAIN_ROOM_ID, db)).toBeNull();
+  });
+
+  describe('creating a room', () => {
+    it('refuses anyone a site admin has not whitelisted', async () => {
+      const listener = await createUser('swagy_swagerson');
+      await expect(
+        createOwnedRoom({ slug: 'late-night', name: 'Late Night' }, listener, db),
+      ).rejects.toMatchObject({ code: 'ROOM_CREATOR_REQUIRED' });
+    });
+
+    it('makes a whitelisted creator the owner of a new room with nothing in it', async () => {
+      const creator = await createUser('room_maker');
+      await db.update(users).set({ canCreateRooms: true }).where(sql`${users.id} = ${creator.id}`);
+
+      const room = await createOwnedRoom({ slug: 'Late-Night', name: ' Late Night ' }, creator, db);
+
+      expect(room).toEqual({ slug: 'late-night', name: 'Late Night' });
+      const roomId = await findRoomIdBySlug('late-night', db);
+      expect(await roomRoleOf(creator, roomId!, db)).toBe('owner');
+      expect(await listRoomModerators(roomId!, db)).toEqual([
+        { id: creator.id, username: 'room_maker', role: 'owner' },
+      ]);
+      expect((await listRooms(db)).map(({ slug }) => slug)).toEqual(['main', 'late-night']);
+    });
+
+    it('lets an owner have one room, and says so before they try for another', async () => {
+      const creator = await createUser('room_maker');
+      await db.update(users).set({ canCreateRooms: true }).where(sql`${users.id} = ${creator.id}`);
+
+      await createOwnedRoom({ slug: 'late-night', name: 'Late Night' }, creator, db);
+
+      expect((await roomAccessOf(creator, db)).canCreate).toBe(false);
+      await expect(
+        createOwnedRoom({ slug: 'early-morning', name: 'Early Morning' }, creator, db),
+      ).rejects.toMatchObject({ code: 'ROOM_LIMIT' });
+    });
+
+    it('keeps the main room\'s name, and every name, to one room', async () => {
+      const admin = await createUser('picklesnathan', 'admin');
+      const other = await createUser('room_maker');
+      await db.update(users).set({ canCreateRooms: true }).where(sql`${users.id} = ${other.id}`);
+
+      await expect(createOwnedRoom({ slug: 'main', name: 'Main' }, admin, db)).rejects.toMatchObject({
+        code: 'ROOM_EXISTS',
+      });
+      await createOwnedRoom({ slug: 'late-night', name: 'Late Night' }, admin, db);
+      await expect(
+        createOwnedRoom({ slug: 'late-night', name: 'Also Late' }, other, db),
+      ).rejects.toMatchObject({ code: 'ROOM_EXISTS' });
+    });
+
+    it('makes a moderator by name, however it is capitalised, and nobody unknown', async () => {
+      const admin = await createUser('picklesnathan', 'admin');
+      const listener = await createUser('Swagy_Swagerson');
+
+      await setRoomModerator(MAIN_ROOM_ID, 'swagy_swagerson', true, admin, db);
+      expect(await roomRoleOf(listener, MAIN_ROOM_ID, db)).toBe('mod');
+      await expect(
+        setRoomModerator(MAIN_ROOM_ID, 'never_signed_in', true, admin, db),
+      ).rejects.toMatchObject({ code: 'USER_NOT_FOUND' });
+    });
   });
 });
