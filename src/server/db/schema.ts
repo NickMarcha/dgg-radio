@@ -377,10 +377,33 @@ export const ruleEntries = pgTable(
   ],
 );
 
+/**
+ * A room: its own queue, settings, rules, and stream. The main room is the one
+ * at `/`, and its id is fixed (`MAIN_ROOM_ID` in `rooms.ts`) so the code can
+ * name it without a lookup. Every other room is created later and gets a random
+ * id.
+ */
+export const rooms = pgTable(
+  'rooms',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** The room's name in its URL, lowercase. */
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('rooms_slug_unique').on(table.slug),
+    check('rooms_slug_shape', sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]{1,31}$'`),
+  ],
+);
+
 export const roomSettings = pgTable(
   'room_settings',
   {
-    id: integer('id').primaryKey().default(1),
+    roomId: uuid('room_id')
+      .primaryKey()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
     /** Free text shown on the player: what this room is and how to behave. */
     description: text('description').notNull().default(''),
     maxDurationSeconds: integer('max_duration_seconds').notNull().default(420),
@@ -397,7 +420,6 @@ export const roomSettings = pgTable(
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
   },
   (table) => [
-    check('room_settings_singleton', sql`${table.id} = 1`),
     check(
       'room_settings_duration_range',
       sql`${table.maxDurationSeconds} between 60 and 1800`,
@@ -414,9 +436,8 @@ export const roomSettings = pgTable(
 );
 
 /**
- * Which stream the room watches on destiny.gg/bigscreen, so the overlay and the
- * admin page know whose watchers to count. Singleton, like the room settings:
- * this room has one stream.
+ * Which stream a room watches on destiny.gg/bigscreen, so the overlay and the
+ * admin page know whose watchers to count. One row per room.
  *
  * The channel is stored lowercase because that is how Destiny chat reports it
  * in `watching`, while the bigscreen link is written `#kick/dggJams`.
@@ -424,7 +445,9 @@ export const roomSettings = pgTable(
 export const streamWatch = pgTable(
   'stream_watch',
   {
-    id: integer('id').primaryKey().default(1),
+    roomId: uuid('room_id')
+      .primaryKey()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
     /** Whether one channel's chat roster is read, which is what the overlay draws. */
     enabled: boolean('enabled').notNull().default(false),
     platform: watchPlatform('platform').notNull().default('kick'),
@@ -433,7 +456,6 @@ export const streamWatch = pgTable(
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
   },
   (table) => [
-    check('stream_watch_singleton', sql`${table.id} = 1`),
     check('stream_watch_channel_lowercase', sql`${table.channel} = lower(${table.channel})`),
   ],
 );
@@ -485,12 +507,13 @@ export const watcherEmbedSettings = pgTable(
 export const roomState = pgTable(
   'room_state',
   {
-    id: integer('id').primaryKey().default(1),
+    roomId: uuid('room_id')
+      .primaryKey()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
     currentQueueItemId: uuid('current_queue_item_id').references(() => queueItems.id),
     revision: integer('revision').notNull().default(0),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [check('room_state_singleton', sql`${table.id} = 1`)],
 );
 
 export const moderationActions = pgTable(

@@ -1,6 +1,6 @@
 # Rooms plan
 
-Status: step 1 is built.
+Status: steps 1 and 2 are built.
 
 ## Outcome
 

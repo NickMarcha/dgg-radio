@@ -40,6 +40,7 @@ import {
   lookupManyCached,
   lookupMediaCached,
 } from './media-cache';
+import { MAIN_ROOM_ID } from './rooms';
 import { addRuleEntry, describeBlock, findBlockingRules, listActiveRules } from './rules';
 import {
   listPlaylistTrackUrls,
@@ -143,15 +144,15 @@ function toQueueRow(row: ReturnType<typeof queueRowSelection> extends never ? ne
 }
 
 export async function ensureRoomExists(db: Database = getDatabase()): Promise<void> {
-  await db.insert(roomSettings).values({ id: 1 }).onConflictDoNothing();
-  await db.insert(roomState).values({ id: 1 }).onConflictDoNothing();
+  await db.insert(roomSettings).values({ roomId: MAIN_ROOM_ID }).onConflictDoNothing();
+  await db.insert(roomState).values({ roomId: MAIN_ROOM_ID }).onConflictDoNothing();
 }
 
 async function bumpRevision(db: Executor): Promise<void> {
   await db
     .update(roomState)
     .set({ revision: sql`${roomState.revision} + 1`, updatedAt: new Date() })
-    .where(eq(roomState.id, 1));
+    .where(eq(roomState.roomId, MAIN_ROOM_ID));
 }
 
 /** The first track of whoever is at the front of the rotation. */
@@ -209,7 +210,7 @@ async function getSettings(db: Database) {
       revealRequester: roomSettings.revealRequester,
     })
     .from(roomSettings)
-    .where(eq(roomSettings.id, 1));
+    .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
   if (!settings) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
   return settings;
 }
@@ -291,7 +292,7 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
     const [state] = await db
       .select({ currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.id, 1));
+      .where(eq(roomState.roomId, MAIN_ROOM_ID));
     if (state?.currentQueueItemId) return false;
 
     const candidate = await nextQueuedRow(db);
@@ -329,7 +330,7 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
       const [lockedState] = await transaction
         .select({ currentQueueItemId: roomState.currentQueueItemId })
         .from(roomState)
-        .where(eq(roomState.id, 1));
+        .where(eq(roomState.roomId, MAIN_ROOM_ID));
       if (lockedState?.currentQueueItemId) return false;
 
       const now = new Date();
@@ -361,7 +362,7 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
           revision: sql`${roomState.revision} + 1`,
           updatedAt: now,
         })
-        .where(eq(roomState.id, 1));
+        .where(eq(roomState.roomId, MAIN_ROOM_ID));
       return true;
     });
     return started;
@@ -380,7 +381,7 @@ export async function advanceCurrentTrack(
     const [state] = await transaction
       .select({ currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.id, 1));
+      .where(eq(roomState.roomId, MAIN_ROOM_ID));
     if (!state?.currentQueueItemId) return false;
     if (expectedQueueItemId && state.currentQueueItemId !== expectedQueueItemId) return false;
 
@@ -398,7 +399,7 @@ export async function advanceCurrentTrack(
         revision: sql`${roomState.revision} + 1`,
         updatedAt: now,
       })
-      .where(eq(roomState.id, 1));
+      .where(eq(roomState.roomId, MAIN_ROOM_ID));
     return true;
   });
 
@@ -416,7 +417,7 @@ export async function advanceIfExpired(db: Database = getDatabase()): Promise<bo
     .from(roomState)
     .innerJoin(queueItems, eq(roomState.currentQueueItemId, queueItems.id))
     .innerJoin(media, eq(queueItems.mediaId, media.id))
-    .where(eq(roomState.id, 1));
+    .where(eq(roomState.roomId, MAIN_ROOM_ID));
 
   if (!current?.startedAt) {
     return startNextTrack(db);
@@ -772,7 +773,7 @@ export async function reorderRoomQueue(
     const [state] = await transaction
       .select({ currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.id, 1));
+      .where(eq(roomState.roomId, MAIN_ROOM_ID));
     const activeRows = await transaction
       .select(queueRowSelection())
       .from(queueItems)
@@ -843,7 +844,7 @@ export async function skipCurrentTrack(
   const [state] = await db
     .select({ currentQueueItemId: roomState.currentQueueItemId })
     .from(roomState)
-    .where(eq(roomState.id, 1));
+    .where(eq(roomState.roomId, MAIN_ROOM_ID));
   if (!state?.currentQueueItemId) throw new RoomError('NOTHING_PLAYING', 'There is no track to skip.');
 
   await db.insert(moderationActions).values({
@@ -1159,7 +1160,7 @@ export async function updateRoomSettings(
   await db
     .update(roomSettings)
     .set({ ...patch, updatedAt: new Date(), updatedByUserId: admin.id })
-    .where(eq(roomSettings.id, 1));
+    .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
   await db.insert(moderationActions).values({
     actorUserId: admin.id,
     action: 'update_settings',
@@ -1210,7 +1211,7 @@ export async function getRoomSnapshot(
     db
       .select({ revision: roomState.revision, currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.id, 1))
+      .where(eq(roomState.roomId, MAIN_ROOM_ID))
       .then(([row]) => row),
     getSettings(db),
     db
@@ -1303,6 +1304,6 @@ export async function currentRevision(db: Database = getDatabase()): Promise<num
   const [state] = await db
     .select({ revision: roomState.revision })
     .from(roomState)
-    .where(eq(roomState.id, 1));
+    .where(eq(roomState.roomId, MAIN_ROOM_ID));
   return state?.revision ?? 0;
 }

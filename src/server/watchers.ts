@@ -12,6 +12,7 @@ import { streamWatch, users } from './db/schema';
 import { ChatTracker, type WatchedChannel } from './dgg-chat';
 import { EmbedsTracker } from './dgg-embeds';
 import { ensureEmoteCatalogue, lastEmoteIn, type EmoteCatalogue } from './dgg-emotes';
+import { MAIN_ROOM_ID } from './rooms';
 
 /**
  * Watching destiny.gg's embeds: how many people the site says are on each, and,
@@ -77,7 +78,7 @@ function capWatchers(watchers: Watcher[]): Watcher[] {
 export async function getStreamWatchSettings(
   db: Database = getDatabase(),
 ): Promise<StreamWatchSettings> {
-  await db.insert(streamWatch).values({ id: 1 }).onConflictDoNothing();
+  await db.insert(streamWatch).values({ roomId: MAIN_ROOM_ID }).onConflictDoNothing();
   const [row] = await db
     .select({
       enabled: streamWatch.enabled,
@@ -86,7 +87,7 @@ export async function getStreamWatchSettings(
       updatedAt: streamWatch.updatedAt,
     })
     .from(streamWatch)
-    .where(eq(streamWatch.id, 1));
+    .where(eq(streamWatch.roomId, MAIN_ROOM_ID));
 
   return { ...row, updatedAt: row.updatedAt.toISOString() };
 }
@@ -113,7 +114,7 @@ export async function updateStreamWatchSettings(
       updatedAt: new Date(),
       updatedByUserId: userId,
     })
-    .where(eq(streamWatch.id, 1));
+    .where(eq(streamWatch.roomId, MAIN_ROOM_ID));
 
   return getStreamWatchSettings(db);
 }

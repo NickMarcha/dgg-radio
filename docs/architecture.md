@@ -23,7 +23,7 @@ The API, its Postgres, and a Cloudflare tunnel run as one compose stack; see the
 
 Every page shows the same header: who is signed in, and how many people are listening. `GET /api/me` answers exactly that from the session cookie. Only the room itself reads the whole snapshot, over its own WebSocket, so opening `/history` or `/playlists` does not pull down a queue, its votes, and the rule list to render a username.
 
-`room_state` and `room_settings` are singleton rows constrained to ID `1`. There is no room identifier anywhere else because this product has one room.
+`rooms` names each room. `room_state`, `room_settings` and `stream_watch` hold one row per room, keyed by `room_id`. Only the main room exists so far; its id is fixed by the migration that created `rooms` and is `MAIN_ROOM_ID` in `src/server/rooms.ts`. The queue, rotation and rules are not yet scoped to a room, so the main room is still the only one anything plays in. `docs/plans/rooms.md` is the plan for the rest.
 
 Queue transitions take a Postgres transaction-scoped advisory lock. A partial unique index also prevents two queue items from holding `playing` status. The server clock checks once per second, marks an expired item as played, selects the next request, revalidates its media metadata, and starts it from one server timestamp.
 

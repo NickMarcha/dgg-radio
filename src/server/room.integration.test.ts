@@ -85,6 +85,7 @@ const {
 } = await import('./room');
 const { createRule } = await import('./rules');
 const schema = await import('./db/schema');
+const { MAIN_ROOM_ID } = await import('./rooms');
 const { media, moderationActions, queueItems, roomSettings, roomState, users } = schema;
 
 const connectionString = testConnectionString();
@@ -370,7 +371,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
     // Under a short cooldown the second request is accepted, which is the only
     // way to have one waiting when an admin raises the setting over it.
-    await db.update(roomSettings).set({ repeatCooldownSeconds: 300 }).where(eq(roomSettings.id, 1));
+    await db.update(roomSettings).set({ repeatCooldownSeconds: 300 }).where(eq(roomSettings.roomId, MAIN_ROOM_ID));
     const first = await enqueueMedia(repeated.canonicalUrl, nathan, db);
     await skipCurrentTrack('Making room for the filler', moderator, db);
     await db
@@ -383,7 +384,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await db
       .update(roomSettings)
       .set({ repeatCooldownSeconds: 5_400 })
-      .where(eq(roomSettings.id, 1));
+      .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
 
     await skipCurrentTrack('Reaching the pending request', moderator, db);
 
@@ -451,7 +452,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     const [state] = await db
       .select({ currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.id, 1));
+      .where(eq(roomState.roomId, MAIN_ROOM_ID));
     expect(state?.currentQueueItemId).toBe(promoted.id);
   });
 
@@ -751,7 +752,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
     const started = await enqueueMedia(playing.canonicalUrl, nathan, db);
     const promoted = await enqueueMedia(next.canonicalUrl, nathan, db);
-    await db.update(roomSettings).set({ skipDownvotes: 2 }).where(eq(roomSettings.id, 1));
+    await db.update(roomSettings).set({ skipDownvotes: 2 }).where(eq(roomSettings.roomId, MAIN_ROOM_ID));
 
     const voters = [await createUser('one'), await createUser('two')];
     await voteOnCurrentTrack(started.id, -1, voters[0]!, 10, db);
@@ -774,7 +775,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await db
       .update(roomSettings)
       .set({ skipMode: 'ratio', skipRatioPercent: 50 })
-      .where(eq(roomSettings.id, 1));
+      .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
 
     await voteOnCurrentTrack(started.id, -1, voter, 2, db);
 
@@ -791,7 +792,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
     await enqueueMedia(playing.canonicalUrl, nathan, db);
     await enqueueMedia(second.canonicalUrl, swagy, db);
-    await db.update(roomSettings).set({ revealRequester: false }).where(eq(roomSettings.id, 1));
+    await db.update(roomSettings).set({ revealRequester: false }).where(eq(roomSettings.roomId, MAIN_ROOM_ID));
 
     const listener = await getRoomSnapshot(swagy, 2, db);
     expect(listener.current?.requestedBy).toBeNull();
