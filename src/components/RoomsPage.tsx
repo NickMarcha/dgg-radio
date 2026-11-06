@@ -1,5 +1,5 @@
 import { Headphones, Plus, Settings } from 'lucide-react';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
 import type { RoomListing, SessionSnapshot } from '../shared/contracts';
 import { roomPath } from '../client/room';
 import SiteHeader from './SiteHeader';
@@ -43,7 +43,7 @@ export default function RoomsPage({ apiUrl }: RoomsPageProps) {
     void load().catch(() => setError('The rooms could not be loaded.'));
   }, [load]);
 
-  async function create(event: FormEvent<HTMLFormElement>) {
+  async function create(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError(null);
