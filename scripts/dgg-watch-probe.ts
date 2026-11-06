@@ -35,7 +35,8 @@ function readChannel(): WatchedChannel {
 
 const channel = readChannel();
 const embeds = new EmbedsTracker();
-const chat = new ChatTracker(channel);
+const chat = new ChatTracker();
+chat.watch([channel]);
 
 embeds.start();
 chat.start();
@@ -43,7 +44,7 @@ console.log(`Watching ${channel.platform}/${channel.id}. Ctrl-C to stop.`);
 
 const timer = setInterval(() => {
   const entry = embeds.entryFor(channel);
-  const watchers = chat.watchers();
+  const watchers = chat.watchers(channel);
   const named = watchers
     .slice(0, 8)
     .map((watcher) => watcher.nick)

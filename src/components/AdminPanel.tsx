@@ -205,7 +205,7 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   // rather than blocking the rest of the panel.
   useEffect(() => {
     if (me?.role !== 'admin') return;
-    void call('/api/regions')
+    void call('/api/rooms/main/regions')
       .then((payload) => setRegions(payload.regions))
       .catch(() => setRegions([]));
   }, [call, me?.role]);
@@ -1153,7 +1153,7 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
   const [draft, setDraft] = useState<StreamWatchDraft | null>(null);
 
   const load = useCallback(async () => {
-    const next: StreamWatchStatus = await call('/api/stream-watch');
+    const next: StreamWatchStatus = await call('/api/rooms/main/stream-watch');
     setStatus(next);
     // The form is only filled once, so a poll never overwrites what is being
     // typed into it.
@@ -1170,7 +1170,7 @@ function StreamWatchSection({ busy, act, call }: SectionProps) {
     event.preventDefault();
     if (!draft) return;
     void act(
-      async () => setStatus(await call('/api/stream-watch', 'PATCH', draft)),
+      async () => setStatus(await call('/api/rooms/main/stream-watch', 'PATCH', draft)),
       draft.enabled ? `Watching ${draft.platform}/${draft.channel.trim().toLowerCase()}.` : 'Stream watch is off.',
     );
   }
@@ -1441,7 +1441,7 @@ function PersonalWatcherSource({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void call('/api/watcher-embed')
+    void call('/api/rooms/main/watcher-embed')
       .then((settings: WatcherEmbedSettings) => {
         setSaved(settings);
         setDraft(settings);
@@ -1485,7 +1485,7 @@ function PersonalWatcherSource({
     if (!draft) return;
     const current = draft;
     void act(async () => {
-      const next: WatcherEmbedSettings = await call('/api/watcher-embed', 'PATCH', {
+      const next: WatcherEmbedSettings = await call('/api/rooms/main/watcher-embed', 'PATCH', {
         show: current.show,
         window: current.window,
         max: current.max,

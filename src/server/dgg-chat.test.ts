@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseChatFrame, WatcherRoster, type WatchedChannel } from './dgg-chat';
+import { ChatTracker, parseChatFrame, WatcherRoster, type WatchedChannel } from './dgg-chat';
 
 /**
  * Every frame below was recorded from wss://chat.destiny.gg/ws on 2026-09-05
@@ -124,19 +124,6 @@ describe('WatcherRoster', () => {
     expect(roster.list()[0]).toMatchObject({ nick: 'anpan' });
   });
 
-  it('starts again when the tracked channel changes, and says that it did', () => {
-    const roster = rosterFrom(NAMES);
-    // The caller reconnects on a true, because NAMES only arrives on connect
-    // and an empty roster otherwise refills one message at a time.
-    expect(roster.watch({ platform: 'kick', id: 'dggjams' })).toBe(true);
-    expect(roster.size()).toBe(0);
-  });
-
-  it('keeps the roster when told to watch the channel it already watches', () => {
-    const roster = rosterFrom(NAMES);
-    expect(roster.watch({ platform: 'kick', id: 'destiny' })).toBe(false);
-    expect(roster.size()).toBe(2);
-  });
 
   it('remembers the emote somebody used', () => {
     const roster = new WatcherRoster(KICK_DESTINY, (text) =>
@@ -178,5 +165,44 @@ describe('WatcherRoster', () => {
     const roster = rosterFrom(NAMES);
     roster.apply({ event: 'BROADCAST', data: { data: 'Server restarting' } });
     expect(roster.size()).toBe(2);
+  });
+});
+
+describe('ChatTracker', () => {
+  /** The socket is never opened; frames are handed in the way it would hand them. */
+  function feed(tracker: ChatTracker, ...raw: string[]): void {
+    const receive = (tracker as unknown as { onFrame(raw: string): void }).onFrame.bind(tracker);
+    for (const frame of raw) receive(frame);
+  }
+
+  const YOUTUBE_ONE: WatchedChannel = { platform: 'youtube', id: 'meeutkctdf0' };
+
+  it('keeps one roster per followed channel from one stream of events', () => {
+    const tracker = new ChatTracker();
+    tracker.watch([KICK_DESTINY, YOUTUBE_ONE]);
+    feed(tracker, NAMES);
+
+    expect(tracker.watchers(KICK_DESTINY).map((watcher) => watcher.nick)).toEqual([
+      'Spank',
+      'TheResized',
+    ]);
+    expect(tracker.watchers(YOUTUBE_ONE).map((watcher) => watcher.nick)).toEqual(['Zatheerak']);
+  });
+
+  it('drops the roster of a channel nobody follows any more, and keeps the rest', () => {
+    const tracker = new ChatTracker();
+    tracker.watch([KICK_DESTINY, YOUTUBE_ONE]);
+    feed(tracker, NAMES);
+
+    tracker.watch([KICK_DESTINY]);
+
+    expect(tracker.count(KICK_DESTINY)).toBe(2);
+    expect(tracker.count(YOUTUBE_ONE)).toBe(0);
+  });
+
+  it('answers nothing for a channel it was never told to follow', () => {
+    const tracker = new ChatTracker();
+    feed(tracker, NAMES);
+    expect(tracker.watchers(KICK_DESTINY)).toEqual([]);
   });
 });

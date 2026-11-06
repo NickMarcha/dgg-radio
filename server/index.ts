@@ -45,25 +45,32 @@ function operationsSnapshot() {
  * fetch, the way the room socket works: every field of it is already public in
  * Destiny chat, so there is no private state to keep out of a shared message.
  * An unchanged snapshot is not resent, which on a quiet channel is most seconds.
+ * Each overlay is sent the snapshot of the room it named.
  */
-let lastWatchersMessage: string | null = null;
+const lastWatchersMessage = new Map<string, string>();
 
-function watchersMessage(): string {
-  return JSON.stringify({ type: 'watchers', snapshot: watchTracker.snapshot() });
+function watchersMessage(roomId: string): string {
+  return JSON.stringify({ type: 'watchers', snapshot: watchTracker.snapshot(roomId) });
 }
 
 function broadcastWatchers(): void {
-  const clients = [...connections.clientsOfKind('embed-watchers')];
-  if (clients.length === 0) {
-    lastWatchersMessage = null;
-    return;
+  const byRoom = new Map<string, WebSocket[]>();
+  for (const client of connections.clientsOfKind('embed-watchers')) {
+    const roomId = connections.roomOf(client);
+    if (roomId === undefined) continue;
+    byRoom.set(roomId, [...(byRoom.get(roomId) ?? []), client]);
+  }
+  for (const roomId of lastWatchersMessage.keys()) {
+    if (!byRoom.has(roomId)) lastWatchersMessage.delete(roomId);
   }
 
-  const message = watchersMessage();
-  if (message === lastWatchersMessage) return;
-  lastWatchersMessage = message;
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) client.send(message);
+  for (const [roomId, clients] of byRoom) {
+    const message = watchersMessage(roomId);
+    if (message === lastWatchersMessage.get(roomId)) continue;
+    lastWatchersMessage.set(roomId, message);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) client.send(message);
+    }
   }
 }
 
@@ -195,7 +202,7 @@ webSocketServer.on('connection', async (client, request) => {
   broadcastRoomChanged(roomId);
 
   if (connectionRequest.kind === 'embed-watchers') {
-    client.send(watchersMessage());
+    client.send(watchersMessage(roomId));
     // The first overlay is a reason to open the chat socket, and waiting for
     // the next refresh would leave it dark for a quarter of a minute.
     void watchTracker.refresh().catch((error) => console.error('Stream watch refresh failed', error));

@@ -38,7 +38,8 @@ both sockets. Three findings from it shape everything below:
 
 ## Product decisions
 
-1. One channel is tracked at a time: a platform and a channel id set on the
+1. *(Superseded by rooms: each room follows its own channel, and one chat
+   socket keeps a roster for every followed channel.)* One channel is tracked at a time: a platform and a channel id set on the
    admin page. The room has one stream, so a list of channels would be
    configuration nobody asked for.
 2. The channel is matched case-insensitively. Chat reports ids lowercase and

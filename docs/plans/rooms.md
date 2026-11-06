@@ -1,6 +1,6 @@
 # Rooms plan
 
-Status: steps 1 to 5 are built, except per-room watcher overlays, which come with step 6.
+Status: steps 1 to 6 are built.
 
 ## Outcome
 
@@ -87,9 +87,10 @@ Each step leaves a working site.
    the admin page is still site admins only; it manages the main room's mods
    and the whitelist.
 5. **Room URLs and overlays.** `/r/:slug` through one generated page, the API
-   and the room socket take the room, embed pages take the room, saved overlay
-   settings keyed by room and owner.
+   and the room socket take the room, embed pages take the room.
 6. **Many channels.** One chat socket feeds a roster per followed channel.
+   Saved overlay looks stay keyed by owner rather than by room and owner: the
+   overlay URL names the room, so a second key would add nothing.
 7. **Room creation, moving a queue between rooms, rule following and
    snapshots, the revertable rule log, per-room and combined stats.** Stats and
    the jammer board still count every room together until then.

@@ -103,21 +103,9 @@ export class WatcherRoster {
   private watchers = new Map<string, ChatWatcher>();
 
   constructor(
-    private channel: WatchedChannel,
+    private readonly channel: WatchedChannel,
     private readonly readEmote: EmoteReader = NO_EMOTES,
   ) {}
-
-  /**
-   * A different channel shares nothing with the old one, so the roster starts
-   * again. Answers whether it did, because an empty roster on a live socket
-   * only refills as people speak.
-   */
-  watch(channel: WatchedChannel): boolean {
-    if (channel.platform === this.channel.platform && channel.id === this.channel.id) return false;
-    this.channel = channel;
-    this.watchers.clear();
-    return true;
-  }
 
   clear(): void {
     this.watchers.clear();
@@ -230,26 +218,48 @@ export class WatcherRoster {
   }
 }
 
-/** The chat socket and the roster it feeds. */
+/** `platform/id`, the one way a channel is named as a map key. */
+export function channelKey(channel: WatchedChannel): string {
+  return `${channel.platform}/${channel.id}`;
+}
+
+/**
+ * The chat socket and a roster for every channel a room follows.
+ *
+ * Every chat event names what its user is watching, so one connection answers
+ * for any number of channels: each frame is offered to every roster and each
+ * keeps the people on its own channel.
+ */
 export class ChatTracker {
-  private readonly roster: WatcherRoster;
+  private readonly rosters = new Map<string, WatcherRoster>();
   private socket: DggSocket | null = null;
 
-  constructor(channel: WatchedChannel, readEmote?: EmoteReader) {
-    this.roster = new WatcherRoster(channel, readEmote);
-  }
+  constructor(private readonly readEmote?: EmoteReader) {}
 
   /**
-   * Point at another channel. If the socket is up it is reconnected, because
-   * `NAMES` is only sent on connect: carrying on with the same connection
-   * would leave the roster empty and refill it one message at a time, which on
-   * a quiet channel means naming almost nobody for several minutes.
+   * Follow exactly these channels. A channel no longer followed loses its
+   * roster. A new one needs the socket reconnected if it is up, because
+   * `NAMES` is only sent on connect: carrying on would leave the new roster
+   * empty and refill it one message at a time, which on a quiet channel means
+   * naming almost nobody for several minutes. The rosters already held keep
+   * when everyone last spoke across that reconnect.
    */
-  watch(channel: WatchedChannel): void {
-    if (!this.roster.watch(channel)) return;
-    if (!this.socket) return;
-    this.stop();
-    this.start();
+  watch(channels: WatchedChannel[]): void {
+    const wanted = new Map(channels.map((channel) => [channelKey(channel), channel]));
+    for (const key of this.rosters.keys()) {
+      if (!wanted.has(key)) this.rosters.delete(key);
+    }
+    let added = false;
+    for (const [key, channel] of wanted) {
+      if (this.rosters.has(key)) continue;
+      this.rosters.set(key, new WatcherRoster(channel, this.readEmote));
+      added = true;
+    }
+    if (added && this.socket) {
+      this.socket.stop();
+      this.socket = null;
+      this.start();
+    }
   }
 
   start(): void {
@@ -264,7 +274,7 @@ export class ChatTracker {
   stop(): void {
     this.socket?.stop();
     this.socket = null;
-    this.roster.clear();
+    for (const roster of this.rosters.values()) roster.clear();
   }
 
   get running(): boolean {
@@ -275,12 +285,12 @@ export class ChatTracker {
     return this.socket?.state() ?? { connected: false, lastFrameAt: null, downSince: null, attempts: 0 };
   }
 
-  watchers(): ChatWatcher[] {
-    return this.roster.list();
+  watchers(channel: WatchedChannel): ChatWatcher[] {
+    return this.rosters.get(channelKey(channel))?.list() ?? [];
   }
 
-  count(): number {
-    return this.roster.size();
+  count(channel: WatchedChannel): number {
+    return this.rosters.get(channelKey(channel))?.size() ?? 0;
   }
 
   private onFrame(raw: string): void {
@@ -291,6 +301,6 @@ export class ChatTracker {
       this.socket?.send(`PONG ${raw.slice('PING '.length)}`);
       return;
     }
-    this.roster.apply(frame);
+    for (const roster of this.rosters.values()) roster.apply(frame);
   }
 }

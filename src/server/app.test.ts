@@ -383,6 +383,9 @@ describe('the operations endpoint', () => {
 describe('personal watcher sources', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(roomRoleOf).mockImplementation(async (who) =>
+      who?.role === 'admin' ? 'owner' : null,
+    );
     vi.mocked(findWatcherEmbedSettings).mockResolvedValue(watcherEmbedSettings);
     vi.mocked(getOrCreateWatcherEmbedSettings).mockResolvedValue(watcherEmbedSettings);
     vi.mocked(updateWatcherEmbedSettings).mockResolvedValue(watcherEmbedSettings);
@@ -411,7 +414,7 @@ describe('personal watcher sources', () => {
   it('creates and returns the signed-in admin source', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    const response = await app.request('/api/watcher-embed');
+    const response = await app.request('/api/rooms/main/watcher-embed');
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toContain('no-store');
@@ -421,7 +424,7 @@ describe('personal watcher sources', () => {
   it('saves only the signed-in admin source', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    const response = await request('/api/watcher-embed', 'PATCH', {
+    const response = await request('/api/rooms/main/watcher-embed', 'PATCH', {
       layout: 'climb',
       max: 10,
     });
@@ -436,8 +439,8 @@ describe('personal watcher sources', () => {
   it('does not let a listener create or edit a source', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
 
-    expect((await app.request('/api/watcher-embed')).status).toBe(403);
-    expect((await request('/api/watcher-embed', 'PATCH', { layout: 'safe' })).status).toBe(403);
+    expect((await app.request('/api/rooms/main/watcher-embed')).status).toBe(403);
+    expect((await request('/api/rooms/main/watcher-embed', 'PATCH', { layout: 'safe' })).status).toBe(403);
     expect(getOrCreateWatcherEmbedSettings).not.toHaveBeenCalled();
     expect(updateWatcherEmbedSettings).not.toHaveBeenCalled();
   });

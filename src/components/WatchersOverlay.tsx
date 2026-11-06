@@ -21,6 +21,8 @@ import { spawnBody, stepBumpers, type BumperBody } from './bumperMotion';
 import { useWatcherEmbedSettings } from './useWatcherEmbedSettings';
 import { loopRepeatingAnimations } from './loopRepeating';
 import { useWatchers } from './useWatchers';
+import { roomSlugFromSearch } from '../client/room';
+import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
 import '../styles/flairs.css';
 import './WatchersOverlay.css';
 
@@ -392,7 +394,11 @@ function Emote({ prefix }: { prefix: string }) {
 }
 
 export default function WatchersOverlay({ apiUrl }: { apiUrl: string }) {
-  const snapshot = useWatchers(apiUrl);
+  // The room is read once on load; an OBS source does not move between rooms.
+  const [roomSlug] = useState(() =>
+    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromSearch(window.location.search),
+  );
+  const snapshot = useWatchers(apiUrl, roomSlug);
   // A prerender has no query string. Apply it only after hydration so the
   // server and browser produce the same first frame.
   const [fixedOptions, setFixedOptions] = useState<WatcherEmbedOptions>(

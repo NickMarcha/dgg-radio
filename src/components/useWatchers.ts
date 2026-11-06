@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import type { WatchersSnapshot } from '../shared/contracts';
-import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
 import { createRoomSocketUrl, embedConnectionKind } from './roomSocket';
 
 /**
@@ -15,7 +14,7 @@ import { createRoomSocketUrl, embedConnectionKind } from './roomSocket';
  * the chat socket open while an overlay is connected, so opening this page is
  * enough to start the tracker on a channel nobody is watching yet.
  */
-export function useWatchers(apiUrl: string): WatchersSnapshot | null {
+export function useWatchers(apiUrl: string, roomSlug: string): WatchersSnapshot | null {
   const [snapshot, setSnapshot] = useState<WatchersSnapshot | null>(null);
 
   useEffect(() => {
@@ -25,7 +24,7 @@ export function useWatchers(apiUrl: string): WatchersSnapshot | null {
 
     // One fetch, so the source is not blank while the socket opens. It never
     // overwrites anything the socket has already delivered.
-    void fetch(`${apiUrl}/api/watchers`)
+    void fetch(`${apiUrl}/api/rooms/${roomSlug}/watchers`)
       .then((response) => (response.ok ? response.json() : null))
       .then((body: WatchersSnapshot | null) => {
         if (!stopped && body) setSnapshot((current) => current ?? body);
@@ -33,9 +32,8 @@ export function useWatchers(apiUrl: string): WatchersSnapshot | null {
       .catch(() => undefined);
 
     const connect = () => {
-      // The tracker follows the main room's stream only, until rooms each follow their own.
       const kind = embedConnectionKind('watchers');
-      socket = new WebSocket(createRoomSocketUrl(apiUrl, { kind, room: MAIN_ROOM_SLUG }));
+      socket = new WebSocket(createRoomSocketUrl(apiUrl, { kind, room: roomSlug }));
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data as string) as {
@@ -59,7 +57,7 @@ export function useWatchers(apiUrl: string): WatchersSnapshot | null {
       if (reconnect) window.clearTimeout(reconnect);
       socket?.close();
     };
-  }, [apiUrl]);
+  }, [apiUrl, roomSlug]);
 
   return snapshot;
 }

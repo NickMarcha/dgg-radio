@@ -37,6 +37,10 @@ export class ConnectionRegistry<Client> {
     }
   }
 
+  roomOf(client: Client): string | undefined {
+    return this.connections.get(client)?.roomId;
+  }
+
   /** Every room somebody has a socket open on. */
   roomIds(): Set<string> {
     return new Set([...this.connections.values()].map((connection) => connection.roomId));

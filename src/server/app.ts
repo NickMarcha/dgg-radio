@@ -91,7 +91,6 @@ import {
   canManageRoom,
   canModerateRoom,
   findRoomIdBySlug,
-  MAIN_ROOM_ID,
   RoomAccessError,
   roomRoleOf,
   setRoomModerator,
@@ -299,7 +298,6 @@ export function createApp(dependencies: AppDependencies) {
       await next();
     };
 
-  const mainRoom = async () => MAIN_ROOM_ID;
   const itemRoom = (context: any) => roomOfQueueItem(context.req.valid('param').id);
   const ruleRoom = (context: any) => roomOfRule(context.req.valid('param').id);
   const ruleEntryRoom = (context: any) => roomOfRuleEntry(context.req.valid('param').id);
@@ -315,7 +313,6 @@ export function createApp(dependencies: AppDependencies) {
   };
   const requireRoomModerator = requireRoomRole('mod', slugRoom);
   const requireRoomOwner = requireRoomRole('owner', slugRoom);
-  const requireMainOwner = requireRoomRole('owner', mainRoom);
 
   app.onError((error, context) => {
     if (
@@ -396,7 +393,9 @@ export function createApp(dependencies: AppDependencies) {
     )
     // Public: an OBS browser source carries no session, and everything in the
     // snapshot is already public in Destiny chat.
-    .get('/api/watchers', (context) => context.json(watchTracker.snapshot()))
+    .get('/api/rooms/:slug/watchers', inRoom, (context) =>
+      context.json(watchTracker.snapshot(context.get('roomId'))),
+    )
     // The UUID is the stable public source key. The row contains display
     // choices only, and both ends disable caching so a running OBS source sees
     // an admin's save without a reload.
@@ -1023,16 +1022,18 @@ export function createApp(dependencies: AppDependencies) {
         storage: await getStorageSnapshot(),
       }),
     )
-    .get('/api/stream-watch', requireMainOwner, async (context) =>
-      context.json(await watchTracker.status()),
+    .get('/api/rooms/:slug/stream-watch', requireRoomOwner, async (context) =>
+      context.json(await watchTracker.status(context.get('roomId'))),
     )
-    .get('/api/watcher-embed', requireMainOwner, async (context) => {
+    // An owner's saved overlay look. It belongs to them rather than to the
+    // room: the overlay's URL names the room, and the look travels with them.
+    .get('/api/rooms/:slug/watcher-embed', requireRoomOwner, async (context) => {
       context.header('Cache-Control', 'no-store, max-age=0');
       return context.json(await getOrCreateWatcherEmbedSettings(context.get('user').id));
     })
     .patch(
-      '/api/watcher-embed',
-      requireMainOwner,
+      '/api/rooms/:slug/watcher-embed',
+      requireRoomOwner,
       zValidator('json', watcherEmbedSchema),
       async (context) => {
         const patch = context.req.valid('json');
@@ -1044,11 +1045,12 @@ export function createApp(dependencies: AppDependencies) {
       },
     )
     .patch(
-      '/api/stream-watch',
-      requireMainOwner,
+      '/api/rooms/:slug/stream-watch',
+      requireRoomOwner,
       zValidator('json', streamWatchSchema),
       async (context) => {
         const settings = await updateStreamWatchSettings(
+          context.get('roomId'),
           context.req.valid('json'),
           context.get('user').id,
         );
@@ -1057,10 +1059,10 @@ export function createApp(dependencies: AppDependencies) {
           enabled: settings.enabled,
           platform: settings.platform,
         });
-        return context.json(await watchTracker.status());
+        return context.json(await watchTracker.status(context.get('roomId')));
       },
     )
-    .get('/api/regions', requireMainOwner, async (context) =>
+    .get('/api/rooms/:slug/regions', requireRoomOwner, async (context) =>
       context.json({ regions: await listPlaybackRegions() }),
     )
     .get('/api/admins', requireAdmin, async (context) => context.json({ admins: await listAdmins() }))

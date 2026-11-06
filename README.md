@@ -429,7 +429,7 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 
 ### OBS browser sources
 
-Each embed shows the main room unless its URL names another, as `?room=late-night`.
+Each embed, the watcher overlay included, shows the main room unless its URL names another, as `?room=late-night`.
 
 Use `/embed/player` at a 16:9 size such as 1920 by 1080 or 1280 by 720. Turn on `Control audio via OBS` and `Shutdown source when not visible`. Leave `Refresh browser source when scene becomes active` off. YouTube fills the source with its control-free video player. SoundCloud has no video, so its official visual audio player fills the source instead.
 

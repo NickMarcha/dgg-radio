@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import type {
   StreamWatchSettings,
   StreamWatchStatus,
@@ -9,14 +9,13 @@ import type {
 import { captureServerEvent } from './analytics';
 import { getDatabase, type Database } from './db/client';
 import { streamWatch, users } from './db/schema';
-import { ChatTracker, type WatchedChannel } from './dgg-chat';
+import { ChatTracker, channelKey, type WatchedChannel } from './dgg-chat';
 import { EmbedsTracker } from './dgg-embeds';
 import { ensureEmoteCatalogue, lastEmoteIn, type EmoteCatalogue } from './dgg-emotes';
-import { MAIN_ROOM_ID } from './rooms';
 
 /**
  * Watching destiny.gg's embeds: how many people the site says are on each, and,
- * for the one channel the room follows, which chatters they are.
+ * for the channel each room follows, which chatters they are.
  *
  * The two sockets answer different questions and so are held on different
  * terms. The live socket is held for the life of the process: it is one
@@ -24,8 +23,9 @@ import { MAIN_ROOM_ID } from './rooms';
  * followed channel, and its health is what `/health` reports. Nothing it says
  * is stored; mitchdev.net/dgg/embeds keeps that history.
  *
- * The chat socket is held only while there is a followed channel and somebody
- * on it, and dropped again after a grace period. Its stream is small, about 1.6
+ * One chat socket serves every followed channel, because every chat event says
+ * what its user is watching. It is held only while some room follows a channel
+ * and somebody is on one, and dropped again after a grace period. Its stream is small, about 1.6
  * events a second, so that is about not sitting on somebody else's chat
  * connection for nothing rather than about the cost.
  */
@@ -76,9 +76,10 @@ function capWatchers(watchers: Watcher[]): Watcher[] {
 }
 
 export async function getStreamWatchSettings(
+  roomId: string,
   db: Database = getDatabase(),
 ): Promise<StreamWatchSettings> {
-  await db.insert(streamWatch).values({ roomId: MAIN_ROOM_ID }).onConflictDoNothing();
+  await db.insert(streamWatch).values({ roomId }).onConflictDoNothing();
   const [row] = await db
     .select({
       enabled: streamWatch.enabled,
@@ -87,7 +88,7 @@ export async function getStreamWatchSettings(
       updatedAt: streamWatch.updatedAt,
     })
     .from(streamWatch)
-    .where(eq(streamWatch.roomId, MAIN_ROOM_ID));
+    .where(eq(streamWatch.roomId, roomId));
 
   return { ...row, updatedAt: row.updatedAt.toISOString() };
 }
@@ -99,40 +100,47 @@ export interface StreamWatchUpdate {
 }
 
 export async function updateStreamWatchSettings(
+  roomId: string,
   update: StreamWatchUpdate,
   userId: string,
   db: Database = getDatabase(),
 ): Promise<StreamWatchSettings> {
-  await getStreamWatchSettings(db);
+  await getStreamWatchSettings(roomId, db);
   await db
     .update(streamWatch)
     .set({
       ...update,
       // Chat reports channel ids lowercase; the bigscreen link is written
-      // `#kick/dggJams`, so an admin will type it either way.
+      // `#kick/dggJams`, so an owner will type it either way.
       ...(update.channel === undefined ? {} : { channel: update.channel.trim().toLowerCase() }),
       updatedAt: new Date(),
       updatedByUserId: userId,
     })
-    .where(eq(streamWatch.roomId, MAIN_ROOM_ID));
+    .where(eq(streamWatch.roomId, roomId));
 
-  return getStreamWatchSettings(db);
+  return getStreamWatchSettings(roomId, db);
 }
 
-function channelOf(settings: StreamWatchSettings): WatchedChannel | null {
-  if (!settings.enabled || !settings.channel) return null;
-  return { platform: settings.platform, id: settings.channel };
+/** The channel each room follows, for the rooms that follow one. */
+async function loadFollowedChannels(db: Database): Promise<Map<string, WatchedChannel>> {
+  const rows = await db
+    .select({ roomId: streamWatch.roomId, platform: streamWatch.platform, channel: streamWatch.channel })
+    .from(streamWatch)
+    .where(and(eq(streamWatch.enabled, true), ne(streamWatch.channel, '')));
+  return new Map(rows.map((row) => [row.roomId, { platform: row.platform, id: row.channel }]));
 }
+
+const NO_SOCKET: WatchSocketState = { connected: false, lastFrameAt: null, downSince: null, attempts: 0 };
 
 class WatchTracker {
   // The first embed list decides whether the chat socket is wanted, and it
   // arrives seconds after the live socket opens. Waiting for the next refresh
-  // to notice would leave the room blind for a quarter of a minute each time
-  // an admin switches this on.
+  // to notice would leave the rooms blind for a quarter of a minute each time
+  // an owner switches this on.
   private readonly embeds = new EmbedsTracker(() => this.applyGate());
   private chat: ChatTracker | null = null;
-  private settings: StreamWatchSettings | null = null;
-  private channel: WatchedChannel | null = null;
+  /** Room id to the channel it follows. Two rooms may follow one channel. */
+  private followed = new Map<string, WatchedChannel>();
   private chatWantedAt: number | null = null;
   private timer: NodeJS.Timeout | null = null;
   private members = new Map<string, string | null>();
@@ -141,19 +149,10 @@ class WatchTracker {
   /** So one outage is one event, rather than one every fifteen seconds. */
   private liveOutageReported = false;
 
-  /** Reads the settings again and brings the chat socket in line with them. */
+  /** Reads every room's settings again and brings the chat socket in line with them. */
   async refresh(db: Database = getDatabase()): Promise<void> {
-    this.settings = await getStreamWatchSettings(db);
-    const channel = channelOf(this.settings);
-    // A different channel shares nothing with the old one, including the grace
-    // period: the chat socket was being held for people watching something
-    // else, and holding it two more minutes for that reason would be wrong.
-    if (channel?.id !== this.channel?.id || channel?.platform !== this.channel?.platform) {
-      this.chatWantedAt = null;
-    }
-    this.channel = channel;
-
-    if (!channel) {
+    this.followed = await loadFollowedChannels(db);
+    if (this.followed.size === 0) {
       this.stopChat();
       return;
     }
@@ -163,24 +162,32 @@ class WatchTracker {
     this.applyGate();
   }
 
+  /** Every followed channel once, however many rooms follow it. */
+  private channels(): WatchedChannel[] {
+    const unique = new Map<string, WatchedChannel>();
+    for (const channel of this.followed.values()) unique.set(channelKey(channel), channel);
+    return [...unique.values()];
+  }
+
   /**
    * Whether the chat socket is worth holding, decided from what is already
-   * known. Somebody on the embed is one reason and an open overlay is the
-   * other, so a stream about to start can be watched before anybody arrives.
-   * The grace period is so a channel dipping to nobody for a moment does not
-   * close and reopen it.
+   * known. Somebody on a followed embed is one reason and an open overlay is
+   * the other, so a stream about to start can be watched before anybody
+   * arrives. The grace period is so a channel dipping to nobody for a moment
+   * does not close and reopen it.
    */
   private applyGate(): void {
-    const channel = this.channel;
-    if (!channel) return;
+    const channels = this.channels();
+    if (channels.length === 0) return;
 
-    this.chat ??= new ChatTracker(channel, (text, subTier) =>
+    this.chat ??= new ChatTracker((text, subTier) =>
       this.catalogue === null ? null : lastEmoteIn(text, this.catalogue, subTier),
     );
-    this.chat.watch(channel);
+    this.chat.watch(channels);
 
     const someoneIsWatching =
-      (this.embeds.entryFor(channel)?.count ?? 0) > 0 || this.overlayCount() > 0;
+      channels.some((channel) => (this.embeds.entryFor(channel)?.count ?? 0) > 0) ||
+      this.overlayCount() > 0;
     if (someoneIsWatching) {
       this.chatWantedAt = Date.now();
       this.chat.start();
@@ -215,14 +222,15 @@ class WatchTracker {
     this.stopChat();
   }
 
-  snapshot(): WatchersSnapshot {
-    const channel = this.channel;
+  /** Who is watching the channel one room follows. */
+  snapshot(roomId: string): WatchersSnapshot {
+    const channel = this.followed.get(roomId);
     if (!channel) {
       return { channel: null, live: false, siteCount: null, chatCount: 0, watchers: [] };
     }
 
     const entry = this.embeds.entryFor(channel);
-    const watchers = (this.chat?.watchers() ?? []).map((watcher) => {
+    const watchers = (this.chat?.watchers(channel) ?? []).map((watcher) => {
       const emote = this.members.get(watcher.nick.toLowerCase());
       return { ...watcher, member: emote !== undefined, emote: emote ?? null };
     });
@@ -231,11 +239,10 @@ class WatchTracker {
       channel: { platform: channel.platform, id: channel.id },
       live: entry !== null,
       siteCount: entry?.count ?? null,
-      chatCount: this.chat?.count() ?? 0,
+      chatCount: this.chat?.count(channel) ?? 0,
       watchers: capWatchers(watchers),
     };
   }
-
   /**
    * The live socket's state, read without touching the database so `/health`
    * can carry it. Only the live socket: it is the one held for the life of the
@@ -280,14 +287,11 @@ class WatchTracker {
     );
   }
 
-  async status(db: Database = getDatabase()): Promise<StreamWatchStatus> {
+  async status(roomId: string, db: Database = getDatabase()): Promise<StreamWatchStatus> {
     return {
-      settings: this.settings ?? (await getStreamWatchSettings(db)),
-      sockets: {
-        live: this.embeds.state(),
-        chat: this.chat?.state() ?? { connected: false, lastFrameAt: null, downSince: null, attempts: 0 },
-      },
-      snapshot: this.snapshot(),
+      settings: await getStreamWatchSettings(roomId, db),
+      sockets: { live: this.embeds.state(), chat: this.chat?.state() ?? NO_SOCKET },
+      snapshot: this.snapshot(roomId),
     };
   }
 
