@@ -9,19 +9,22 @@ Last updated 2026-11-06.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 420 Vitest pass across 42 files,
+`astro check` and `tsc --noEmit` are both clean. 435 Vitest pass across 44 files,
 run against the local Postgres:
 
 ```
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-**Rooms are half built and not pushed.** `docs/plans/rooms.md` is the plan;
-steps 1 to 4 are committed on `main` locally (embed history dropped, `rooms`,
-queue items, seats and rules scoped per room, owners and mods as room roles).
-Pushing deploys migrations `0028` to `0032`, which move every existing row to
-the main room. Each was checked against a database holding rows from before
-it. Step 5 (room URLs, a per-room API and socket, per-room overlays) is next.
+**Rooms are mostly built and not pushed.** `docs/plans/rooms.md` is the plan.
+Steps 1 to 6 and the first two parts of step 7 are committed on `main` locally:
+rooms with their own queue, rules, stream and overlays; owners and mods as room
+roles; `/rooms` to list and create them; `/admin?room=<slug>` for an owner;
+moving a queue between rooms. Pushing deploys migrations `0028` to `0032`,
+which move every existing row to the main room; each was checked against a
+database holding rows from before it. Still to build from step 7: following
+and snapshotting another room's rule, per-rule edit grants, the revertable rule
+log, and per-room and site-wide stats. Stats still count every room together.
 
 Before that, everything was on `main` and pushed, through `77294b4` on 2026-10-02: the
 Last.fm research, the silence-watch fix and socket alerting, the seasonal
