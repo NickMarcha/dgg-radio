@@ -1,6 +1,6 @@
 # Rooms plan
 
-Status: steps 1 and 2 are built.
+Status: steps 1 to 3 are built.
 
 ## Outcome
 
@@ -78,12 +78,16 @@ Each step leaves a working site.
 2. **Add `rooms` with only the main room.** Key `room_settings`, `room_state`
    and `stream_watch` by room. Nothing visible changes.
 3. **Scope the room.** `room_id` on `queue_items` and `rules`; `room_seats`;
-   one playing item per room; per-room queue lock; the clock loops rooms; the
-   socket subscribes to a room.
+   one playing item per room; per-room queue lock; the clock ticks every room;
+   repeat cooldown and blocking are per room. Queueing in a second room is
+   refused for now (`QUEUED_ELSEWHERE`); the prompt that moves a queue comes
+   with room creation.
 4. **Room-level roles.** `room_members`, the creator whitelist, and moving
    admin actions to owners and moderators.
-5. **Room URLs and overlays.** `/r/:slug` through one generated page, embed
-   pages take the room, saved overlay settings keyed by room and owner.
+5. **Room URLs and overlays.** `/r/:slug` through one generated page, the API
+   and the room socket take the room, embed pages take the room, saved overlay
+   settings keyed by room and owner.
 6. **Many channels.** One chat socket feeds a roster per followed channel.
-7. **Room creation, rule following and snapshots, the revertable rule log,
-   combined stats.**
+7. **Room creation, moving a queue between rooms, rule following and
+   snapshots, the revertable rule log, per-room and combined stats.** Stats and
+   the jammer board still count every room together until then.

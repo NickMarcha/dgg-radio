@@ -110,6 +110,7 @@ async function findLegacyPlay(
  * a link and then asks the room for it in the ordinary way.
  */
 export async function enqueueLegacyPlay(
+  roomId: string,
   sourceId: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -118,7 +119,7 @@ export async function enqueueLegacyPlay(
   if (!play) {
     throw new MediaLookupError('LEGACY_PLAY_NOT_FOUND', 'That archived track is not there.');
   }
-  return enqueueMedia(await queupTrackUrl(play.provider, play.providerMediaId), user, db);
+  return enqueueMedia(roomId, await queupTrackUrl(play.provider, play.providerMediaId), user, db);
 }
 
 /**

@@ -7,7 +7,13 @@ import { getDatabase } from '../src/server/db/client';
 import { getEnv } from '../src/server/env';
 import { applySeeds } from '../src/server/seed';
 import { watchTracker } from '../src/server/watchers';
-import { advanceIfExpired, currentRevision, ensureRoomExists } from '../src/server/room';
+import {
+  advanceIfExpired,
+  currentRevision,
+  ensureRoomExists,
+  listRoomIds,
+} from '../src/server/room';
+import { MAIN_ROOM_ID } from '../src/server/rooms';
 import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ConnectionRegistry } from './connections';
@@ -62,7 +68,7 @@ function broadcastWatchers(): void {
 }
 
 function broadcastRoomChanged(): void {
-  void currentRevision()
+  void currentRevision(MAIN_ROOM_ID)
     .then((revision) => {
       const message = JSON.stringify({ type: 'room_changed', revision });
       for (const client of connections.clients()) {
@@ -105,7 +111,7 @@ try {
   console.error('Could not apply the seeds', error);
 }
 
-await ensureRoomExists();
+await ensureRoomExists(MAIN_ROOM_ID);
 
 // Watching a destiny.gg embed, if an admin has turned it on. It connects to
 // nothing while it is off, and a failure here is never a reason to refuse to
@@ -164,7 +170,7 @@ webSocketServer.on('connection', async (client, request) => {
   client.send(
     JSON.stringify({
       type: 'connected',
-      revision: await currentRevision(),
+      revision: await currentRevision(MAIN_ROOM_ID),
       authenticated: Boolean(user),
     }),
   );
@@ -192,7 +198,15 @@ const clock = setInterval(() => {
   clockBusy = true;
   clockChecks += 1;
   lastClockCheckAt = new Date();
-  void advanceIfExpired()
+  // Every room is ticked, and one failing does not stop the others.
+  void listRoomIds()
+    .then(async (roomIds) => {
+      const results = await Promise.allSettled(roomIds.map((roomId) => advanceIfExpired(roomId)));
+      for (const result of results) {
+        if (result.status === 'rejected') console.error('Room clock failed', result.reason);
+      }
+      return results.some((result) => result.status === 'fulfilled' && result.value);
+    })
     .then((changed) => {
       if (changed) {
         clockAdvances += 1;

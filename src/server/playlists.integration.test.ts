@@ -64,6 +64,7 @@ vi.mock('./media', async (importOriginal) => ({
 
 const { listPlaylistTrackUrls, MediaLookupError } = await import('./media');
 const schema = await import('./db/schema');
+const { MAIN_ROOM_ID } = await import('./rooms');
 const {
   addLegacyPlayToPlaylist,
   addPlaylistTrack,
@@ -295,9 +296,9 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       thumbnailUrl: null,
     });
 
-    await queuePlaylistTrack(playlistId, saved.id, owner, db);
+    await queuePlaylistTrack(MAIN_ROOM_ID, playlistId, saved.id, owner, db);
 
-    expect((await getRoomSnapshot(owner, 1, db)).current?.media.id).toBe(saved.id);
+    expect((await getRoomSnapshot(MAIN_ROOM_ID, owner, 1, db)).current?.media.id).toBe(saved.id);
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
   });
 
@@ -319,7 +320,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       durationSeconds: 1_900,
       thumbnailUrl: null,
     });
-    await expect(queuePlaylistTrack(playlistId, saved.id, owner, db)).rejects.toMatchObject({
+    await expect(queuePlaylistTrack(MAIN_ROOM_ID, playlistId, saved.id, owner, db)).rejects.toMatchObject({
       code: 'TRACK_TOO_LONG',
     });
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
@@ -351,7 +352,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
     expect(playlist.tracks[0]!.media.title).toBe('A long one');
     const mediaId = playlist.tracks[0]!.media.id;
 
-    await expect(queuePlaylistTrack(playlistId, mediaId, owner, db)).rejects.toMatchObject({
+    await expect(queuePlaylistTrack(MAIN_ROOM_ID, playlistId, mediaId, owner, db)).rejects.toMatchObject({
       code: 'TRACK_TOO_LONG',
     });
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
@@ -466,7 +467,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
     const playlist = await getPlaylist(playlistId, owner.id, db);
     expect(playlist.tracks[0]!.media.title).toBe('Blocked where the host lives');
     await expect(
-      queuePlaylistTrack(playlistId, playlist.tracks[0]!.media.id, owner, db),
+      queuePlaylistTrack(MAIN_ROOM_ID, playlistId, playlist.tracks[0]!.media.id, owner, db),
     ).rejects.toMatchObject({ code: 'YOUTUBE_REGION_BLOCKED' });
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
   });
@@ -590,19 +591,19 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       if (!found) throw new Error(`No metadata for ${url}`);
       return found;
     });
-    await enqueueMedia(metadata.get('https://www.youtube.com/watch?v=aaaaaaaaaaa')!.canonicalUrl, owner, db);
+    await enqueueMedia(MAIN_ROOM_ID, metadata.get('https://www.youtube.com/watch?v=aaaaaaaaaaa')!.canonicalUrl, owner, db);
     const playlistId = await createPlaylist('Driving', owner.id, db);
     await addPlaylistTrack(playlistId, duplicate.id, owner.id, db);
     await addPlaylistTrack(playlistId, eligible.id, owner.id, db);
 
-    const result = await queuePlaylist(playlistId, owner, db);
+    const result = await queuePlaylist(MAIN_ROOM_ID, playlistId, owner, db);
 
     expect(result).toMatchObject({
       attempted: 2,
       added: 1,
       skipped: [{ mediaId: duplicate.id, code: 'ALREADY_QUEUED' }],
     });
-    expect((await getRoomSnapshot(owner, 1, db)).myQueue.map(({ media }) => media.id)).toEqual([
+    expect((await getRoomSnapshot(MAIN_ROOM_ID, owner, 1, db)).myQueue.map(({ media }) => media.id)).toEqual([
       eligible.id,
     ]);
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(2);

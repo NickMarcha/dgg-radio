@@ -97,17 +97,11 @@ export const users = pgTable(
     dggRoles: text('dgg_roles').array().notNull().default(sql`'{}'::text[]`),
     dggFeatures: text('dgg_features').array().notNull().default(sql`'{}'::text[]`),
     lastPlayedAt: timestamp('last_played_at', { withTimezone: true }),
-    /**
-     * Place in the DJ rotation, or null when the user has nothing queued.
-     * Lower plays sooner.
-     */
-    rotationSeq: bigint('rotation_seq', { mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex('users_dgg_user_id_unique').on(table.dggUserId),
-    index('users_rotation_index').on(table.rotationSeq),
     index('users_username_lower_index').on(sql`lower(${table.username})`),
   ],
 );
@@ -259,10 +253,34 @@ export const playbackRegions = pgTable('playback_regions', {
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * A room: its own queue, settings, rules, and stream. The main room is the one
+ * at `/`, and its id is fixed (`MAIN_ROOM_ID` in `rooms.ts`) so the code can
+ * name it without a lookup. Every other room is created later and gets a random
+ * id.
+ */
+export const rooms = pgTable(
+  'rooms',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** The room's name in its URL, lowercase. */
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('rooms_slug_unique').on(table.slug),
+    check('rooms_slug_shape', sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]{1,31}$'`),
+  ],
+);
+
 export const queueItems = pgTable(
   'queue_items',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
     mediaId: uuid('media_id')
       .notNull()
       .references(() => media.id),
@@ -286,6 +304,7 @@ export const queueItems = pgTable(
   },
   (table) => [
     index('queue_items_status_requested_index').on(table.status, table.requestedAt),
+    index('queue_items_room_status_index').on(table.roomId, table.status),
     index('queue_items_requester_notice_index')
       .on(table.requestedByUserId)
       .where(sql`${table.listenerNotice} is not null`),
@@ -295,9 +314,30 @@ export const queueItems = pgTable(
       table.position,
     ),
     uniqueIndex('queue_items_one_playing_unique')
-      .on(table.status)
+      .on(table.roomId)
       .where(sql`${table.status} = 'playing'`),
   ],
+);
+
+/**
+ * A seat in one room's DJ rotation, held while the user has something queued
+ * there. Keyed by user, so a listener queues in one room at a time. Lower `seq`
+ * plays sooner; taking the back of the rotation is taking a fresh number.
+ */
+export const roomSeats = pgTable(
+  'room_seats',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    seq: bigint('seq', { mode: 'number' })
+      .notNull()
+      .default(sql`nextval('dj_rotation_seq')`),
+  },
+  (table) => [index('room_seats_room_seq_index').on(table.roomId, table.seq)],
 );
 
 export const votes = pgTable(
@@ -327,6 +367,10 @@ export const rules = pgTable(
   'rules',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    /** The room that keeps this rule and whose moderators edit its list. */
+    roomId: uuid('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     enforcement: ruleEnforcement('enforcement').notNull(),
@@ -336,7 +380,9 @@ export const rules = pgTable(
     createdByUserId: uuid('created_by_user_id').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('rules_name_lower_unique').on(sql`lower(${table.name})`)],
+  (table) => [
+    uniqueIndex('rules_room_name_lower_unique').on(table.roomId, sql`lower(${table.name})`),
+  ],
 );
 
 /**
@@ -374,27 +420,6 @@ export const ruleEntries = pgTable(
     ),
     index('rule_entries_target_index').on(table.provider, table.entryType, table.providerId),
     index('rule_entries_rule_index').on(table.ruleId),
-  ],
-);
-
-/**
- * A room: its own queue, settings, rules, and stream. The main room is the one
- * at `/`, and its id is fixed (`MAIN_ROOM_ID` in `rooms.ts`) so the code can
- * name it without a lookup. Every other room is created later and gets a random
- * id.
- */
-export const rooms = pgTable(
-  'rooms',
-  {
-    id: uuid('id').defaultRandom().primaryKey(),
-    /** The room's name in its URL, lowercase. */
-    slug: text('slug').notNull(),
-    name: text('name').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('rooms_slug_unique').on(table.slug),
-    check('rooms_slug_shape', sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]{1,31}$'`),
   ],
 );
 

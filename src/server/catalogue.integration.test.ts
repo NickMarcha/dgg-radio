@@ -15,6 +15,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 const { getArtistDetail, getTrackDetail } = await import('./catalogue');
 const { storeGenre } = await import('./genre');
 const schema = await import('./db/schema');
+const { MAIN_ROOM_ID } = await import('./rooms');
 const { legacyPlays, media, queueItems, trackGenres, users, votes } = schema;
 const connectionString = testConnectionString();
 
@@ -54,6 +55,7 @@ describe.skipIf(!connectionString)('one track, and who published it', () => {
 
   async function play(mediaId: string, requesterId: string, at: Date) {
     await db.insert(queueItems).values({
+      roomId: MAIN_ROOM_ID,
       mediaId,
       requestedByUserId: requesterId,
       status: 'played',

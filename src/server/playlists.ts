@@ -477,6 +477,7 @@ export async function addLegacyPlayToPlaylist(
 }
 
 export async function queuePlaylistTrack(
+  roomId: string,
   playlistId: string,
   mediaId: string,
   user: AuthenticatedUser,
@@ -497,7 +498,7 @@ export async function queuePlaylistTrack(
   if (!saved) {
     throw new PlaylistError('PLAYLIST_TRACK_NOT_FOUND', 'That track is not in this playlist.', 404);
   }
-  return enqueueMedia(saved.canonicalUrl, user, db);
+  return enqueueMedia(roomId, saved.canonicalUrl, user, db);
 }
 
 /**
@@ -506,6 +507,7 @@ export async function queuePlaylistTrack(
  * caller sees exactly what is still waiting and can ask again.
  */
 export async function queuePlaylist(
+  roomId: string,
   playlistId: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -528,7 +530,7 @@ export async function queuePlaylist(
 
   for (const track of playlist.tracks.slice(0, MAX_QUEUE_IMPORT_TRACKS)) {
     try {
-      await enqueueMedia(track.media.canonicalUrl, user, db);
+      await enqueueMedia(roomId, track.media.canonicalUrl, user, db);
       result.added += 1;
     } catch (error) {
       if (error instanceof RoomError || error instanceof MediaLookupError) {

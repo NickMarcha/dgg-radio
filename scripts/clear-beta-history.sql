@@ -1,4 +1,4 @@
--- Clears the room's played history, every vote cast on it, and the moderation
+-- Clears every room's played history, every vote cast on it, and the moderation
 -- log describing it, so testing done before the room opens does not become the
 -- first thing real listeners see.
 --
@@ -57,13 +57,15 @@ BEGIN;
 -- first or the delete below fails on the foreign key. `room_state` lets go of
 -- the playing track; the moderation records are deleted outright, since every
 -- one of them describes a track that is about to stop existing.
-UPDATE room_state SET current_queue_item_id = NULL WHERE id = 1;
+UPDATE room_state SET current_queue_item_id = NULL;
 DELETE FROM moderation_actions;
 
 DELETE FROM queue_items;
 
--- Turn order is held on the user, not in the queue, so it outlives the history
--- it was built from and would seed the first real rotation with test data.
+-- Turn order is held outside the queue, in each user's seat and when they last
+-- played, so it outlives the history it was built from and would seed the
+-- first real rotation with test data.
+DELETE FROM room_seats;
 UPDATE users SET last_played_at = NULL WHERE last_played_at IS NOT NULL;
 
 COMMIT;

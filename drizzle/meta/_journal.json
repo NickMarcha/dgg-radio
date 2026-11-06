@@ -211,6 +211,20 @@
       "when": 1794001077046,
       "tag": "0029_rooms",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794001255596,
+      "tag": "0030_room_queues",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794001674622,
+      "tag": "0031_room_rules",
+      "breakpoints": true
     }
   ]
 }

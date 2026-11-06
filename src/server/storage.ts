@@ -33,7 +33,7 @@ const GROUPS: { name: string; tables: string[] }[] = [
   { name: 'Stream overlay', tables: ['stream_watch', 'watcher_embed_settings'] },
   {
     name: 'Room state and internal tables',
-    tables: ['rooms', 'room_settings', 'room_state', 'seed_state', 'drizzle.__drizzle_migrations'],
+    tables: ['rooms', 'room_settings', 'room_state', 'room_seats', 'seed_state', 'drizzle.__drizzle_migrations'],
   },
 ];
 

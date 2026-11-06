@@ -14,6 +14,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
 const { getCommunityStats, getUserProfile, listHistory } = await import('./community');
 const schema = await import('./db/schema');
+const { MAIN_ROOM_ID } = await import('./rooms');
 const { media, queueItems, users, votes, userChatCounts } = schema;
 const connectionString = testConnectionString();
 
@@ -73,6 +74,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     const [item] = await db
       .insert(queueItems)
       .values({
+        roomId: MAIN_ROOM_ID,
         mediaId: track.id,
         requestedByUserId: requesterId,
         status,
@@ -92,6 +94,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
       .where(eq(media.providerMediaId, providerMediaId));
     if (!track) throw new Error('Could not find media');
     await db.insert(queueItems).values({
+      roomId: MAIN_ROOM_ID,
       mediaId: track.id,
       requestedByUserId: requesterId,
       status: 'played',

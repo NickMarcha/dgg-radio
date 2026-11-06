@@ -62,6 +62,7 @@ const { reorderRules } = await import('./rules');
 const { getStorageSnapshot } = await import('./storage');
 const { resetRateLimits } = await import('./rate-limit');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
+const { MAIN_ROOM_ID } = await import('./rooms');
 const {
   findWatcherEmbedSettings,
   getOrCreateWatcherEmbedSettings,
@@ -243,7 +244,7 @@ describe('role authorization', () => {
 
     const response = await request('/api/rules/order', 'PATCH', { orderedIds: [RULE_ID] });
     expect(response.status).toBe(200);
-    expect(reorderRules).toHaveBeenCalledWith([RULE_ID]);
+    expect(reorderRules).toHaveBeenCalledWith(MAIN_ROOM_ID, [RULE_ID]);
   });
 });
 
@@ -484,7 +485,12 @@ describe('personal playlist routes', () => {
     );
 
     expect(response.status).toBe(201);
-    expect(queuePlaylistTrack).toHaveBeenCalledWith(PLAYLIST_ID, MEDIA_ID, user('listener'));
+    expect(queuePlaylistTrack).toHaveBeenCalledWith(
+      MAIN_ROOM_ID,
+      PLAYLIST_ID,
+      MEDIA_ID,
+      user('listener'),
+    );
     expect(onRoomChanged).toHaveBeenCalledOnce();
   });
 });

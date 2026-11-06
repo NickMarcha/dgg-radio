@@ -23,9 +23,9 @@ The API, its Postgres, and a Cloudflare tunnel run as one compose stack; see the
 
 Every page shows the same header: who is signed in, and how many people are listening. `GET /api/me` answers exactly that from the session cookie. Only the room itself reads the whole snapshot, over its own WebSocket, so opening `/history` or `/playlists` does not pull down a queue, its votes, and the rule list to render a username.
 
-`rooms` names each room. `room_state`, `room_settings` and `stream_watch` hold one row per room, keyed by `room_id`. Only the main room exists so far; its id is fixed by the migration that created `rooms` and is `MAIN_ROOM_ID` in `src/server/rooms.ts`. The queue, rotation and rules are not yet scoped to a room, so the main room is still the only one anything plays in. `docs/plans/rooms.md` is the plan for the rest.
+`rooms` names each room. `room_state`, `room_settings` and `stream_watch` hold one row per room, keyed by `room_id`. The main room's id is fixed by the migration that created `rooms` and is `MAIN_ROOM_ID` in `src/server/rooms.ts`. Queue items, rotation seats and rules each belong to one room, and every queue transition names the room it acts on. Nothing creates a second room yet, and the API and room socket still serve the main room only; `docs/plans/rooms.md` is the plan for the rest.
 
-Queue transitions take a Postgres transaction-scoped advisory lock. A partial unique index also prevents two queue items from holding `playing` status. The server clock checks once per second, marks an expired item as played, selects the next request, revalidates its media metadata, and starts it from one server timestamp.
+Queue transitions take a Postgres transaction-scoped advisory lock keyed by the room, so rooms never wait on each other. A partial unique index also prevents two queue items in one room from holding `playing` status. The server clock checks every room once per second, marks an expired item as played, selects the next request, revalidates its media metadata, and starts it from one server timestamp.
 
 The browser computes playback position as:
 
@@ -39,13 +39,13 @@ Players seek when drift exceeds 2.5 seconds and check drift every 10 seconds.
 
 Everyone keeps their own queue, ordered by `queue_items.position` and as long as they like. The room plays across those queues rather than through one shared list.
 
-`users.rotation_seq` is a place in the rotation, taken from the `dj_rotation_seq` sequence, or null for someone with nothing waiting. Queueing a track while holding no seat takes one at the back. The next track is always the front seat's lowest position.
+A `room_seats` row is a place in one room's rotation, numbered from the `dj_rotation_seq` sequence, and exists only while its holder has something waiting there. It is keyed by user, so a listener queues in one room at a time: queueing elsewhere while holding a seat is refused with `QUEUED_ELSEWHERE`. Queueing a track while holding no seat takes one at the back. The next track is always the front seat's lowest position.
 
 A finished track sends its requester to the back if they still have something waiting, and otherwise gives up their seat until they queue again. Cycling deliberately happens when the turn **ends**, not when it starts: someone whose queue is briefly empty would otherwise leave the rotation and rejoin an empty back, taking two turns in a row. Because the playing DJ still holds their seat, the room queue sorts them last for display, which is where they are about to be.
 
 The room queue shows one track per person in turn order. A listener's own queue comes down separately in `myQueue`, where they can reorder it or take a track back out before it plays. Withdrawing records no moderation action, refuses anything that is already playing, and gives up the rotation seat when it was the last queued track, the same as finishing one.
 
-Mods and admins can reorder the room queue. This rewrites `users.rotation_seq`, not anyone's private track positions. The current DJ's next turn stays last until the playing track ends, preserving one turn per person. Both queue controls support moving one step or straight to the top or bottom.
+Mods and admins can reorder the room queue. This renumbers `room_seats`, not anyone's private track positions. The current DJ's next turn stays last until the playing track ends, preserving one turn per person. Both queue controls support moving one step or straight to the top or bottom.
 
 ## Identity and permissions
 

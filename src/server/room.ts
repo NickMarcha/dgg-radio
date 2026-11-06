@@ -5,7 +5,6 @@ import {
   eq,
   inArray,
   isNotNull,
-  isNull,
   ne,
   sql,
 } from 'drizzle-orm';
@@ -25,6 +24,7 @@ import {
   media,
   moderationActions,
   queueItems,
+  roomSeats,
   roomSettings,
   roomState,
   users,
@@ -41,7 +41,13 @@ import {
   lookupMediaCached,
 } from './media-cache';
 import { MAIN_ROOM_ID } from './rooms';
-import { addRuleEntry, describeBlock, findBlockingRules, listActiveRules } from './rules';
+import {
+  addRuleEntry,
+  assertRulesInRoom,
+  describeBlock,
+  findBlockingRules,
+  listActiveRules,
+} from './rules';
 import {
   listPlaylistTrackUrls,
   MediaLookupError,
@@ -88,7 +94,7 @@ function queueRowSelection() {
     id: queueItems.id,
     status: queueItems.status,
     position: queueItems.position,
-    rotationSeq: users.rotationSeq,
+    rotationSeq: roomSeats.seq,
     requestedAt: queueItems.requestedAt,
     startedAt: queueItems.startedAt,
     requesterLastPlayedAt: users.lastPlayedAt,
@@ -143,27 +149,63 @@ function toQueueRow(row: ReturnType<typeof queueRowSelection> extends never ? ne
   };
 }
 
-export async function ensureRoomExists(db: Database = getDatabase()): Promise<void> {
-  await db.insert(roomSettings).values({ roomId: MAIN_ROOM_ID }).onConflictDoNothing();
-  await db.insert(roomState).values({ roomId: MAIN_ROOM_ID }).onConflictDoNothing();
+export async function ensureRoomExists(roomId: string, db: Database = getDatabase()): Promise<void> {
+  await db.insert(roomSettings).values({ roomId }).onConflictDoNothing();
+  await db.insert(roomState).values({ roomId }).onConflictDoNothing();
 }
 
-async function bumpRevision(db: Executor): Promise<void> {
+/** Every room, for the clock to tick. There are few enough to visit each second. */
+export async function listRoomIds(db: Database = getDatabase()): Promise<string[]> {
+  const rows = await db.select({ roomId: roomState.roomId }).from(roomState);
+  return rows.map(({ roomId }) => roomId);
+}
+
+async function bumpRevision(roomId: string, db: Executor): Promise<void> {
   await db
     .update(roomState)
     .set({ revision: sql`${roomState.revision} + 1`, updatedAt: new Date() })
-    .where(eq(roomState.roomId, MAIN_ROOM_ID));
+    .where(eq(roomState.roomId, roomId));
 }
 
-/** The first track of whoever is at the front of the rotation. */
-async function nextQueuedRow(db: Database): Promise<QueueRow | null> {
-  const [row] = await db
+/**
+ * Serialises queue transitions within one room. Rooms never wait on each
+ * other, so the lock is keyed by the room as well as by this module.
+ */
+async function lockRoom(roomId: string, transaction: Executor): Promise<void> {
+  await transaction.execute(sql`select pg_advisory_xact_lock(${ROOM_LOCK_ID}, hashtext(${roomId}))`);
+}
+
+/** A queue item joined to its track, its requester, and their seat in its room. */
+function selectQueueRows(db: Executor) {
+  return db
     .select(queueRowSelection())
     .from(queueItems)
     .innerJoin(media, eq(queueItems.mediaId, media.id))
     .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
-    .where(and(eq(queueItems.status, 'queued'), isNotNull(users.rotationSeq)))
-    .orderBy(asc(users.rotationSeq), asc(queueItems.position), asc(queueItems.requestedAt))
+    .leftJoin(
+      roomSeats,
+      and(eq(roomSeats.userId, queueItems.requestedByUserId), eq(roomSeats.roomId, queueItems.roomId)),
+    );
+}
+
+async function activeQueueRows(roomId: string, db: Executor): Promise<QueueRow[]> {
+  const rows = await selectQueueRows(db).where(
+    and(eq(queueItems.roomId, roomId), inArray(queueItems.status, ['queued', 'playing'])),
+  );
+  return rows.map(toQueueRow);
+}
+
+/** The first track of whoever is at the front of the rotation. */
+async function nextQueuedRow(roomId: string, db: Database): Promise<QueueRow | null> {
+  const [row] = await selectQueueRows(db)
+    .where(
+      and(
+        eq(queueItems.roomId, roomId),
+        eq(queueItems.status, 'queued'),
+        isNotNull(roomSeats.seq),
+      ),
+    )
+    .orderBy(asc(roomSeats.seq), asc(queueItems.position), asc(queueItems.requestedAt))
     .limit(1);
   return row ? toQueueRow(row) : null;
 }
@@ -176,12 +218,26 @@ async function hasQueuedTracks(userId: string, db: Executor): Promise<boolean> {
   return count > 0;
 }
 
+/**
+ * The room a user holds a seat in, if any. A seat is held from the first
+ * queued track until the last one has played, so this is also the one room
+ * they can queue in until then.
+ */
+async function seatRoomOf(userId: string, db: Executor): Promise<string | null> {
+  const [seat] = await db
+    .select({ roomId: roomSeats.roomId })
+    .from(roomSeats)
+    .where(eq(roomSeats.userId, userId));
+  return seat?.roomId ?? null;
+}
+
 /** Joins the back of the rotation, unless already waiting somewhere in it. */
-async function joinRotation(userId: string, db: Executor): Promise<void> {
-  await db
-    .update(users)
-    .set({ rotationSeq: sql`nextval('dj_rotation_seq')` })
-    .where(and(eq(users.id, userId), isNull(users.rotationSeq)));
+async function joinRotation(userId: string, roomId: string, db: Executor): Promise<void> {
+  await db.insert(roomSeats).values({ userId, roomId }).onConflictDoNothing();
+}
+
+function leaveRotation(userId: string, db: Executor) {
+  return db.delete(roomSeats).where(eq(roomSeats.userId, userId));
 }
 
 /**
@@ -189,15 +245,23 @@ async function joinRotation(userId: string, db: Executor): Promise<void> {
  * have something queued, and otherwise leave the rotation until they queue again.
  */
 async function cycleRotation(userId: string, db: Executor): Promise<void> {
-  const stillQueued = await hasQueuedTracks(userId, db);
-  await db
-    .update(users)
-    .set({ rotationSeq: stillQueued ? sql`nextval('dj_rotation_seq')` : null })
-    .where(eq(users.id, userId));
+  if (await hasQueuedTracks(userId, db)) {
+    await db
+      .update(roomSeats)
+      .set({ seq: sql`nextval('dj_rotation_seq')` })
+      .where(eq(roomSeats.userId, userId));
+  } else {
+    await leaveRotation(userId, db);
+  }
 }
 
-async function getSettings(db: Database) {
-  await ensureRoomExists(db);
+/** Leaves the rotation once nothing is left waiting. */
+async function leaveRotationIfEmpty(userId: string, db: Executor): Promise<void> {
+  if (!(await hasQueuedTracks(userId, db))) await leaveRotation(userId, db);
+}
+
+async function getSettings(roomId: string, db: Database) {
+  await ensureRoomExists(roomId, db);
   const [settings] = await db
     .select({
       description: roomSettings.description,
@@ -210,12 +274,13 @@ async function getSettings(db: Database) {
       revealRequester: roomSettings.revealRequester,
     })
     .from(roomSettings)
-    .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
+    .where(eq(roomSettings.roomId, roomId));
   if (!settings) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
   return settings;
 }
 
 async function assertRepeatCooldownPassed(
+  roomId: string,
   provider: MediaMetadata['provider'],
   providerMediaId: string,
   cooldownSeconds: number,
@@ -223,6 +288,7 @@ async function assertRepeatCooldownPassed(
   options: { excludeQueueItemId?: string; now?: Date } = {},
 ): Promise<void> {
   const conditions = [
+    eq(queueItems.roomId, roomId),
     eq(media.provider, provider),
     eq(media.providerMediaId, providerMediaId),
     isNotNull(queueItems.startedAt),
@@ -258,6 +324,7 @@ async function assertRepeatCooldownPassed(
 }
 
 async function validateForPlayback(
+  roomId: string,
   candidate: QueueRow,
   maxDurationSeconds: number,
   repeatCooldownSeconds: number,
@@ -271,11 +338,12 @@ async function validateForPlayback(
       `Tracks must be ${Math.floor(maxDurationSeconds / 60)} minutes or shorter.`,
     );
   }
-  const blocking = await findBlockingRules(checked, db);
+  const blocking = await findBlockingRules(roomId, checked, db);
   if (blocking.length > 0) {
     throw new RoomError('MEDIA_BLOCKED', `This track breaks ${describeBlock(blocking)}.`);
   }
   await assertRepeatCooldownPassed(
+    roomId,
     checked.provider,
     checked.providerMediaId,
     repeatCooldownSeconds,
@@ -285,22 +353,26 @@ async function validateForPlayback(
   return checked;
 }
 
-export async function startNextTrack(db: Database = getDatabase()): Promise<boolean> {
-  const settings = await getSettings(db);
+export async function startNextTrack(
+  roomId: string,
+  db: Database = getDatabase(),
+): Promise<boolean> {
+  const settings = await getSettings(roomId, db);
 
   for (;;) {
     const [state] = await db
       .select({ currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.roomId, MAIN_ROOM_ID));
+      .where(eq(roomState.roomId, roomId));
     if (state?.currentQueueItemId) return false;
 
-    const candidate = await nextQueuedRow(db);
+    const candidate = await nextQueuedRow(roomId, db);
     if (!candidate) return false;
 
     let checked: MediaMetadata;
     try {
       checked = await validateForPlayback(
+        roomId,
         candidate,
         settings.maxDurationSeconds,
         settings.repeatCooldownSeconds,
@@ -321,16 +393,17 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
           listenerNotice: message,
         })
         .where(and(eq(queueItems.id, candidate.id), eq(queueItems.status, 'queued')));
-      await bumpRevision(db);
+      await leaveRotationIfEmpty(candidate.requestedBy.id, db);
+      await bumpRevision(roomId, db);
       continue;
     }
 
     const started = await db.transaction(async (transaction) => {
-      await transaction.execute(sql`select pg_advisory_xact_lock(${ROOM_LOCK_ID})`);
+      await lockRoom(roomId, transaction);
       const [lockedState] = await transaction
         .select({ currentQueueItemId: roomState.currentQueueItemId })
         .from(roomState)
-        .where(eq(roomState.roomId, MAIN_ROOM_ID));
+        .where(eq(roomState.roomId, roomId));
       if (lockedState?.currentQueueItemId) return false;
 
       const now = new Date();
@@ -362,7 +435,7 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
           revision: sql`${roomState.revision} + 1`,
           updatedAt: now,
         })
-        .where(eq(roomState.roomId, MAIN_ROOM_ID));
+        .where(eq(roomState.roomId, roomId));
       return true;
     });
     return started;
@@ -370,18 +443,19 @@ export async function startNextTrack(db: Database = getDatabase()): Promise<bool
 }
 
 export async function advanceCurrentTrack(
+  roomId: string,
   status: 'played' | 'skipped',
   reason: string | null,
   expectedQueueItemId?: string,
   db: Database = getDatabase(),
 ): Promise<boolean> {
-  await ensureRoomExists(db);
+  await ensureRoomExists(roomId, db);
   const advanced = await db.transaction(async (transaction) => {
-    await transaction.execute(sql`select pg_advisory_xact_lock(${ROOM_LOCK_ID})`);
+    await lockRoom(roomId, transaction);
     const [state] = await transaction
       .select({ currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.roomId, MAIN_ROOM_ID));
+      .where(eq(roomState.roomId, roomId));
     if (!state?.currentQueueItemId) return false;
     if (expectedQueueItemId && state.currentQueueItemId !== expectedQueueItemId) return false;
 
@@ -399,15 +473,18 @@ export async function advanceCurrentTrack(
         revision: sql`${roomState.revision} + 1`,
         updatedAt: now,
       })
-      .where(eq(roomState.roomId, MAIN_ROOM_ID));
+      .where(eq(roomState.roomId, roomId));
     return true;
   });
 
-  if (advanced) await startNextTrack(db);
+  if (advanced) await startNextTrack(roomId, db);
   return advanced;
 }
 
-export async function advanceIfExpired(db: Database = getDatabase()): Promise<boolean> {
+export async function advanceIfExpired(
+  roomId: string,
+  db: Database = getDatabase(),
+): Promise<boolean> {
   const [current] = await db
     .select({
       id: queueItems.id,
@@ -417,14 +494,14 @@ export async function advanceIfExpired(db: Database = getDatabase()): Promise<bo
     .from(roomState)
     .innerJoin(queueItems, eq(roomState.currentQueueItemId, queueItems.id))
     .innerJoin(media, eq(queueItems.mediaId, media.id))
-    .where(eq(roomState.roomId, MAIN_ROOM_ID));
+    .where(eq(roomState.roomId, roomId));
 
   if (!current?.startedAt) {
-    return startNextTrack(db);
+    return startNextTrack(roomId, db);
   }
   const endsAt = current.startedAt.getTime() + current.durationSeconds * 1_000;
   return Date.now() >= endsAt
-    ? advanceCurrentTrack('played', null, current.id, db)
+    ? advanceCurrentTrack(roomId, 'played', null, current.id, db)
     : false;
 }
 
@@ -474,7 +551,8 @@ export async function resolveMediaForLibrary(
   url: string,
   db: Database = getDatabase(),
 ): Promise<string> {
-  const settings = await getSettings(db);
+  // The library belongs to no room, so it reads the main room's region.
+  const settings = await getSettings(MAIN_ROOM_ID, db);
   const { metadata } = await inspectMediaCached(url, settings.targetCountry, db);
   return storeMedia(metadata, db);
 }
@@ -497,7 +575,7 @@ export async function resolvePlaylistForLibrary(
   url: string,
   db: Database = getDatabase(),
 ): Promise<LibraryTrack[]> {
-  const settings = await getSettings(db);
+  const settings = await getSettings(MAIN_ROOM_ID, db);
   const env = getEnv();
   const trackUrls = await listPlaylistTrackUrls(
     parsePlaylistUrl(url),
@@ -534,11 +612,20 @@ export async function resolvePlaylistForLibrary(
 }
 
 export async function enqueueMedia(
+  roomId: string,
   url: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<{ id: string; provider: 'youtube' | 'soundcloud'; durationSeconds: number }> {
-  const settings = await getSettings(db);
+  const settings = await getSettings(roomId, db);
+  const seatRoom = await seatRoomOf(user.id, db);
+  if (seatRoom !== null && seatRoom !== roomId) {
+    throw new RoomError(
+      'QUEUED_ELSEWHERE',
+      'You already have tracks waiting in another room. A listener queues in one room at a time.',
+      409,
+    );
+  }
   const metadata = await lookupMediaCached(url, settings.targetCountry, db);
 
   if (metadata.durationSeconds > settings.maxDurationSeconds) {
@@ -548,7 +635,7 @@ export async function enqueueMedia(
     );
   }
 
-  const blocking = await findBlockingRules(metadata, db);
+  const blocking = await findBlockingRules(roomId, metadata, db);
   if (blocking.length > 0) {
     const byArtist = blocking.find(({ entryType }) => entryType === 'artist');
     const scope = byArtist ? `${byArtist.label} is blocked` : 'That track is blocked';
@@ -563,6 +650,7 @@ export async function enqueueMedia(
       and(
         eq(media.provider, metadata.provider),
         eq(media.providerMediaId, metadata.providerMediaId),
+        eq(queueItems.roomId, roomId),
         inArray(queueItems.status, ['queued', 'playing']),
       ),
     )
@@ -570,6 +658,7 @@ export async function enqueueMedia(
   if (activeDuplicate) throw new RoomError('ALREADY_QUEUED', 'That track is already in the room queue.');
 
   await assertRepeatCooldownPassed(
+    roomId,
     metadata.provider,
     metadata.providerMediaId,
     settings.repeatCooldownSeconds,
@@ -587,13 +676,13 @@ export async function enqueueMedia(
 
   const [item] = await db
     .insert(queueItems)
-    .values({ mediaId: storedMediaId, requestedByUserId: user.id, position: nextPosition })
+    .values({ roomId, mediaId: storedMediaId, requestedByUserId: user.id, position: nextPosition })
     .returning({ id: queueItems.id });
   if (!item) throw new RoomError('QUEUE_FAILED', 'The request could not be queued.', 500);
 
-  await joinRotation(user.id, db);
-  await bumpRevision(db);
-  await startNextTrack(db);
+  await joinRotation(user.id, roomId, db);
+  await bumpRevision(roomId, db);
+  await startNextTrack(roomId, db);
   return {
     id: item.id,
     provider: metadata.provider,
@@ -612,11 +701,12 @@ export interface PlaylistImport {
  * rather than quietly let in.
  */
 export async function enqueueProviderPlaylist(
+  roomId: string,
   url: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<PlaylistImport> {
-  const settings = await getSettings(db);
+  const settings = await getSettings(roomId, db);
   const env = getEnv();
   const parsed = parsePlaylistUrl(url);
   const trackUrls = await listPlaylistTrackUrls(
@@ -640,7 +730,7 @@ export async function enqueueProviderPlaylist(
       continue;
     }
     try {
-      await enqueueMedia(trackUrl, user, db);
+      await enqueueMedia(roomId, trackUrl, user, db);
       result.added += 1;
     } catch (error) {
       result.skipped.push({
@@ -660,7 +750,11 @@ export async function voteOnCurrentTrack(
   db: Database = getDatabase(),
 ): Promise<void> {
   const [item] = await db
-    .select({ id: queueItems.id, requestedByUserId: queueItems.requestedByUserId })
+    .select({
+      id: queueItems.id,
+      roomId: queueItems.roomId,
+      requestedByUserId: queueItems.requestedByUserId,
+    })
     .from(queueItems)
     .where(and(eq(queueItems.id, queueItemId), eq(queueItems.status, 'playing')))
     .limit(1);
@@ -682,10 +776,10 @@ export async function voteOnCurrentTrack(
         set: { value, updatedAt: new Date() },
       });
   }
-  await bumpRevision(db);
+  await bumpRevision(item.roomId, db);
 
-  if (value === -1 && (await downvotesForceSkip(queueItemId, eligibleVoterCount, db))) {
-    await advanceCurrentTrack('skipped', 'Skipped by room vote.', queueItemId, db);
+  if (value === -1 && (await downvotesForceSkip(item.roomId, queueItemId, eligibleVoterCount, db))) {
+    await advanceCurrentTrack(item.roomId, 'skipped', 'Skipped by room vote.', queueItemId, db);
   }
 }
 
@@ -694,11 +788,12 @@ export async function voteOnCurrentTrack(
  * audience, and a room with nobody in it can never reach it.
  */
 async function downvotesForceSkip(
+  roomId: string,
   queueItemId: string,
   eligibleVoterCount: number,
   db: Database,
 ): Promise<boolean> {
-  const settings = await getSettings(db);
+  const settings = await getSettings(roomId, db);
   const [{ downvotes }] = await db
     .select({ downvotes: sql<number>`count(*)`.mapWith(Number) })
     .from(votes)
@@ -719,7 +814,7 @@ export async function reorderMyQueue(
   db: Database = getDatabase(),
 ): Promise<void> {
   const mine = await db
-    .select({ id: queueItems.id })
+    .select({ id: queueItems.id, roomId: queueItems.roomId })
     .from(queueItems)
     .where(and(eq(queueItems.requestedByUserId, user.id), eq(queueItems.status, 'queued')))
     .orderBy(asc(queueItems.position));
@@ -734,7 +829,8 @@ export async function reorderMyQueue(
       await transaction.update(queueItems).set({ position }).where(eq(queueItems.id, id));
     }
   });
-  await bumpRevision(db);
+  // One room at a time, so every track of theirs is in the same one.
+  if (mine[0]) await bumpRevision(mine[0].roomId, db);
 }
 
 function orderedRoomQueueRows(activeRows: QueueRow[], currentQueueItemId: string | null): QueueRow[] {
@@ -763,24 +859,19 @@ function orderedRoomQueueRows(activeRows: QueueRow[], currentQueueItemId: string
 
 /** Reorders the DJ rotation shown in the room queue without changing personal queues. */
 export async function reorderRoomQueue(
+  roomId: string,
   orderedIds: string[],
   moderator: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<void> {
-  await ensureRoomExists(db);
+  await ensureRoomExists(roomId, db);
   await db.transaction(async (transaction) => {
-    await transaction.execute(sql`select pg_advisory_xact_lock(${ROOM_LOCK_ID})`);
+    await lockRoom(roomId, transaction);
     const [state] = await transaction
       .select({ currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.roomId, MAIN_ROOM_ID));
-    const activeRows = await transaction
-      .select(queueRowSelection())
-      .from(queueItems)
-      .innerJoin(media, eq(queueItems.mediaId, media.id))
-      .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
-      .where(inArray(queueItems.status, ['queued', 'playing']))
-      .then((rows) => rows.map(toQueueRow));
+      .where(eq(roomState.roomId, roomId));
+    const activeRows = await activeQueueRows(roomId, transaction);
     const roomRows = orderedRoomQueueRows(activeRows, state?.currentQueueItemId ?? null);
     const byId = new Map(roomRows.map((row) => [row.id, row]));
 
@@ -800,16 +891,16 @@ export async function reorderRoomQueue(
     for (const id of orderedIds) {
       const row = byId.get(id)!;
       await transaction
-        .update(users)
-        .set({ rotationSeq: sql`nextval('dj_rotation_seq')` })
-        .where(eq(users.id, row.requestedBy.id));
+        .update(roomSeats)
+        .set({ seq: sql`nextval('dj_rotation_seq')` })
+        .where(eq(roomSeats.userId, row.requestedBy.id));
     }
     await transaction.insert(moderationActions).values({
       actorUserId: moderator.id,
       action: 'reorder_room_queue',
       details: { orderedIds },
     });
-    await bumpRevision(transaction);
+    await bumpRevision(roomId, transaction);
   });
 }
 
@@ -824,19 +915,20 @@ export async function clearUserQueue(
     .update(queueItems)
     .set({ status: 'removed', finishedAt: new Date(), moderationReason: reason })
     .where(and(eq(queueItems.requestedByUserId, userId), eq(queueItems.status, 'queued')))
-    .returning({ id: queueItems.id });
+    .returning({ id: queueItems.id, roomId: queueItems.roomId });
 
-  await db.update(users).set({ rotationSeq: null }).where(eq(users.id, userId));
+  await leaveRotation(userId, db);
   await db.insert(moderationActions).values({
     actorUserId: admin.id,
     action: 'clear_queue',
     details: { userId, reason, removed: cleared.length },
   });
-  await bumpRevision(db);
+  for (const roomId of new Set(cleared.map((item) => item.roomId))) await bumpRevision(roomId, db);
   return cleared.length;
 }
 
 export async function skipCurrentTrack(
+  roomId: string,
   reason: string,
   moderator: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -844,7 +936,7 @@ export async function skipCurrentTrack(
   const [state] = await db
     .select({ currentQueueItemId: roomState.currentQueueItemId })
     .from(roomState)
-    .where(eq(roomState.roomId, MAIN_ROOM_ID));
+    .where(eq(roomState.roomId, roomId));
   if (!state?.currentQueueItemId) throw new RoomError('NOTHING_PLAYING', 'There is no track to skip.');
 
   await db.insert(moderationActions).values({
@@ -853,7 +945,7 @@ export async function skipCurrentTrack(
     queueItemId: state.currentQueueItemId,
     details: { reason },
   });
-  await advanceCurrentTrack('skipped', reason, state.currentQueueItemId, db);
+  await advanceCurrentTrack(roomId, 'skipped', reason, state.currentQueueItemId, db);
 }
 
 export async function removeQueuedTrack(
@@ -866,18 +958,20 @@ export async function removeQueuedTrack(
     .update(queueItems)
     .set({ status: 'removed', finishedAt: new Date(), moderationReason: reason })
     .where(and(eq(queueItems.id, queueItemId), eq(queueItems.status, 'queued')))
-    .returning({ id: queueItems.id, requestedByUserId: queueItems.requestedByUserId });
+    .returning({
+      id: queueItems.id,
+      roomId: queueItems.roomId,
+      requestedByUserId: queueItems.requestedByUserId,
+    });
   if (!removed) throw new RoomError('NOT_QUEUED', 'That track is no longer queued.');
-  if (!(await hasQueuedTracks(removed.requestedByUserId, db))) {
-    await db.update(users).set({ rotationSeq: null }).where(eq(users.id, removed.requestedByUserId));
-  }
+  await leaveRotationIfEmpty(removed.requestedByUserId, db);
   await db.insert(moderationActions).values({
     actorUserId: admin.id,
     action: 'remove',
     queueItemId,
     details: { reason },
   });
-  await bumpRevision(db);
+  await bumpRevision(removed.roomId, db);
 }
 
 /**
@@ -948,7 +1042,7 @@ export async function withdrawQueuedTrack(
         eq(queueItems.requestedByUserId, owner.id),
       ),
     )
-    .returning({ id: queueItems.id });
+    .returning({ id: queueItems.id, roomId: queueItems.roomId });
   if (!withdrawn) {
     throw new RoomError(
       'NOT_YOUR_QUEUED_TRACK',
@@ -956,10 +1050,8 @@ export async function withdrawQueuedTrack(
       404,
     );
   }
-  if (!(await hasQueuedTracks(owner.id, db))) {
-    await db.update(users).set({ rotationSeq: null }).where(eq(users.id, owner.id));
-  }
-  await bumpRevision(db);
+  await leaveRotationIfEmpty(owner.id, db);
+  await bumpRevision(withdrawn.roomId, db);
 }
 
 /** What is being blocked, however somebody arrived at it. */
@@ -979,10 +1071,11 @@ interface BlockTarget {
 /**
  * The part of blocking that is the same whether a moderator blocked the track
  * playing now or an admin pasted a link: write the entry under every rule
- * named, drop everything already queued that the entry now covers, and record
- * what was done.
+ * named, all of them this room's, drop everything already queued here that the
+ * entry now covers, and record what was done. The caller bumps the revision.
  */
 async function applyBlock(
+  roomId: string,
   target: BlockTarget,
   options: { ruleIds: string[]; note?: string | null },
   moderator: AuthenticatedUser,
@@ -991,6 +1084,7 @@ async function applyBlock(
   if (options.ruleIds.length === 0) {
     throw new RoomError('NO_RULE_GIVEN', 'Choose at least one rule to block this under.');
   }
+  await assertRulesInRoom(roomId, options.ruleIds, db);
 
   const blockingArtist = target.entryType === 'artist';
   for (const ruleId of options.ruleIds) {
@@ -1016,10 +1110,10 @@ async function applyBlock(
       : eq(media.providerMediaId, target.providerId),
   );
   const doomed = await db
-    .select({ id: queueItems.id })
+    .select({ id: queueItems.id, requestedByUserId: queueItems.requestedByUserId })
     .from(queueItems)
     .innerJoin(media, eq(queueItems.mediaId, media.id))
-    .where(and(eq(queueItems.status, 'queued'), covered));
+    .where(and(eq(queueItems.roomId, roomId), eq(queueItems.status, 'queued'), covered));
   if (doomed.length > 0) {
     await db
       .update(queueItems)
@@ -1029,6 +1123,9 @@ async function applyBlock(
         moderationReason: options.note ?? 'Blocked by a room rule.',
       })
       .where(inArray(queueItems.id, doomed.map(({ id }) => id)));
+    for (const userId of new Set(doomed.map((item) => item.requestedByUserId))) {
+      await leaveRotationIfEmpty(userId, db);
+    }
   }
 
   await db.insert(moderationActions).values({
@@ -1050,6 +1147,7 @@ export async function blockQueueItemMedia(
 ): Promise<void> {
   const [item] = await db
     .select({
+      roomId: queueItems.roomId,
       mediaId: media.id,
       provider: media.provider,
       providerMediaId: media.providerMediaId,
@@ -1066,6 +1164,7 @@ export async function blockQueueItemMedia(
 
   const blockingArtist = options.entryType === 'artist';
   await applyBlock(
+    item.roomId,
     {
       provider: item.provider,
       entryType: options.entryType,
@@ -1080,9 +1179,9 @@ export async function blockQueueItemMedia(
   );
 
   if (item.status === 'playing') {
-    await advanceCurrentTrack('skipped', 'Blocked by a room rule.', queueItemId, db);
+    await advanceCurrentTrack(item.roomId, 'skipped', 'Blocked by a room rule.', queueItemId, db);
   } else {
-    await bumpRevision(db);
+    await bumpRevision(item.roomId, db);
   }
 }
 
@@ -1099,12 +1198,13 @@ export async function blockQueueItemMedia(
  * uploaded the track. Both are what that provider hangs a catalogue off.
  */
 export async function blockMediaByUrl(
+  roomId: string,
   url: string,
   options: { ruleIds: string[]; entryType: 'track' | 'artist'; note?: string | null },
   admin: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<{ label: string; removed: number }> {
-  const settings = await getSettings(db);
+  const settings = await getSettings(roomId, db);
   const { metadata } = await inspectMediaCached(url, settings.targetCountry, db);
   const blockingArtist = options.entryType === 'artist';
 
@@ -1122,6 +1222,7 @@ export async function blockMediaByUrl(
 
   const label = blockingArtist ? metadata.artist : metadata.title;
   const { removed } = await applyBlock(
+    roomId,
     {
       provider: metadata.provider,
       entryType: options.entryType,
@@ -1134,7 +1235,9 @@ export async function blockMediaByUrl(
     db,
   );
 
-  await bumpRevision(db);
+  // The rule list is on the player, so the room hears about it even when no
+  // queued track was covered.
+  await bumpRevision(roomId, db);
   return { label, removed };
 }
 
@@ -1150,6 +1253,7 @@ export type RoomSettingsPatch = Partial<{
 }>;
 
 export async function updateRoomSettings(
+  roomId: string,
   patch: RoomSettingsPatch,
   admin: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -1160,13 +1264,13 @@ export async function updateRoomSettings(
   await db
     .update(roomSettings)
     .set({ ...patch, updatedAt: new Date(), updatedByUserId: admin.id })
-    .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
+    .where(eq(roomSettings.roomId, roomId));
   await db.insert(moderationActions).values({
     actorUserId: admin.id,
     action: 'update_settings',
     details: patch,
   });
-  await bumpRevision(db);
+  await bumpRevision(roomId, db);
 }
 
 async function queueWithVotes(
@@ -1198,11 +1302,12 @@ async function queueWithVotes(
 }
 
 export async function getRoomSnapshot(
+  roomId: string,
   me: AuthenticatedUser | null,
   listenerCount: number,
   db: Database = getDatabase(),
 ): Promise<RoomSnapshot> {
-  await ensureRoomExists(db);
+  await ensureRoomExists(roomId, db);
   if (me) {
     await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, me.id));
   }
@@ -1211,18 +1316,12 @@ export async function getRoomSnapshot(
     db
       .select({ revision: roomState.revision, currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
-      .where(eq(roomState.roomId, MAIN_ROOM_ID))
+      .where(eq(roomState.roomId, roomId))
       .then(([row]) => row),
-    getSettings(db),
-    db
-      .select(queueRowSelection())
-      .from(queueItems)
-      .innerJoin(media, eq(queueItems.mediaId, media.id))
-      .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
-      .where(inArray(queueItems.status, ['queued', 'playing']))
-      .then((rows) => rows.map(toQueueRow)),
+    getSettings(roomId, db),
+    activeQueueRows(roomId, db),
     listJammers(10, undefined, db),
-    listActiveRules(db),
+    listActiveRules(roomId, db),
     me ? listMyNotices(me.id, db) : [],
   ]);
 
@@ -1299,11 +1398,14 @@ export function toRoomUser(user: AuthenticatedUser | null): RoomUser | null {
   };
 }
 
-export async function currentRevision(db: Database = getDatabase()): Promise<number> {
-  await ensureRoomExists(db);
+export async function currentRevision(
+  roomId: string,
+  db: Database = getDatabase(),
+): Promise<number> {
+  await ensureRoomExists(roomId, db);
   const [state] = await db
     .select({ revision: roomState.revision })
     .from(roomState)
-    .where(eq(roomState.roomId, MAIN_ROOM_ID));
+    .where(eq(roomState.roomId, roomId));
   return state?.revision ?? 0;
 }

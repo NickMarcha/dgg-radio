@@ -44,6 +44,7 @@ export function describeBlock(blocking: BlockingRule[]): string {
  * out, which is why a collaboration under another channel needs its own entry.
  */
 export async function findBlockingRules(
+  roomId: string,
   metadata: MediaMetadata,
   db: Database = getDatabase(),
 ): Promise<BlockingRule[]> {
@@ -64,11 +65,21 @@ export async function findBlockingRules(
     })
     .from(ruleEntries)
     .innerJoin(rules, eq(ruleEntries.ruleId, rules.id))
-    .where(and(eq(rules.active, true), eq(ruleEntries.provider, metadata.provider), or(...targets)))
+    .where(
+      and(
+        eq(rules.roomId, roomId),
+        eq(rules.active, true),
+        eq(ruleEntries.provider, metadata.provider),
+        or(...targets),
+      ),
+    )
     .orderBy(asc(rules.position));
 }
 
-export async function listRules(db: Database = getDatabase()): Promise<RuleSummary[]> {
+export async function listRules(
+  roomId: string,
+  db: Database = getDatabase(),
+): Promise<RuleSummary[]> {
   const rows = await db
     .select({
       id: rules.id,
@@ -81,13 +92,17 @@ export async function listRules(db: Database = getDatabase()): Promise<RuleSumma
     })
     .from(rules)
     .leftJoin(ruleEntries, eq(ruleEntries.ruleId, rules.id))
+    .where(eq(rules.roomId, roomId))
     .groupBy(rules.id)
     .orderBy(asc(rules.position), asc(rules.name));
   return rows.map((row) => ({ ...row, entryCount: Number(row.entryCount) }));
 }
 
 /** What the player shows: the rules currently switched on. */
-export async function listActiveRules(db: Database = getDatabase()): Promise<PublicRule[]> {
+export async function listActiveRules(
+  roomId: string,
+  db: Database = getDatabase(),
+): Promise<PublicRule[]> {
   return db
     .select({
       id: rules.id,
@@ -96,7 +111,7 @@ export async function listActiveRules(db: Database = getDatabase()): Promise<Pub
       enforcement: rules.enforcement,
     })
     .from(rules)
-    .where(eq(rules.active, true))
+    .where(and(eq(rules.roomId, roomId), eq(rules.active, true)))
     .orderBy(asc(rules.position), asc(rules.name));
 }
 
@@ -122,17 +137,19 @@ export async function listRuleEntries(
 }
 
 export async function createRule(
+  roomId: string,
   input: { name: string; description: string; enforcement: RuleEnforcement },
   admin: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<string> {
   const [{ next }] = await db
     .select({ next: sql<number>`coalesce(max(${rules.position}), -1) + 1`.mapWith(Number) })
-    .from(rules);
+    .from(rules)
+    .where(eq(rules.roomId, roomId));
 
   const [created] = await db
     .insert(rules)
-    .values({ ...input, position: next, createdByUserId: admin.id })
+    .values({ ...input, roomId, position: next, createdByUserId: admin.id })
     .onConflictDoNothing()
     .returning({ id: rules.id });
   if (!created) throw new RuleError('RULE_EXISTS', 'A rule with that name already exists.');
@@ -159,15 +176,20 @@ export async function updateRule(
 }
 
 /**
- * Writes a new order for the whole rule list. The client sends every id, so a
- * list that changed underneath the admin is rejected rather than half-applied.
+ * Writes a new order for one room's whole rule list. The client sends every id,
+ * so a list that changed underneath the admin is rejected rather than
+ * half-applied.
  */
 export async function reorderRules(
+  roomId: string,
   orderedIds: string[],
   db: Database = getDatabase(),
 ): Promise<void> {
   await db.transaction(async (transaction) => {
-    const existing = await transaction.select({ id: rules.id }).from(rules);
+    const existing = await transaction
+      .select({ id: rules.id })
+      .from(rules)
+      .where(eq(rules.roomId, roomId));
     const ids = new Set(existing.map(({ id }) => id));
     if (orderedIds.length !== ids.size || orderedIds.some((id) => !ids.has(id))) {
       throw new RuleError('RULES_CHANGED', 'The rule list changed. Try the move again.', 409);
@@ -184,6 +206,25 @@ export async function deleteRule(ruleId: string, db: Database = getDatabase()): 
     .where(eq(rules.id, ruleId))
     .returning({ id: rules.id });
   if (!deleted) throw new RuleError('RULE_NOT_FOUND', 'That rule does not exist.', 404);
+}
+
+/**
+ * Refuses unless every rule named is one of this room's. A moderator blocks
+ * under their own room's rules; a rule kept by another room is edited there.
+ */
+export async function assertRulesInRoom(
+  roomId: string,
+  ruleIds: string[],
+  db: Database = getDatabase(),
+): Promise<void> {
+  if (ruleIds.length === 0) return;
+  const found = await db
+    .select({ id: rules.id })
+    .from(rules)
+    .where(and(eq(rules.roomId, roomId), inArray(rules.id, ruleIds)));
+  if (found.length !== new Set(ruleIds).size) {
+    throw new RuleError('RULE_NOT_FOUND', 'That rule is not one of this room\'s.', 404);
+  }
 }
 
 export async function addRuleEntry(
@@ -237,24 +278,4 @@ export async function removeRuleEntry(
     .where(eq(ruleEntries.id, entryId))
     .returning({ id: ruleEntries.id });
   if (!removed) throw new RuleError('ENTRY_NOT_FOUND', 'That entry does not exist.', 404);
-}
-
-/** Track ids already blocked, used to drop matching items still sitting in queues. */
-export async function blockedTrackIds(
-  provider: 'youtube' | 'soundcloud',
-  providerIds: string[],
-  db: Database = getDatabase(),
-): Promise<Set<string>> {
-  if (providerIds.length === 0) return new Set();
-  const rows = await db
-    .select({ providerId: ruleEntries.providerId })
-    .from(ruleEntries)
-    .where(
-      and(
-        eq(ruleEntries.provider, provider),
-        eq(ruleEntries.entryType, 'track'),
-        inArray(ruleEntries.providerId, providerIds),
-      ),
-    );
-  return new Set(rows.map(({ providerId }) => providerId));
 }

@@ -28,6 +28,7 @@ const {
   updateRule,
 } = await import('./rules');
 const schema = await import('./db/schema');
+const { MAIN_ROOM_ID } = await import('./rooms');
 const { rules, ruleEntries, users, userChatCounts } = schema;
 
 const connectionString = testConnectionString();
@@ -86,12 +87,12 @@ describe.skipIf(!connectionString)('room rules', () => {
 
   async function blocklist(name: string) {
     const actor = await makeAdmin();
-    return createRule({ name, description: '', enforcement: 'blocklist' }, actor, db);
+    return createRule(MAIN_ROOM_ID, { name, description: '', enforcement: 'blocklist' }, actor, db);
   }
 
   it('lets a track through when no rule covers it', async () => {
     await blocklist('No meme songs');
-    expect(await findBlockingRules(track(), db)).toEqual([]);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track(), db)).toEqual([]);
   });
 
   it('blocks the exact track once it is listed, and names the rule', async () => {
@@ -103,12 +104,12 @@ describe.skipIf(!connectionString)('room rules', () => {
       db,
     );
 
-    expect((await findBlockingRules(track(), db))[0]).toMatchObject({
+    expect((await findBlockingRules(MAIN_ROOM_ID, track(), db))[0]).toMatchObject({
       ruleName: 'No meme songs',
       entryType: 'track',
     });
     // A different track from the same channel is untouched by a track entry.
-    expect(await findBlockingRules(track({ providerMediaId: 'other-video' }), db)).toEqual([]);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track({ providerMediaId: 'other-video' }), db)).toEqual([]);
   });
 
   it('blocks every track from a listed artist', async () => {
@@ -120,12 +121,12 @@ describe.skipIf(!connectionString)('room rules', () => {
       db,
     );
 
-    expect((await findBlockingRules(track({ providerMediaId: 'anything-else' }), db))[0]).toMatchObject({
+    expect((await findBlockingRules(MAIN_ROOM_ID, track({ providerMediaId: 'anything-else' }), db))[0]).toMatchObject({
       entryType: 'artist',
       label: 'An Artist',
     });
     // The collaboration case: same artist, released on someone else's channel.
-    expect(await findBlockingRules(track({ providerArtistId: 'UC-channel-b' }), db)).toEqual([]);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track({ providerArtistId: 'UC-channel-b' }), db)).toEqual([]);
   });
 
   it('does not let one provider block the other', async () => {
@@ -138,7 +139,7 @@ describe.skipIf(!connectionString)('room rules', () => {
     );
 
     const soundcloud = track({ provider: 'soundcloud', providerMediaId: 'shared-id' });
-    expect(await findBlockingRules(soundcloud, db)).toEqual([]);
+    expect(await findBlockingRules(MAIN_ROOM_ID, soundcloud, db)).toEqual([]);
   });
 
   it('never matches rows that predate artist ids', async () => {
@@ -150,7 +151,7 @@ describe.skipIf(!connectionString)('room rules', () => {
       db,
     );
 
-    expect(await findBlockingRules(track({ providerArtistId: '' }), db)).toEqual([]);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track({ providerArtistId: '' }), db)).toEqual([]);
   });
 
   it('stops enforcing a rule that is switched off, without losing its list', async () => {
@@ -161,34 +162,36 @@ describe.skipIf(!connectionString)('room rules', () => {
       admin,
       db,
     );
-    expect(await findBlockingRules(track(), db)).toHaveLength(1);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track(), db)).toHaveLength(1);
 
     await updateRule(ruleId, { active: false }, db);
-    expect(await findBlockingRules(track(), db)).toEqual([]);
-    expect(await listActiveRules(db)).toEqual([]);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track(), db)).toEqual([]);
+    expect(await listActiveRules(MAIN_ROOM_ID, db)).toEqual([]);
     // The list survives, so switching it back on restores the block.
-    expect((await listRules(db))[0]?.entryCount).toBe(1);
+    expect((await listRules(MAIN_ROOM_ID, db))[0]?.entryCount).toBe(1);
 
     await updateRule(ruleId, { active: true }, db);
-    expect(await findBlockingRules(track(), db)).toHaveLength(1);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track(), db)).toHaveLength(1);
   });
 
   it('shows listeners only the rules that are switched on', async () => {
     const shown = await blocklist('No meme songs');
     const hidden = await createRule(
+      MAIN_ROOM_ID,
       { name: 'No Disney songs', description: '', enforcement: 'blocklist' },
       admin,
       db,
     );
     await updateRule(hidden, { active: false }, db);
 
-    const visible = await listActiveRules(db);
+    const visible = await listActiveRules(MAIN_ROOM_ID, db);
     expect(visible.map(({ id }) => id)).toEqual([shown]);
   });
 
   it('refuses to keep a list on an advisory rule', async () => {
     const actor = await makeAdmin();
     const ruleId = await createRule(
+      MAIN_ROOM_ID,
       { name: 'Do not spam the chat', description: '', enforcement: 'advisory' },
       actor,
       db,
@@ -207,13 +210,14 @@ describe.skipIf(!connectionString)('room rules', () => {
   it('rejects a second rule with the same name', async () => {
     await blocklist('No meme songs');
     await expect(
-      createRule({ name: 'no MEME songs', description: '', enforcement: 'blocklist' }, admin, db),
+      createRule(MAIN_ROOM_ID, { name: 'no MEME songs', description: '', enforcement: 'blocklist' }, admin, db),
     ).rejects.toBeInstanceOf(RuleError);
   });
 
   it('keeps a track blocked under every rule it breaks', async () => {
     const memes = await blocklist('No meme songs');
     const disney = await createRule(
+      MAIN_ROOM_ID,
       { name: 'No Disney songs', description: '', enforcement: 'blocklist' },
       admin,
       db,
@@ -228,10 +232,10 @@ describe.skipIf(!connectionString)('room rules', () => {
     await addRuleEntry(memes, entry, admin, db);
     await addRuleEntry(disney, entry, admin, db);
 
-    const blocking = await findBlockingRules(track(), db);
+    const blocking = await findBlockingRules(MAIN_ROOM_ID, track(), db);
     expect(blocking.map(({ ruleName }) => ruleName)).toEqual(['No meme songs', 'No Disney songs']);
     expect(describeBlock(blocking)).toBe('"No meme songs" and "No Disney songs"');
-    expect((await listRules(db)).map(({ name, entryCount }) => [name, entryCount])).toEqual(
+    expect((await listRules(MAIN_ROOM_ID, db)).map(({ name, entryCount }) => [name, entryCount])).toEqual(
       expect.arrayContaining([
         ['No meme songs', 1],
         ['No Disney songs', 1],
@@ -240,7 +244,7 @@ describe.skipIf(!connectionString)('room rules', () => {
 
     // Switching one off leaves the other still blocking it.
     await updateRule(memes, { active: false }, db);
-    expect((await findBlockingRules(track(), db)).map(({ ruleName }) => ruleName)).toEqual([
+    expect((await findBlockingRules(MAIN_ROOM_ID, track(), db)).map(({ ruleName }) => ruleName)).toEqual([
       'No Disney songs',
     ]);
   });
@@ -257,32 +261,32 @@ describe.skipIf(!connectionString)('room rules', () => {
     await addRuleEntry(memes, { ...entry, note: 'first' }, admin, db);
     await addRuleEntry(memes, { ...entry, note: 'second' }, admin, db);
 
-    expect((await listRules(db))[0]?.entryCount).toBe(1);
+    expect((await listRules(MAIN_ROOM_ID, db))[0]?.entryCount).toBe(1);
     const [stored] = await listRuleEntries(memes, db);
     expect(stored?.note).toBe('second');
-    expect(await findBlockingRules(track(), db)).toHaveLength(1);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track(), db)).toHaveLength(1);
   });
 
   it('reorders the rule list, and shows listeners the same order', async () => {
     const actor = await makeAdmin();
-    const first = await createRule({ name: 'First', description: '', enforcement: 'advisory' }, actor, db);
-    const second = await createRule({ name: 'Second', description: '', enforcement: 'advisory' }, actor, db);
-    const third = await createRule({ name: 'Third', description: '', enforcement: 'advisory' }, actor, db);
-    expect((await listRules(db)).map(({ name }) => name)).toEqual(['First', 'Second', 'Third']);
+    const first = await createRule(MAIN_ROOM_ID, { name: 'First', description: '', enforcement: 'advisory' }, actor, db);
+    const second = await createRule(MAIN_ROOM_ID, { name: 'Second', description: '', enforcement: 'advisory' }, actor, db);
+    const third = await createRule(MAIN_ROOM_ID, { name: 'Third', description: '', enforcement: 'advisory' }, actor, db);
+    expect((await listRules(MAIN_ROOM_ID, db)).map(({ name }) => name)).toEqual(['First', 'Second', 'Third']);
 
-    await reorderRules([third, first, second], db);
+    await reorderRules(MAIN_ROOM_ID, [third, first, second], db);
 
-    expect((await listRules(db)).map(({ name }) => name)).toEqual(['Third', 'First', 'Second']);
-    expect((await listActiveRules(db)).map(({ name }) => name)).toEqual(['Third', 'First', 'Second']);
+    expect((await listRules(MAIN_ROOM_ID, db)).map(({ name }) => name)).toEqual(['Third', 'First', 'Second']);
+    expect((await listActiveRules(MAIN_ROOM_ID, db)).map(({ name }) => name)).toEqual(['Third', 'First', 'Second']);
   });
 
   it('refuses an order that does not name every rule', async () => {
     const actor = await makeAdmin();
-    const first = await createRule({ name: 'First', description: '', enforcement: 'advisory' }, actor, db);
-    await createRule({ name: 'Second', description: '', enforcement: 'advisory' }, actor, db);
+    const first = await createRule(MAIN_ROOM_ID, { name: 'First', description: '', enforcement: 'advisory' }, actor, db);
+    await createRule(MAIN_ROOM_ID, { name: 'Second', description: '', enforcement: 'advisory' }, actor, db);
 
-    await expect(reorderRules([first], db)).rejects.toMatchObject({ code: 'RULES_CHANGED' });
-    expect((await listRules(db)).map(({ name }) => name)).toEqual(['First', 'Second']);
+    await expect(reorderRules(MAIN_ROOM_ID, [first], db)).rejects.toMatchObject({ code: 'RULES_CHANGED' });
+    expect((await listRules(MAIN_ROOM_ID, db)).map(({ name }) => name)).toEqual(['First', 'Second']);
   });
 
   it('drops a rule together with everything it listed', async () => {
@@ -295,7 +299,7 @@ describe.skipIf(!connectionString)('room rules', () => {
     );
 
     await deleteRule(ruleId, db);
-    expect(await findBlockingRules(track(), db)).toEqual([]);
+    expect(await findBlockingRules(MAIN_ROOM_ID, track(), db)).toEqual([]);
     expect(await db.select().from(ruleEntries)).toHaveLength(0);
   });
 });
