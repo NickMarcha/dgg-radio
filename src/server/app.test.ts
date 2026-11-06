@@ -71,7 +71,7 @@ const { reorderRules } = await import('./rules');
 const { getStorageSnapshot } = await import('./storage');
 const { resetRateLimits } = await import('./rate-limit');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
-const { MAIN_ROOM_ID, roomRoleOf, setRoomModerator } = await import('./rooms');
+const { findRoomIdBySlug, MAIN_ROOM_ID, roomRoleOf, setRoomModerator } = await import('./rooms');
 const { setRoomCreator } = await import('./admins');
 const {
   findWatcherEmbedSettings,
@@ -197,10 +197,10 @@ describe('role authorization', () => {
       })).status,
     ).toBe(200);
     expect(
-      (await request('/api/current/skip', 'POST', { reason: 'Wrong room for this track' })).status,
+      (await request('/api/rooms/main/current/skip', 'POST', { reason: 'Wrong room for this track' })).status,
     ).toBe(200);
     expect(
-      (await request('/api/queue/room-order', 'PATCH', { orderedIds: [QUEUE_ID] })).status,
+      (await request('/api/rooms/main/queue/room-order', 'PATCH', { orderedIds: [QUEUE_ID] })).status,
     ).toBe(200);
 
     expect(blockQueueItemMedia).toHaveBeenCalledOnce();
@@ -215,7 +215,7 @@ describe('role authorization', () => {
       (await request(`/api/queue/${QUEUE_ID}/remove`, 'POST', { reason: 'Remove this track' })).status,
     ).toBe(403);
     expect((await app.request('/api/users')).status).toBe(403);
-    expect((await request('/api/rules/order', 'PATCH', { orderedIds: [RULE_ID] })).status).toBe(403);
+    expect((await request('/api/rooms/main/rules/order', 'PATCH', { orderedIds: [RULE_ID] })).status).toBe(403);
     expect(removeQueuedTrack).not.toHaveBeenCalled();
     expect(reorderRules).not.toHaveBeenCalled();
   });
@@ -223,7 +223,7 @@ describe('role authorization', () => {
   it('rejects moderation actions from listeners', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
 
-    const response = await request('/api/queue/room-order', 'PATCH', { orderedIds: [QUEUE_ID] });
+    const response = await request('/api/rooms/main/queue/room-order', 'PATCH', { orderedIds: [QUEUE_ID] });
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: { code: 'MODERATOR_REQUIRED' } });
     expect(reorderRoomQueue).not.toHaveBeenCalled();
@@ -296,9 +296,27 @@ describe('role authorization', () => {
   it('routes an admin rule reorder past the /api/rules/:id handler', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    const response = await request('/api/rules/order', 'PATCH', { orderedIds: [RULE_ID] });
+    const response = await request('/api/rooms/main/rules/order', 'PATCH', { orderedIds: [RULE_ID] });
     expect(response.status).toBe(200);
     expect(reorderRules).toHaveBeenCalledWith(MAIN_ROOM_ID, [RULE_ID]);
+  });
+});
+
+describe('rooms by name', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('answers 404 for a room that does not exist, before asking anything of it', async () => {
+    vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
+    vi.mocked(findRoomIdBySlug).mockResolvedValueOnce(null);
+
+    const response = await request('/api/rooms/nowhere/queue', 'POST', {
+      url: 'https://www.youtube.com/watch?v=aaaaaaaaaaa',
+    });
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ error: { code: 'ROOM_NOT_FOUND' } });
   });
 });
 
@@ -467,7 +485,7 @@ describe('rate limiting', () => {
       await app.request('/api/search?q=hello');
     }
 
-    const queued = await request('/api/queue', 'POST', {
+    const queued = await request('/api/rooms/main/queue', 'POST', {
       url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     });
 
@@ -533,7 +551,7 @@ describe('personal playlist routes', () => {
     });
 
     const response = await request(
-      `/api/playlists/${PLAYLIST_ID}/tracks/${MEDIA_ID}/queue`,
+      `/api/rooms/main/playlists/${PLAYLIST_ID}/tracks/${MEDIA_ID}/queue`,
       'POST',
       {},
     );

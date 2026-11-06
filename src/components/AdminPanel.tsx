@@ -172,12 +172,12 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   );
 
   const refresh = useCallback(async () => {
-    const room: RoomSnapshot = await call('/api/room');
+    const room: RoomSnapshot = await call('/api/rooms/main');
     setMe(room.me);
     setSettings(room.settings);
     if (room.me?.role !== 'admin') return;
     const [ruleList, memberList] = await Promise.all([
-      call('/api/rules'),
+      call('/api/rooms/main/rules'),
       call(`/api/users${search ? `?search=${encodeURIComponent(search)}` : ''}`),
     ]);
     setRules(ruleList.rules);
@@ -535,7 +535,7 @@ function RulesSection({ rules, busy, act, call }: SectionProps & { rules: RuleSu
   function moveRule(rule: RuleSummary, destination: MoveDestination) {
     const orderedIds = moveItem(rules, rule.id, destination);
     if (!orderedIds) return;
-    void act(() => call('/api/rules/order', 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
+    void act(() => call('/api/rooms/main/rules/order', 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
   }
 
   async function toggleEntries(ruleId: string) {
@@ -2153,7 +2153,7 @@ function SettingsSection({
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    void act(() => call('/api/settings', 'PATCH', draft), 'Room settings saved.');
+    void act(() => call('/api/rooms/main/settings', 'PATCH', draft), 'Room settings saved.');
   }
 
   return (
@@ -2315,7 +2315,7 @@ function NewRuleForm({ busy, act, call }: SectionProps) {
     event.preventDefault();
     if (!name.trim()) return;
     void act(async () => {
-      await call('/api/rules', 'POST', { name: name.trim(), description: description.trim(), enforcement });
+      await call('/api/rooms/main/rules', 'POST', { name: name.trim(), description: description.trim(), enforcement });
       setName('');
       setDescription('');
     }, `Added "${name.trim()}".`);

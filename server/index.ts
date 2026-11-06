@@ -13,7 +13,7 @@ import {
   ensureRoomExists,
   listRoomIds,
 } from '../src/server/room';
-import { MAIN_ROOM_ID } from '../src/server/rooms';
+import { findRoomIdBySlug, MAIN_ROOM_ID } from '../src/server/rooms';
 import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ConnectionRegistry } from './connections';
@@ -67,20 +67,28 @@ function broadcastWatchers(): void {
   }
 }
 
-function broadcastRoomChanged(): void {
-  void currentRevision(MAIN_ROOM_ID)
-    .then((revision) => {
-      const message = JSON.stringify({ type: 'room_changed', revision });
-      for (const client of connections.clients()) {
-        if (client.readyState === WebSocket.OPEN) client.send(message);
-      }
-    })
-    .catch((error) => console.error('Could not broadcast room state', error));
+/**
+ * Tells the sockets on one room that it changed, or every room's sockets when
+ * no room is named: a change to a person, such as their team, shows wherever
+ * their name does.
+ */
+function broadcastRoomChanged(roomId?: string): void {
+  const roomIds = roomId === undefined ? [...connections.roomIds()] : [roomId];
+  for (const id of roomIds) {
+    void currentRevision(id)
+      .then((revision) => {
+        const message = JSON.stringify({ type: 'room_changed', revision });
+        for (const client of connections.clientsInRoom(id)) {
+          if (client.readyState === WebSocket.OPEN) client.send(message);
+        }
+      })
+      .catch((error) => console.error('Could not broadcast room state', error));
+  }
 }
 
 const app = createApp({
-  listenerCount: () => connections.listenerCount(),
-  eligibleVoterCount: () => connections.eligibleVoterCount(),
+  listenerCount: (roomId) => connections.listenerCount(roomId),
+  eligibleVoterCount: (roomId) => connections.eligibleVoterCount(roomId),
   operationsSnapshot,
   onRoomChanged: broadcastRoomChanged,
 });
@@ -136,6 +144,7 @@ server.on('upgrade', (request, socket, head) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
   const connectionRequest = roomConnectionRequestSchema.safeParse({
     kind: requestUrl.searchParams.get('kind'),
+    room: requestUrl.searchParams.get('room'),
     visitorId: requestUrl.searchParams.get('visitorId') ?? undefined,
   });
   if (
@@ -157,12 +166,21 @@ webSocketServer.on('connection', async (client, request) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
   const connectionRequest = roomConnectionRequestSchema.parse({
     kind: requestUrl.searchParams.get('kind'),
+    room: requestUrl.searchParams.get('room'),
     visitorId: requestUrl.searchParams.get('visitorId') ?? undefined,
   });
+  const roomId = await findRoomIdBySlug(connectionRequest.room);
+  if (!roomId) {
+    // 4404 is in the range the protocol leaves to applications; the client
+    // stops retrying a room that does not exist rather than looping on it.
+    client.close(4404, 'That room does not exist.');
+    return;
+  }
   const sessionToken = readSessionTokenFromCookieHeader(request.headers.cookie);
   const user = sessionToken ? await getSessionUserByToken(sessionToken) : null;
   connections.add(client, {
     kind: connectionRequest.kind,
+    roomId,
     userId: user?.id ?? null,
     username: user?.username ?? null,
     visitorId: connectionRequest.kind === 'room' ? connectionRequest.visitorId : null,
@@ -170,11 +188,11 @@ webSocketServer.on('connection', async (client, request) => {
   client.send(
     JSON.stringify({
       type: 'connected',
-      revision: await currentRevision(MAIN_ROOM_ID),
+      revision: await currentRevision(roomId),
       authenticated: Boolean(user),
     }),
   );
-  broadcastRoomChanged();
+  broadcastRoomChanged(roomId);
 
   if (connectionRequest.kind === 'embed-watchers') {
     client.send(watchersMessage());
@@ -184,7 +202,7 @@ webSocketServer.on('connection', async (client, request) => {
   }
 
   const removeConnection = () => {
-    if (connections.delete(client)) broadcastRoomChanged();
+    if (connections.delete(client)) broadcastRoomChanged(roomId);
   };
   client.on('close', removeConnection);
   client.on('error', removeConnection);
@@ -202,16 +220,18 @@ const clock = setInterval(() => {
   void listRoomIds()
     .then(async (roomIds) => {
       const results = await Promise.allSettled(roomIds.map((roomId) => advanceIfExpired(roomId)));
-      for (const result of results) {
+      const changed: string[] = [];
+      results.forEach((result, index) => {
         if (result.status === 'rejected') console.error('Room clock failed', result.reason);
-      }
-      return results.some((result) => result.status === 'fulfilled' && result.value);
+        else if (result.value) changed.push(roomIds[index]!);
+      });
+      return changed;
     })
     .then((changed) => {
-      if (changed) {
+      if (changed.length > 0) {
         clockAdvances += 1;
         lastClockAdvanceAt = new Date();
-        broadcastRoomChanged();
+        for (const roomId of changed) broadcastRoomChanged(roomId);
       }
     })
     .catch((error) => console.error('Room clock failed', error))

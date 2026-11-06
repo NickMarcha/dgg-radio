@@ -299,8 +299,8 @@ describe('the QueUp archive on the history page', () => {
       .mock.calls.filter(([, init]) => init?.method === 'POST')
       .map(([input, init]) => [String(input), init?.body]);
     expect(queued).toEqual([
-      [`${API}/api/queue`, JSON.stringify({ url: track.canonicalUrl })],
-      [`${API}/api/queue/legacy/archived001`, undefined],
+      [`${API}/api/rooms/main/queue`, JSON.stringify({ url: track.canonicalUrl })],
+      [`${API}/api/rooms/main/queue/legacy/archived001`, undefined],
     ]);
   });
 

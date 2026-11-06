@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { WatchersSnapshot } from '../shared/contracts';
+import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
 import { createRoomSocketUrl, embedConnectionKind } from './roomSocket';
 
 /**
@@ -32,7 +33,9 @@ export function useWatchers(apiUrl: string): WatchersSnapshot | null {
       .catch(() => undefined);
 
     const connect = () => {
-      socket = new WebSocket(createRoomSocketUrl(apiUrl, { kind: embedConnectionKind('watchers') }));
+      // The tracker follows the main room's stream only, until rooms each follow their own.
+      const kind = embedConnectionKind('watchers');
+      socket = new WebSocket(createRoomSocketUrl(apiUrl, { kind, room: MAIN_ROOM_SLUG }));
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data as string) as {

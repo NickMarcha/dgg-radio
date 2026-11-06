@@ -1,3 +1,4 @@
+import { lastRoomSlug } from '../client/room';
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -242,14 +243,18 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
   function queueTrack(mediaId: string) {
     if (!detail) return;
     void act(async () => {
-      await call(`/api/playlists/${detail.id}/tracks/${mediaId}/queue`, 'POST');
+      const room = lastRoomSlug();
+      await call(`/api/rooms/${room}/playlists/${detail.id}/tracks/${mediaId}/queue`, 'POST');
     }, 'Added the track to your queue.');
   }
 
   function queueAll() {
     if (!detail) return;
     void act(async () => {
-      const result = await call<PlaylistQueueResult>(`/api/playlists/${detail.id}/queue`, 'POST');
+      const result = await call<PlaylistQueueResult>(
+        `/api/rooms/${lastRoomSlug()}/playlists/${detail.id}/queue`,
+        'POST',
+      );
       setQueueResult(result);
     });
   }

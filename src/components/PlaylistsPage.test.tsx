@@ -89,7 +89,7 @@ let savedUrl: string | null = null;
 let saveResponse: PlaylistSaveResult = importResult;
 
 function route(url: string, method: string, body?: BodyInit | null) {
-  if (url.endsWith('/api/room')) return { status: 200, body: { listenerCount: 0, me: null } };
+  if (url.endsWith('/api/rooms/main')) return { status: 200, body: { listenerCount: 0, me: null } };
   if (url.endsWith('/api/playlists/import') && method === 'POST') {
     importedFile = JSON.parse(String(body));
     return { status: 200, body: queupResult };
@@ -99,7 +99,7 @@ function route(url: string, method: string, body?: BodyInit | null) {
     return { status: 201, body: saveResponse };
   }
   if (url.includes('/api/playlists?') || url.endsWith('/api/playlists')) return { status: 200, body: library };
-  if (url.endsWith(`/api/playlists/${driving.id}/queue`) && method === 'POST') {
+  if (url.endsWith(`/api/rooms/main/playlists/${driving.id}/queue`) && method === 'POST') {
     queueCalls += 1;
     return { status: 200, body: partialResult };
   }

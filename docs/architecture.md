@@ -21,9 +21,11 @@ The API, its Postgres, and a Cloudflare tunnel run as one compose stack; see the
 
 ## Room state
 
-Every page shows the same header: who is signed in, and how many people are listening. `GET /api/me` answers exactly that from the session cookie. Only the room itself reads the whole snapshot, over its own WebSocket, so opening `/history` or `/playlists` does not pull down a queue, its votes, and the rule list to render a username.
+Every page shows the same header: who is signed in, and how many people are listening across every room. `GET /api/me` answers exactly that from the session cookie. Only the room itself reads the whole snapshot, over its own WebSocket, so opening `/history` or `/playlists` does not pull down a queue, its votes, and the rule list to render a username.
 
-`rooms` names each room. `room_state`, `room_settings` and `stream_watch` hold one row per room, keyed by `room_id`. The main room's id is fixed by the migration that created `rooms` and is `MAIN_ROOM_ID` in `src/server/rooms.ts`. Queue items, rotation seats and rules each belong to one room, and every queue transition names the room it acts on. Nothing creates a second room yet, and the API and room socket still serve the main room only; `docs/plans/rooms.md` is the plan for the rest.
+`rooms` names each room. `room_state`, `room_settings` and `stream_watch` hold one row per room, keyed by `room_id`. The main room's id is fixed by the migration that created `rooms` and is `MAIN_ROOM_ID` in `src/server/rooms.ts`. Queue items, rotation seats and rules each belong to one room, and every queue transition names the room it acts on. Nothing creates a second room yet; `docs/plans/rooms.md` is the plan for the rest.
+
+A room is addressed by its slug. Routes that belong to one room sit under `/api/rooms/:slug`, and the main room is `main`. Routes keyed by a queue item or a rule stay where they are and find the room from the item. The room socket names its room when it connects (`?room=`), so listener counts, skip ratios and change notices are all per room; a socket naming a room that does not exist is closed with code 4404, which the browser does not retry. The site serves rooms other than the main one at `/r/:slug` from one generated page, and a page with no room of its own, such as history or playlists, queues into the room this browser last opened.
 
 Queue transitions take a Postgres transaction-scoped advisory lock keyed by the room, so rooms never wait on each other. A partial unique index also prevents two queue items in one room from holding `playing` status. The server clock checks every room once per second, marks an expired item as played, selects the next request, revalidates its media metadata, and starts it from one server timestamp.
 

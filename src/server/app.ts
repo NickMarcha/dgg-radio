@@ -128,15 +128,17 @@ import {
 } from './watcher-embeds';
 
 interface AppDependencies {
-  listenerCount: () => number;
-  eligibleVoterCount: () => number;
+  /** People in one room, or across the site when no room is named. */
+  listenerCount: (roomId?: string) => number;
+  eligibleVoterCount: (roomId: string) => number;
   operationsSnapshot: () => ProcessSnapshot;
-  onRoomChanged: () => void;
+  /** Tells one room's sockets it changed, or every room's when none is named. */
+  onRoomChanged: (roomId?: string) => void;
 }
 
 type Variables = {
   user: AuthenticatedUser;
-  /** Set by `requireRoomRole`: the room the request acts in. */
+  /** Set by `inRoom` or `requireRoomRole`: the room the request acts in. */
   roomId: string;
 };
 
@@ -302,11 +304,17 @@ export function createApp(dependencies: AppDependencies) {
   const ruleRoom = (context: any) => roomOfRule(context.req.valid('param').id);
   const ruleEntryRoom = (context: any) => roomOfRuleEntry(context.req.valid('param').id);
   const slugRoom = async (context: any) => {
-    const roomId = await findRoomIdBySlug(context.req.valid('param').slug);
+    const roomId = await findRoomIdBySlug(context.req.param('slug'));
     if (!roomId) throw new RoomAccessError('ROOM_NOT_FOUND', 'That room does not exist.', 404);
     return roomId;
   };
-  const requireMainModerator = requireRoomRole('mod', mainRoom);
+  /** For a route under `/api/rooms/:slug` that anyone, or any signed-in listener, may use. */
+  const inRoom = async (context: any, next: () => Promise<void>) => {
+    context.set('roomId', await slugRoom(context));
+    await next();
+  };
+  const requireRoomModerator = requireRoomRole('mod', slugRoom);
+  const requireRoomOwner = requireRoomRole('owner', slugRoom);
   const requireMainOwner = requireRoomRole('owner', mainRoom);
 
   app.onError((error, context) => {
@@ -369,9 +377,10 @@ export function createApp(dependencies: AppDependencies) {
       await clearSession(context);
       return context.json({ ok: true });
     })
-    .get('/api/room', async (context) => {
+    .get('/api/rooms/:slug', inRoom, async (context) => {
       const user = await getSessionUser(context);
-      return context.json(await getRoomSnapshot(MAIN_ROOM_ID, user, dependencies.listenerCount()));
+      const roomId = context.get('roomId');
+      return context.json(await getRoomSnapshot(roomId, user, dependencies.listenerCount(roomId)));
     })
     // Public, but a signed-in viewer is looked up anyway so the page can tell
     // whether it is showing someone their own profile.
@@ -609,27 +618,34 @@ export function createApp(dependencies: AppDependencies) {
       },
     )
     .post(
-      '/api/playlists/:id/tracks/:mediaId/queue',
+      '/api/rooms/:slug/playlists/:id/tracks/:mediaId/queue',
       requireUser,
-      zValidator('param', playlistTrackParamSchema),
+      inRoom,
+      zValidator('param', playlistTrackParamSchema.extend({ slug: z.string() })),
       async (context) => {
         const { id, mediaId } = context.req.valid('param');
-        const queued = await queuePlaylistTrack(MAIN_ROOM_ID, id, mediaId, context.get('user'));
+        const queued = await queuePlaylistTrack(
+          context.get('roomId'),
+          id,
+          mediaId,
+          context.get('user'),
+        );
         captureServerEvent(context.get('user').id, 'saved_track_requested', {
           provider: queued.provider,
           duration_seconds: queued.durationSeconds,
         });
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ id: queued.id }, 201);
       },
     )
     .post(
-      '/api/playlists/:id/queue',
+      '/api/rooms/:slug/playlists/:id/queue',
       requireUser,
-      zValidator('param', idParamSchema),
+      inRoom,
+      zValidator('param', idParamSchema.extend({ slug: z.string() })),
       async (context) => {
         const result = await queuePlaylist(
-          MAIN_ROOM_ID,
+          context.get('roomId'),
           context.req.valid('param').id,
           context.get('user'),
         );
@@ -637,36 +653,39 @@ export function createApp(dependencies: AppDependencies) {
           added: result.added,
           skipped: result.skipped.length,
         });
-        if (result.added > 0) dependencies.onRoomChanged();
+        if (result.added > 0) dependencies.onRoomChanged(context.get('roomId'));
         return context.json(result);
       },
     )
     .post(
-      '/api/queue',
+      '/api/rooms/:slug/queue',
       requireUser,
+      inRoom,
       limitPerUser('lookup', 20),
       zValidator('json', submitRequestSchema),
       async (context) => {
-      const { url } = context.req.valid('json');
-      const queued = await enqueueMedia(MAIN_ROOM_ID, url, context.get('user'));
-      captureServerEvent(context.get('user').id, 'track_requested', {
-        provider: queued.provider,
-        duration_seconds: queued.durationSeconds,
-      });
-      dependencies.onRoomChanged();
-      return context.json({ id: queued.id }, 201);
-    })
+        const { url } = context.req.valid('json');
+        const queued = await enqueueMedia(context.get('roomId'), url, context.get('user'));
+        captureServerEvent(context.get('user').id, 'track_requested', {
+          provider: queued.provider,
+          duration_seconds: queued.durationSeconds,
+        });
+        dependencies.onRoomChanged(context.get('roomId'));
+        return context.json({ id: queued.id }, 201);
+      },
+    )
     // Requesting a track out of the QueUp archive. The archive holds a provider
     // id rather than a link, so this resolves one and then goes through the
     // room's ordinary request path, rules and cooldown included.
     .post(
-      '/api/queue/legacy/:sourceId',
+      '/api/rooms/:slug/queue/legacy/:sourceId',
       requireUser,
+      inRoom,
       limitPerUser('lookup', 20),
-      zValidator('param', legacySourceParamSchema),
+      zValidator('param', legacySourceParamSchema.extend({ slug: z.string() })),
       async (context) => {
         const queued = await enqueueLegacyPlay(
-          MAIN_ROOM_ID,
+          context.get('roomId'),
           context.req.valid('param').sourceId,
           context.get('user'),
         );
@@ -675,7 +694,7 @@ export function createApp(dependencies: AppDependencies) {
           duration_seconds: queued.durationSeconds,
           source: 'queup_archive',
         });
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ id: queued.id }, 201);
       },
     )
@@ -687,11 +706,17 @@ export function createApp(dependencies: AppDependencies) {
       async (context) => {
         const { id } = context.req.valid('param');
         const { value } = context.req.valid('json');
-        await voteOnCurrentTrack(id, value, context.get('user'), dependencies.eligibleVoterCount());
+        const roomId = await roomOfQueueItem(id);
+        await voteOnCurrentTrack(
+          id,
+          value,
+          context.get('user'),
+          dependencies.eligibleVoterCount(roomId),
+        );
         captureServerEvent(context.get('user').id, 'track_vote_changed', {
           vote: value === 1 ? 'up' : value === -1 ? 'down' : 'cleared',
         });
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(roomId);
         return context.json({ ok: true });
       },
     )
@@ -702,27 +727,36 @@ export function createApp(dependencies: AppDependencies) {
       zValidator('query', searchSchema),
       async (context) => context.json({ results: await searchMedia(context.req.valid('query').q, 15) }),
     )
-    .post('/api/queue/playlist', requireUser, limitPerUser('playlist-import', 5), zValidator('json', playlistSchema), async (context) => {
-      const imported = await enqueueProviderPlaylist(
-        MAIN_ROOM_ID,
-        context.req.valid('json').url,
-        context.get('user'),
-      );
-      captureServerEvent(context.get('user').id, 'playlist_imported', {
-        added: imported.added,
-        skipped: imported.skipped.length,
-      });
-      dependencies.onRoomChanged();
-      return context.json(imported);
-    })
+    .post(
+      '/api/rooms/:slug/queue/playlist',
+      requireUser,
+      inRoom,
+      limitPerUser('playlist-import', 5),
+      zValidator('json', playlistSchema),
+      async (context) => {
+        const imported = await enqueueProviderPlaylist(
+          context.get('roomId'),
+          context.req.valid('json').url,
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'playlist_imported', {
+          added: imported.added,
+          skipped: imported.skipped.length,
+        });
+        dependencies.onRoomChanged(context.get('roomId'));
+        return context.json(imported);
+      },
+    )
     .delete(
       '/api/queue/:id',
       requireUser,
       zValidator('param', idParamSchema),
       async (context) => {
-        await withdrawQueuedTrack(context.req.valid('param').id, context.get('user'));
+        const { id } = context.req.valid('param');
+        const roomId = await roomOfQueueItem(id);
+        await withdrawQueuedTrack(id, context.get('user'));
         captureServerEvent(context.get('user').id, 'queue_track_withdrawn');
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(roomId);
         return context.json({ ok: true });
       },
     )
@@ -738,22 +772,24 @@ export function createApp(dependencies: AppDependencies) {
       },
     )
     .patch('/api/queue/order', requireUser, zValidator('json', reorderSchema), async (context) => {
-      await reorderMyQueue(context.req.valid('json').orderedIds, context.get('user'));
-      dependencies.onRoomChanged();
+      const { orderedIds } = context.req.valid('json');
+      await reorderMyQueue(orderedIds, context.get('user'));
+      // A listener queues in one room, so any of their tracks names it.
+      dependencies.onRoomChanged(await roomOfQueueItem(orderedIds[0]!));
       return context.json({ ok: true });
     })
     .patch(
-      '/api/queue/room-order',
-      requireMainModerator,
+      '/api/rooms/:slug/queue/room-order',
+      requireRoomModerator,
       zValidator('json', reorderSchema),
       async (context) => {
         await reorderRoomQueue(
-          MAIN_ROOM_ID,
+          context.get('roomId'),
           context.req.valid('json').orderedIds,
           context.get('user'),
         );
         captureServerEvent(context.get('user').id, 'room_queue_reordered');
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ ok: true });
       },
     )
@@ -785,7 +821,7 @@ export function createApp(dependencies: AppDependencies) {
         const { reason } = context.req.valid('json');
         await removeQueuedTrack(id, reason, context.get('user'));
         captureServerEvent(context.get('user').id, 'queue_item_removed');
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ ok: true });
       },
     )
@@ -800,27 +836,39 @@ export function createApp(dependencies: AppDependencies) {
         const { id } = context.req.valid('param');
         await blockQueueItemMedia(id, context.req.valid('json'), context.get('user'));
         captureServerEvent(context.get('user').id, 'media_blocked');
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ ok: true });
       },
     )
-    .post('/api/current/skip', requireMainModerator, zValidator('json', removeQueueItemSchema), async (context) => {
-      const { reason } = context.req.valid('json');
-      await skipCurrentTrack(MAIN_ROOM_ID, reason, context.get('user'));
-      captureServerEvent(context.get('user').id, 'track_skipped');
-      dependencies.onRoomChanged();
-      return context.json({ ok: true });
-    })
-    .patch('/api/settings', requireMainOwner, zValidator('json', roomSettingsSchema), async (context) => {
-      const patch = context.req.valid('json');
-      await updateRoomSettings(MAIN_ROOM_ID, patch, context.get('user'));
-      captureServerEvent(context.get('user').id, 'room_settings_changed', {
-        fields: Object.keys(patch).join(','),
-      });
-      dependencies.onRoomChanged();
-      return context.json({ ok: true });
-    })
-    .get('/api/rules', async (context) => context.json({ rules: await listRules(MAIN_ROOM_ID) }))
+    .post(
+      '/api/rooms/:slug/current/skip',
+      requireRoomModerator,
+      zValidator('json', removeQueueItemSchema),
+      async (context) => {
+        const { reason } = context.req.valid('json');
+        await skipCurrentTrack(context.get('roomId'), reason, context.get('user'));
+        captureServerEvent(context.get('user').id, 'track_skipped');
+        dependencies.onRoomChanged(context.get('roomId'));
+        return context.json({ ok: true });
+      },
+    )
+    .patch(
+      '/api/rooms/:slug/settings',
+      requireRoomOwner,
+      zValidator('json', roomSettingsSchema),
+      async (context) => {
+        const patch = context.req.valid('json');
+        await updateRoomSettings(context.get('roomId'), patch, context.get('user'));
+        captureServerEvent(context.get('user').id, 'room_settings_changed', {
+          fields: Object.keys(patch).join(','),
+        });
+        dependencies.onRoomChanged(context.get('roomId'));
+        return context.json({ ok: true });
+      },
+    )
+    .get('/api/rooms/:slug/rules', inRoom, async (context) =>
+      context.json({ rules: await listRules(context.get('roomId')) }),
+    )
     .get(
       '/api/rules/:id/entries',
       requireUser,
@@ -853,21 +901,35 @@ export function createApp(dependencies: AppDependencies) {
           entry_type: entryType,
           source: 'link',
         });
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json(blocked, 201);
       },
     )
-    .post('/api/rules', requireMainOwner, zValidator('json', ruleSchema), async (context) => {
-      const id = await createRule(MAIN_ROOM_ID, context.req.valid('json'), context.get('user'));
-      captureServerEvent(context.get('user').id, 'rule_created');
-      dependencies.onRoomChanged();
-      return context.json({ id });
-    })
-    .patch('/api/rules/order', requireMainOwner, zValidator('json', reorderSchema), async (context) => {
-      await reorderRules(MAIN_ROOM_ID, context.req.valid('json').orderedIds);
-      dependencies.onRoomChanged();
-      return context.json({ ok: true });
-    })
+    .post(
+      '/api/rooms/:slug/rules',
+      requireRoomOwner,
+      zValidator('json', ruleSchema),
+      async (context) => {
+        const id = await createRule(
+          context.get('roomId'),
+          context.req.valid('json'),
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'rule_created');
+        dependencies.onRoomChanged(context.get('roomId'));
+        return context.json({ id });
+      },
+    )
+    .patch(
+      '/api/rooms/:slug/rules/order',
+      requireRoomOwner,
+      zValidator('json', reorderSchema),
+      async (context) => {
+        await reorderRules(context.get('roomId'), context.req.valid('json').orderedIds);
+        dependencies.onRoomChanged(context.get('roomId'));
+        return context.json({ ok: true });
+      },
+    )
     .patch(
       '/api/rules/:id',
       requireUser,
@@ -877,7 +939,7 @@ export function createApp(dependencies: AppDependencies) {
       zValidator('json', ruleUpdateSchema),
       async (context) => {
         await updateRule(context.req.valid('param').id, context.req.valid('json'));
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ ok: true });
       },
     )
@@ -889,7 +951,7 @@ export function createApp(dependencies: AppDependencies) {
       requireRoomRole('owner', ruleRoom),
       async (context) => {
         await deleteRule(context.req.valid('param').id);
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ ok: true });
       },
     )
@@ -901,7 +963,7 @@ export function createApp(dependencies: AppDependencies) {
       requireRoomRole('mod', ruleEntryRoom),
       async (context) => {
         await removeRuleEntry(context.req.valid('param').id);
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ ok: true });
       },
     )
@@ -1036,7 +1098,7 @@ export function createApp(dependencies: AppDependencies) {
       requireUser,
 
       zValidator('param', roomMemberParamSchema),
-      requireRoomRole('owner', slugRoom),
+      requireRoomOwner,
       zValidator('json', roomModeratorSchema),
       async (context) => {
         await setRoomModerator(
@@ -1046,7 +1108,7 @@ export function createApp(dependencies: AppDependencies) {
           context.get('user'),
         );
         captureServerEvent(context.get('user').id, 'room_moderator_changed');
-        dependencies.onRoomChanged();
+        dependencies.onRoomChanged(context.get('roomId'));
         return context.json({ ok: true });
       },
     );

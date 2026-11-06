@@ -808,6 +808,8 @@ export interface QueueNotice {
 }
 
 export interface RoomSnapshot {
+  /** Which room this is: its name in a URL, and what it is called. */
+  room: { slug: string; name: string };
   serverTime: string;
   revision: number;
   listenerCount: number;

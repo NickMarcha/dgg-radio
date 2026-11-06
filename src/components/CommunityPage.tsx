@@ -1,3 +1,4 @@
+import { lastRoomSlug } from '../client/room';
 import { ChevronLeft, ChevronRight, ListMusic, Play, Search, X } from 'lucide-react';
 import { useEffect, useState, type SubmitEvent } from 'react';
 import { DEFAULT_EMOTE } from '../shared/contracts';
@@ -1432,7 +1433,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
                 empty={narrowed ? 'No track this room has played matches that.' : undefined}
                 onQueue={(entry) =>
                   void queue(entry.id, entry.media.title, {
-                    path: '/api/queue',
+                    path: `/api/rooms/${lastRoomSlug()}/queue`,
                     body: { url: entry.media.canonicalUrl },
                   })
                 }
@@ -1455,7 +1456,9 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
             onSelectGenre={(genre) => go({ genre })}
             empty={narrowed ? 'No archived play matches that.' : 'Nothing has been imported from QueUp.'}
             onQueue={(entry) =>
-              void queue(entry.id, entry.title, { path: `/api/queue/legacy/${encodeURIComponent(entry.id)}` })
+              void queue(entry.id, entry.title, {
+                path: `/api/rooms/${lastRoomSlug()}/queue/legacy/${encodeURIComponent(entry.id)}`,
+              })
             }
           />
         </section>

@@ -33,6 +33,7 @@ export function createRoomSocketUrl(apiUrl: string, connection: RoomConnectionRe
   socketUrl.pathname = '/ws';
   socketUrl.search = '';
   socketUrl.searchParams.set('kind', connection.kind);
+  socketUrl.searchParams.set('room', connection.room);
   if (connection.kind === 'room') socketUrl.searchParams.set('visitorId', connection.visitorId);
   return socketUrl;
 }

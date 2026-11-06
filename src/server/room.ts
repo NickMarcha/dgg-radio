@@ -24,6 +24,7 @@ import {
   media,
   moderationActions,
   queueItems,
+  rooms,
   roomSeats,
   roomSettings,
   roomState,
@@ -1325,7 +1326,12 @@ export async function getRoomSnapshot(
     await db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, me.id));
   }
 
-  const [state, settings, activeRows, stats, rules, myNotices, myRoomRole] = await Promise.all([
+  const [room, state, settings, activeRows, stats, rules, myNotices, myRoomRole] = await Promise.all([
+    db
+      .select({ slug: rooms.slug, name: rooms.name })
+      .from(rooms)
+      .where(eq(rooms.id, roomId))
+      .then(([row]) => row),
     db
       .select({ revision: roomState.revision, currentQueueItemId: roomState.currentQueueItemId })
       .from(roomState)
@@ -1339,6 +1345,7 @@ export async function getRoomSnapshot(
     roomRoleOf(me, roomId, db),
   ]);
 
+  if (!room) throw new RoomError('ROOM_NOT_FOUND', 'That room does not exist.', 404);
   if (!state) throw new RoomError('ROOM_NOT_READY', 'The room has not been initialized.', 500);
   const currentRow = activeRows.find(({ id }) => id === state.currentQueueItemId) ?? null;
 
@@ -1377,6 +1384,7 @@ export async function getRoomSnapshot(
     censor && !reveal && item.requestedBy?.id !== me?.id ? { ...item, requestedBy: null } : item;
 
   return {
+    room,
     serverTime: new Date().toISOString(),
     revision: state.revision,
     listenerCount,

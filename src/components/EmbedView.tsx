@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { QueueItem } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
 import { embedConnectionKind } from './roomSocket';
+import { roomSlugFromSearch } from '../client/room';
+import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
 import { useRoomSnapshot } from './useRoomSnapshot';
 import './EmbedView.css';
 
@@ -128,7 +130,11 @@ function captionsRequested(): boolean {
 }
 
 export default function EmbedView({ apiUrl, mode }: EmbedViewProps) {
-  const { room } = useRoomSnapshot(apiUrl, embedConnectionKind(mode));
+  // A browser source names its room in its URL, like every other option.
+  const [roomSlug] = useState(() =>
+    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromSearch(window.location.search),
+  );
+  const { room } = useRoomSnapshot(apiUrl, embedConnectionKind(mode), roomSlug);
   const current = room?.current ?? null;
 
   if (mode === 'player') {

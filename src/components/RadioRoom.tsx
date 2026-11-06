@@ -36,6 +36,8 @@ import type {
 import MediaPlayer from './MediaPlayer';
 import { moveItem, type MoveDestination } from './reorder';
 import { createRoomSocketUrl, getRoomVisitorId } from './roomSocket';
+import { rememberRoom, roomSlugFromPath } from '../client/room';
+import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
 import SiteHeader, { SiteHeaderAccount, SiteHeaderPresence } from './SiteHeader';
 import SiteNav from './SiteNav';
@@ -351,6 +353,11 @@ function QueueRow({
 }
 
 export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoomProps) {
+  // One generated page serves every room, so the room is read from the address.
+  const [roomSlug] = useState(() =>
+    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromPath(window.location.pathname),
+  );
+  const roomApi = `/api/rooms/${roomSlug}`;
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -375,6 +382,12 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   useEffect(() => {
     initClientAnalytics(posthogKey, posthogHost);
   }, [posthogHost, posthogKey]);
+
+  // Only a room that answered is worth sending a later request to.
+  const loadedSlug = room?.room.slug;
+  useEffect(() => {
+    if (loadedSlug) rememberRoom(loadedSlug);
+  }, [loadedSlug]);
 
   useEffect(() => {
     if (!room) return;
@@ -412,7 +425,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const refreshRoom = useCallback(async () => {
     try {
-      const snapshot = await apiRequest<RoomSnapshot>('/api/room');
+      const snapshot = await apiRequest<RoomSnapshot>(roomApi);
       setRoom(snapshot);
       setNotice(null);
     } catch (error) {
@@ -423,7 +436,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     } finally {
       setLoading(false);
     }
-  }, [apiRequest]);
+  }, [apiRequest, roomApi]);
 
   useEffect(() => {
     void refreshRoom();
@@ -436,6 +449,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
     let socket: WebSocket | undefined;
     const wsUrl = createRoomSocketUrl(apiUrl, {
       kind: 'room',
+      room: roomSlug,
       visitorId: getRoomVisitorId(),
     });
 
@@ -450,9 +464,12 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       };
       socket.onmessage = () => void refreshRoom();
       socket.onerror = () => socket?.close();
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         setConnected(false);
-        if (!stopped) reconnectTimer.current = window.setTimeout(connect, 2_000);
+        // 4404: the room does not exist, which retrying will not change.
+        if (!stopped && event.code !== 4404) {
+          reconnectTimer.current = window.setTimeout(connect, 2_000);
+        }
       };
     };
     connect();
@@ -462,7 +479,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
       socket?.close();
     };
-  }, [apiUrl, refreshRoom]);
+  }, [apiUrl, refreshRoom, roomSlug]);
 
   /** Returns the response body on success and null on failure, so callers can read it. */
   const mutate = async <T,>(
@@ -497,18 +514,18 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
     // One box for both: a playlist link takes the bulk path on its own.
     if (isPlaylistUrl(url)) {
-      const imported = await mutate<PlaylistImport>('/api/queue/playlist', 'POST', { url });
+      const imported = await mutate<PlaylistImport>(`${roomApi}/queue/playlist`, 'POST', { url });
       if (imported) {
         setRequestUrl('');
         setImportReport(imported);
       }
       return;
     }
-    if (await mutate('/api/queue', 'POST', { url })) setRequestUrl('');
+    if (await mutate(`${roomApi}/queue`, 'POST', { url })) setRequestUrl('');
   };
 
   const addSearchResult = async (result: SearchResult) => {
-    if (await mutate('/api/queue', 'POST', { url: result.url })) {
+    if (await mutate(`${roomApi}/queue`, 'POST', { url: result.url })) {
       setResults((current) => current.filter((entry) => entry.url !== result.url));
     }
   };
@@ -575,7 +592,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
         ({ requestedBy }) => requestedBy?.id === currentRequesterId,
       )?.id;
       const orderedIds = moveItem(room?.queue ?? [], item.id, destination, lockedLastId);
-      if (orderedIds) await mutate('/api/queue/room-order', 'PATCH', { orderedIds });
+      if (orderedIds) await mutate(`${roomApi}/queue/room-order`, 'PATCH', { orderedIds });
     },
     [room?.current?.requestedBy?.id, room?.queue, mutate],
   );
@@ -611,7 +628,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const skip = async () => {
     const reason = askReason('Skip the current track');
-    if (reason) await mutate('/api/current/skip', 'POST', { reason });
+    if (reason) await mutate(`${roomApi}/current/skip`, 'POST', { reason });
   };
 
   const blockCurrent = () => {
@@ -635,6 +652,8 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       </SiteHeader>
 
       <SiteNav active="room" />
+
+      {room && room.room.slug !== MAIN_ROOM_SLUG && <h1 className="room-name">{room.room.name}</h1>}
 
       {notice && <div className="notice" role="alert">{notice}</div>}
 

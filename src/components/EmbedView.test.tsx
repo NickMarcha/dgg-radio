@@ -22,6 +22,7 @@ function roomSnapshot(): RoomSnapshot {
     topEmote: null,
   };
   return {
+    room: { slug: 'main', name: 'DGG Radio' },
     serverTime: new Date('2026-08-28T12:00:30.000Z').toISOString(),
     revision: 1,
     listenerCount: 1,

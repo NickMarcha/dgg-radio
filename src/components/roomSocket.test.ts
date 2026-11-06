@@ -32,17 +32,18 @@ describe('room WebSocket identity', () => {
     );
   });
 
-  it('labels room and embed sockets explicitly', () => {
+  it('labels room and embed sockets explicitly, with the room they watch', () => {
     expect(
       createRoomSocketUrl('https://radio.example', {
         kind: 'room',
+        room: 'main',
         visitorId: '00000000-0000-4000-8000-000000000001',
       }).toString(),
     ).toBe(
-      'wss://radio.example/ws?kind=room&visitorId=00000000-0000-4000-8000-000000000001',
+      'wss://radio.example/ws?kind=room&room=main&visitorId=00000000-0000-4000-8000-000000000001',
     );
-    expect(createRoomSocketUrl('http://localhost:3000', { kind: 'embed-player' }).toString()).toBe(
-      'ws://localhost:3000/ws?kind=embed-player',
-    );
+    expect(
+      createRoomSocketUrl('http://localhost:3000', { kind: 'embed-player', room: 'late-night' }).toString(),
+    ).toBe('ws://localhost:3000/ws?kind=embed-player&room=late-night');
   });
 });

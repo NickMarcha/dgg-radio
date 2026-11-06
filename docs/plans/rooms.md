@@ -1,6 +1,6 @@
 # Rooms plan
 
-Status: steps 1 to 4 are built.
+Status: steps 1 to 5 are built, except per-room watcher overlays, which come with step 6.
 
 ## Outcome
 

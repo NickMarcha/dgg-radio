@@ -7,8 +7,8 @@ describe('ConnectionRegistry', () => {
     const firstTab = {};
     const secondTab = {};
 
-    registry.add(firstTab, { kind: 'room', userId: 'user-1', username: 'one', visitorId: 'visitor-1' });
-    registry.add(secondTab, { kind: 'room', userId: 'user-1', username: 'one', visitorId: 'visitor-1' });
+    registry.add(firstTab, { kind: 'room', roomId: 'room-a', userId: 'user-1', username: 'one', visitorId: 'visitor-1' });
+    registry.add(secondTab, { kind: 'room', roomId: 'room-a', userId: 'user-1', username: 'one', visitorId: 'visitor-1' });
 
     expect(registry.listenerCount()).toBe(1);
     expect(registry.eligibleVoterCount()).toBe(1);
@@ -18,7 +18,7 @@ describe('ConnectionRegistry', () => {
     const registry = new ConnectionRegistry<object>();
     const firstTab = {};
     const secondTab = {};
-    const metadata = { kind: 'room' as const, userId: 'user-1', username: 'one', visitorId: 'visitor-1' };
+    const metadata = { kind: 'room' as const, roomId: 'room-a', userId: 'user-1', username: 'one', visitorId: 'visitor-1' };
 
     registry.add(firstTab, metadata);
     registry.add(secondTab, metadata);
@@ -33,8 +33,8 @@ describe('ConnectionRegistry', () => {
   it('counts anonymous tabs with the same browser ID once', () => {
     const registry = new ConnectionRegistry<object>();
 
-    registry.add({}, { kind: 'room', userId: null, username: null, visitorId: 'visitor-1' });
-    registry.add({}, { kind: 'room', userId: null, username: null, visitorId: 'visitor-1' });
+    registry.add({}, { kind: 'room', roomId: 'room-a', userId: null, username: null, visitorId: 'visitor-1' });
+    registry.add({}, { kind: 'room', roomId: 'room-a', userId: null, username: null, visitorId: 'visitor-1' });
 
     expect(registry.listenerCount()).toBe(1);
     expect(registry.eligibleVoterCount()).toBe(0);
@@ -43,8 +43,8 @@ describe('ConnectionRegistry', () => {
   it('counts different signed-in users separately', () => {
     const registry = new ConnectionRegistry<object>();
 
-    registry.add({}, { kind: 'room', userId: 'user-1', username: 'one', visitorId: 'visitor-1' });
-    registry.add({}, { kind: 'room', userId: 'user-2', username: 'two', visitorId: 'visitor-2' });
+    registry.add({}, { kind: 'room', roomId: 'room-a', userId: 'user-1', username: 'one', visitorId: 'visitor-1' });
+    registry.add({}, { kind: 'room', roomId: 'room-a', userId: 'user-2', username: 'two', visitorId: 'visitor-2' });
 
     expect(registry.listenerCount()).toBe(2);
     expect(registry.eligibleVoterCount()).toBe(2);
@@ -53,9 +53,9 @@ describe('ConnectionRegistry', () => {
   it('excludes embed connections from listener and voter counts', () => {
     const registry = new ConnectionRegistry<object>();
 
-    registry.add({}, { kind: 'embed-player', userId: null, username: null, visitorId: null });
-    registry.add({}, { kind: 'embed-playing', userId: null, username: null, visitorId: null });
-    registry.add({}, { kind: 'embed-queue', userId: null, username: null, visitorId: null });
+    registry.add({}, { kind: 'embed-player', roomId: 'room-a', userId: null, username: null, visitorId: null });
+    registry.add({}, { kind: 'embed-playing', roomId: 'room-a', userId: null, username: null, visitorId: null });
+    registry.add({}, { kind: 'embed-queue', roomId: 'room-a', userId: null, username: null, visitorId: null });
 
     expect(registry.listenerCount()).toBe(0);
     expect(registry.eligibleVoterCount()).toBe(0);
@@ -66,8 +66,8 @@ describe('ConnectionRegistry', () => {
     const roomTab = {};
     const embed = {};
 
-    registry.add(roomTab, { kind: 'room', userId: null, username: null, visitorId: 'visitor-1' });
-    registry.add(embed, { kind: 'embed-player', userId: null, username: null, visitorId: null });
+    registry.add(roomTab, { kind: 'room', roomId: 'room-a', userId: null, username: null, visitorId: 'visitor-1' });
+    registry.add(embed, { kind: 'embed-player', roomId: 'room-a', userId: null, username: null, visitorId: null });
 
     expect([...registry.clients()]).toEqual([roomTab, embed]);
   });
@@ -78,12 +78,14 @@ describe('ConnectionRegistry', () => {
 
     registry.add({}, {
       kind: 'room',
+      roomId: 'room-a',
       userId: 'user-1',
       username: 'StrawWaffle',
       visitorId: 'visitor-1',
     });
     registry.add({}, {
       kind: 'embed-player',
+      roomId: 'room-a',
       userId: null,
       username: null,
       visitorId: null,
@@ -106,5 +108,22 @@ describe('ConnectionRegistry', () => {
         },
       ],
     });
+  });
+
+  it('counts each room on its own, and every room together', () => {
+    const registry = new ConnectionRegistry<object>();
+    const inA = {};
+    const inB = {};
+
+    registry.add(inA, { kind: 'room', roomId: 'room-a', userId: 'user-1', username: 'one', visitorId: 'v-1' });
+    registry.add(inB, { kind: 'room', roomId: 'room-b', userId: 'user-2', username: 'two', visitorId: 'v-2' });
+    registry.add({}, { kind: 'room', roomId: 'room-b', userId: null, username: null, visitorId: 'v-3' });
+
+    expect(registry.listenerCount('room-a')).toBe(1);
+    expect(registry.listenerCount('room-b')).toBe(2);
+    expect(registry.listenerCount()).toBe(3);
+    expect(registry.eligibleVoterCount('room-b')).toBe(1);
+    expect([...registry.clientsInRoom('room-a')]).toEqual([inA]);
+    expect(registry.roomIds()).toEqual(new Set(['room-a', 'room-b']));
   });
 });
