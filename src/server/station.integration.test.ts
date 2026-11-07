@@ -80,6 +80,7 @@ const {
   getStationSnapshot,
   moveQueue,
   planQueueMove,
+  setOnAir,
   StationError,
   skipCurrentTrack,
   voteOnCurrentTrack,
@@ -858,6 +859,57 @@ describe.skipIf(!connectionString)('station transitions against Postgres', () =>
       ['picklesnathan', 2],
       ['swagy_swagerson', -1],
     ]);
+  });
+
+  describe('off air', () => {
+    it('refuses requests, lets the playing track finish, and starts nothing after it', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const nathan = await createUser('picklesnathan');
+      const swagy = await createUser('swagy_swagerson');
+      const moderator = await createUser('mod', 'mod');
+      const [playing, waiting, refused] = [
+        track('aaaaaaaaaaa'),
+        track('bbbbbbbbbbb'),
+        track('ccccccccccc'),
+      ];
+      resolveTracks(playing, waiting, refused);
+
+      const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+      const queued = await enqueueMedia(MAIN_STATION_ID, waiting.canonicalUrl, swagy, db);
+      await setOnAir(MAIN_STATION_ID, false, moderator, db);
+
+      await expect(
+        enqueueMedia(MAIN_STATION_ID, refused.canonicalUrl, swagy, db),
+      ).rejects.toMatchObject({ code: 'STATION_OFF_AIR' });
+
+      // The track playing is left alone; when it ends, nothing takes its place.
+      expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current?.id).toBe(started.id);
+      await advanceCurrentTrack(MAIN_STATION_ID, 'played', null, started.id, db);
+      const quiet = await getStationSnapshot(MAIN_STATION_ID, swagy, 1, db);
+      expect(quiet.onAir).toBe(false);
+      expect(quiet.current).toBeNull();
+      expect(quiet.myQueue.map(({ id }) => id)).toEqual([queued.id]);
+
+      // Back on air, the waiting queue carries on where it was.
+      await setOnAir(MAIN_STATION_ID, true, moderator, db);
+      expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current?.id).toBe(queued.id);
+    });
+
+    it('keeps a skipped track from being replaced while off air', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const nathan = await createUser('picklesnathan');
+      const swagy = await createUser('swagy_swagerson');
+      const moderator = await createUser('mod', 'mod');
+      const [playing, waiting] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+      resolveTracks(playing, waiting);
+
+      await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_STATION_ID, waiting.canonicalUrl, swagy, db);
+      await setOnAir(MAIN_STATION_ID, false, moderator, db);
+      await skipCurrentTrack(MAIN_STATION_ID, 'Signing off for the night', moderator, db);
+
+      expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current).toBeNull();
+    });
   });
 
   describe('with more than one station', () => {

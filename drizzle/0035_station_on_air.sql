@@ -1,0 +1,1 @@
+ALTER TABLE "station_state" ADD COLUMN "on_air" boolean DEFAULT true NOT NULL;

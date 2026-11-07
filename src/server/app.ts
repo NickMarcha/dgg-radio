@@ -94,6 +94,7 @@ import {
   getStationSnapshot,
   moveQueue,
   planQueueMove,
+  setOnAir,
   removeQueuedTrack,
   stationOfQueueItem,
   StationError,
@@ -168,6 +169,7 @@ const callbackSchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.uuid() });
+const onAirSchema = z.object({ onAir: z.boolean() });
 const ruleFollowParamSchema = z.object({ slug: z.string().min(1).max(32), id: z.uuid() });
 const stationMemberParamSchema = z.object({
   slug: z.string().min(1).max(32),
@@ -932,6 +934,20 @@ export function createApp(dependencies: AppDependencies) {
         captureServerEvent(context.get('user').id, 'media_blocked');
         dependencies.onStationChanged(context.get('stationId'));
         return context.json({ ok: true });
+      },
+    )
+    // Off air and back. The station's owner and mods can, since it is the
+    // thing they do at the end of a session rather than a setting.
+    .put(
+      '/api/stations/:slug/on-air',
+      requireStationModerator,
+      zValidator('json', onAirSchema),
+      async (context) => {
+        const { onAir } = context.req.valid('json');
+        await setOnAir(context.get('stationId'), onAir, context.get('user'));
+        captureServerEvent(context.get('user').id, onAir ? 'station_on_air' : 'station_off_air');
+        dependencies.onStationChanged(context.get('stationId'));
+        return context.json({ onAir });
       },
     )
     .post(

@@ -7,6 +7,7 @@ import {
   Clock3,
   ExternalLink,
   ListMusic,
+  RadioTower,
   Settings,
   SkipForward,
   ThumbsDown,
@@ -509,7 +510,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
   /** Returns the response body on success and null on failure, so callers can read it. */
   const mutate = async <T,>(
     path: string,
-    method: 'POST' | 'PATCH' | 'DELETE',
+    method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
     body?: unknown,
   ): Promise<T | null> => {
     setBusy(true);
@@ -671,6 +672,10 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
     setBlockTarget({ item: station.current, fromPlayer: true });
   };
 
+  const setOnAir = async (onAir: boolean) => {
+    await mutate(`${stationApi}/on-air`, 'PUT', { onAir });
+  };
+
   const logout = async () => {
     if (await mutate('/api/auth/logout', 'POST')) await refreshRoom();
   };
@@ -707,6 +712,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
             current={station?.current ?? null}
             genres={station?.currentGenres ?? null}
             serverTime={station?.serverTime ?? null}
+            offAir={station?.onAir === false}
             onListeningStarted={(provider) => captureClientEvent('listening_started', { provider })}
             onPlayerError={(message, provider, errorCode) =>
               captureClientException(new Error(message), {
@@ -748,13 +754,29 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
                 library={playlistLibrary}
               />
             )}
-            {moderator && station?.current && (
+            {moderator && station && (
               <div className="admin-actions">
-                <button type="button" disabled={busy} onClick={blockCurrent}>
-                  <Ban size={16} /> Block
-                </button>
-                <button type="button" disabled={busy} onClick={() => void skip()}>
-                  <SkipForward size={16} /> Skip
+                {station.current && (
+                  <>
+                    <button type="button" disabled={busy} onClick={blockCurrent}>
+                      <Ban size={16} /> Block
+                    </button>
+                    <button type="button" disabled={busy} onClick={() => void skip()}>
+                      <SkipForward size={16} /> Skip
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  disabled={busy}
+                  title={
+                    station.onAir
+                      ? 'Stop taking requests. The track playing finishes; queues wait.'
+                      : 'Take requests again, and carry on with the waiting queues.'
+                  }
+                  onClick={() => void setOnAir(!station.onAir)}
+                >
+                  <RadioTower size={16} /> {station.onAir ? 'Go off air' : 'Go on air'}
                 </button>
               </div>
             )}
@@ -762,6 +784,11 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
 
           <section className="request-section">
             <h2>Request a track</h2>
+            {station?.onAir === false && (
+              <p className="off-air-note">
+                This station is off air. Requests open again when it is back on air.
+              </p>
+            )}
             <div className="request-modes" role="tablist">
               <button
                 type="button"
@@ -793,10 +820,10 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
                       type="url"
                       placeholder="https://www.youtube.com/watch?v=..."
                       value={requestUrl}
-                      disabled={!station?.me || busy}
+                      disabled={!station?.me || station.onAir === false || busy}
                       onChange={(event) => setRequestUrl(event.target.value)}
                     />
-                    <button type="submit" disabled={!station?.me || !requestUrl.trim() || busy}>
+                    <button type="submit" disabled={!station?.me || station.onAir === false || !requestUrl.trim() || busy}>
                       {isPlaylistUrl(requestUrl.trim()) ? 'Import playlist' : 'Add to queue'}
                     </button>
                   </div>
@@ -817,7 +844,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
                       type="search"
                       placeholder="Boards of Canada"
                       value={searchQuery}
-                      disabled={!station?.me || busy}
+                      disabled={!station?.me || station.onAir === false || busy}
                       onChange={(event) => setSearchQuery(event.target.value)}
                     />
                     <button

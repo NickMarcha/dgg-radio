@@ -1105,3 +1105,14 @@ a.admin-label:hover {
   font-family: var(--font-mono);
   font-size: 0.8rem;
 }
+
+/* Where the request form would be, while the station is off air. */
+.off-air-note {
+  margin: 0 0 12px;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}

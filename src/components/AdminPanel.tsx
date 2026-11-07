@@ -739,6 +739,8 @@ const MODERATION_VERBS: Record<string, string> = {
   clear_queue: 'cleared the queue of',
   reorder_station_queue: 'reordered the station queue',
   update_settings: 'changed station settings',
+  go_off_air: 'took the station off air',
+  go_on_air: 'put the station back on air',
 };
 
 /** The parts of a record worth reading when it carries no reason of its own. */

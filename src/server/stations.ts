@@ -111,6 +111,7 @@ export async function listStations(
       id: stations.id,
       slug: stations.slug,
       name: stations.name,
+      onAir: stationState.onAir,
       title: media.title,
       artist: media.artist,
     })
@@ -123,6 +124,8 @@ export async function listStations(
     id: row.id,
     slug: row.slug,
     name: row.name,
+    // A station whose state row is not written yet has never been taken off air.
+    onAir: row.onAir ?? true,
     nowPlaying: row.title === null ? null : { title: row.title, artist: row.artist ?? '' },
   }));
 }

@@ -99,6 +99,8 @@ interface MediaPlayerProps {
   embedded?: boolean;
   /** Leave YouTube's own caption preference alone. Off hides them outright. */
   captions?: boolean;
+  /** Says so while nothing plays, instead of inviting the first request. */
+  offAir?: boolean;
   onListeningStarted?: (provider: MediaProvider) => void;
   onPlayerError?: (message: string, provider: MediaProvider | undefined, errorCode?: number) => void;
 }
@@ -149,6 +151,7 @@ export default function MediaPlayer({
   serverTime,
   embedded = false,
   captions = true,
+  offAir = false,
   onListeningStarted,
   onPlayerError,
 }: MediaPlayerProps) {
@@ -424,7 +427,11 @@ export default function MediaPlayer({
         style={current?.media.thumbnailUrl ? { backgroundImage: `url(${current.media.thumbnailUrl})` } : undefined}
       >
         <div ref={mountRef} className="player-embed" aria-hidden={!listening} />
-        {!current && <div className="player-empty">The station is quiet. Add the first track.</div>}
+        {!current && (
+          <div className="player-empty">
+            {offAir ? 'Off air.' : 'The station is quiet. Add the first track.'}
+          </div>
+        )}
         {current && !listening && (
           <button className="listen-button" type="button" onClick={toggleListening}>
             <Play size={20} fill="currentColor" />
@@ -439,7 +446,9 @@ export default function MediaPlayer({
           <span>
             {current
               ? `${current.media.artist} · ${current.requestedBy ? `requested by ${current.requestedBy.username}` : 'requester hidden until the track ends'}`
-              : 'Queue a YouTube or SoundCloud link'}
+              : offAir
+                ? 'Requests open again when the station is back on air'
+                : 'Queue a YouTube or SoundCloud link'}
           </span>
           {current && genres && (
             <span className="track-genre-line">

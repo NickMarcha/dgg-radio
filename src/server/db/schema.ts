@@ -642,6 +642,11 @@ export const stationState = pgTable(
       .primaryKey()
       .references(() => stations.id, { onDelete: 'cascade' }),
     currentQueueItemId: uuid('current_queue_item_id').references(() => queueItems.id),
+    /**
+     * Off air, a station takes no requests and starts nothing new; the track
+     * playing finishes and waiting queues keep their place until it is back.
+     */
+    onAir: boolean('on_air').notNull().default(true),
     revision: integer('revision').notNull().default(0),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

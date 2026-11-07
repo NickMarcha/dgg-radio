@@ -223,6 +223,7 @@ export type StationRole = 'owner' | 'mod';
 export interface StationListing {
   slug: string;
   name: string;
+  onAir: boolean;
   listenerCount: number;
   nowPlaying: { title: string; artist: string } | null;
 }
@@ -895,6 +896,8 @@ export interface StationSnapshot {
   station: { slug: string; name: string };
   serverTime: string;
   revision: number;
+  /** Off air, the station takes no requests and starts nothing new. */
+  onAir: boolean;
   listenerCount: number;
   settings: {
     description: string;

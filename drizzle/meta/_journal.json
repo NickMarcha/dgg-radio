@@ -246,6 +246,13 @@
       "when": 1794010525960,
       "tag": "0034_rule_sharing",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794011715325,
+      "tag": "0035_station_on_air",
+      "breakpoints": true
     }
   ]
 }

@@ -379,10 +379,10 @@ export async function startNextTrack(
 
   for (;;) {
     const [state] = await db
-      .select({ currentQueueItemId: stationState.currentQueueItemId })
+      .select({ currentQueueItemId: stationState.currentQueueItemId, onAir: stationState.onAir })
       .from(stationState)
       .where(eq(stationState.stationId, stationId));
-    if (state?.currentQueueItemId) return false;
+    if (state?.currentQueueItemId || !state?.onAir) return false;
 
     const candidate = await nextQueuedRow(stationId, db);
     if (!candidate) return false;
@@ -678,12 +678,55 @@ async function assertAdmissible(
   );
 }
 
+/** Refuses while a station is off air, which is the one thing every request path asks first. */
+async function assertOnAir(stationId: string, db: Executor): Promise<void> {
+  const [state] = await db
+    .select({ onAir: stationState.onAir })
+    .from(stationState)
+    .where(eq(stationState.stationId, stationId));
+  if (state && !state.onAir) {
+    throw new StationError(
+      'STATION_OFF_AIR',
+      'This station is off air. Requests open again when it is back on air.',
+      409,
+    );
+  }
+}
+
+/**
+ * Takes a station off air or puts it back. Off air it refuses requests and
+ * starts nothing new, but lets the track playing finish; back on air it picks
+ * up the waiting queues where they were.
+ */
+export async function setOnAir(
+  stationId: string,
+  onAir: boolean,
+  moderator: AuthenticatedUser,
+  db: Database = getDatabase(),
+): Promise<void> {
+  await ensureStationExists(stationId, db);
+  await db.transaction(async (transaction) => {
+    await lockStation(stationId, transaction);
+    await transaction
+      .update(stationState)
+      .set({ onAir, revision: sql`${stationState.revision} + 1`, updatedAt: new Date() })
+      .where(eq(stationState.stationId, stationId));
+    await transaction.insert(moderationActions).values({
+      actorUserId: moderator.id,
+      action: onAir ? 'go_on_air' : 'go_off_air',
+      details: { stationId },
+    });
+  });
+  if (onAir) await startNextTrack(stationId, db);
+}
+
 export async function enqueueMedia(
   stationId: string,
   url: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<{ id: string; provider: 'youtube' | 'soundcloud'; durationSeconds: number }> {
+  await assertOnAir(stationId, db);
   const settings = await getSettings(stationId, db);
   const seatStation = await seatStationOf(user.id, db);
   if (seatStation !== null && seatStation !== stationId) {
@@ -783,6 +826,7 @@ export async function moveQueue(
   user: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<QueueMovePlan> {
+  await assertOnAir(stationId, db);
   const plan = await planQueueMove(stationId, user, db);
   const fromStationId = await seatStationOf(user.id, db);
   if (plan.from === null || fromStationId === null) return plan;
@@ -834,6 +878,9 @@ export async function enqueueProviderPlaylist(
   user: AuthenticatedUser,
   db: Database = getDatabase(),
 ): Promise<PlaylistImport> {
+  // Asked once here, so an off-air station refuses the import rather than
+  // reporting every track in it as refused.
+  await assertOnAir(stationId, db);
   const settings = await getSettings(stationId, db);
   const env = getEnv();
   const parsed = parsePlaylistUrl(url);
@@ -1455,7 +1502,11 @@ export async function getStationSnapshot(
       .where(eq(stations.id, stationId))
       .then(([row]) => row),
     db
-      .select({ revision: stationState.revision, currentQueueItemId: stationState.currentQueueItemId })
+      .select({
+        revision: stationState.revision,
+        currentQueueItemId: stationState.currentQueueItemId,
+        onAir: stationState.onAir,
+      })
       .from(stationState)
       .where(eq(stationState.stationId, stationId))
       .then(([row]) => row),
@@ -1509,6 +1560,7 @@ export async function getStationSnapshot(
     station,
     serverTime: new Date().toISOString(),
     revision: state.revision,
+    onAir: state.onAir,
     listenerCount,
     settings,
     me: toStationUser(me),

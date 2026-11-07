@@ -84,7 +84,9 @@ export default function StationsPage({ apiUrl }: StationsPageProps) {
                 <span className="stations-playing">
                   {station.nowPlaying
                     ? `${station.nowPlaying.title}${station.nowPlaying.artist ? ` · ${station.nowPlaying.artist}` : ''}`
-                    : 'Nothing playing'}
+                    : station.onAir
+                      ? 'Nothing playing'
+                      : 'Off air'}
                 </span>
                 <span className="stations-listeners" title="Listening now">
                   <Headphones size={14} /> {station.listenerCount}
