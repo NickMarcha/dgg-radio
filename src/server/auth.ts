@@ -3,7 +3,7 @@ import { and, eq, gt, lt, sql } from 'drizzle-orm';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Context } from 'hono';
 import { z } from 'zod';
-import type { RoomUser, UserRole } from '../shared/contracts';
+import type { StationUser, UserRole } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
 import { enqueueChatCheck } from './chat';
 import { resolveFlair } from './flair';
@@ -33,7 +33,7 @@ const dggUserInfoSchema = z.object({
   subscription: z.unknown().nullable().optional(),
 });
 
-export type AuthenticatedUser = RoomUser & {
+export type AuthenticatedUser = StationUser & {
   dggUserId: string;
   dggRoles: string[];
   dggFeatures: string[];

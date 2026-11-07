@@ -28,9 +28,9 @@ import type {
   ArchiveRefresh,
   StreamWatchStatus,
   WatchPlatform,
-  RoomMember,
-  RoomModerator,
-  RoomSnapshot,
+  StationMember,
+  StationModerator,
+  StationSnapshot,
   RuleEntrySummary,
   RuleSummary,
   PlaybackRegion,
@@ -56,20 +56,20 @@ import {
   watchPlatforms,
 } from '../shared/contracts';
 import { moveItem, type MoveDestination } from './reorder';
-import { roomPath, roomSlugFromSearch } from '../client/room';
-import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
+import { stationPath, stationSlugFromSearch } from '../client/station';
+import { MAIN_STATION_SLUG } from '../shared/stationConnection';
 import './AdminPanel.css';
 
 interface AdminPanelProps {
   apiUrl: string;
 }
 
-type Settings = RoomSnapshot['settings'];
+type Settings = StationSnapshot['settings'];
 
 const REGION_HINT = 'The country the YouTube availability checks run against.';
 
 const TABS = [
-  { id: 'room', label: 'Room', icon: SlidersHorizontal },
+  { id: 'station', label: 'Station', icon: SlidersHorizontal },
   { id: 'people', label: 'People', icon: Users },
   { id: 'log', label: 'Log', icon: ScrollText },
   { id: 'server', label: 'Server', icon: Activity },
@@ -78,13 +78,13 @@ const TABS = [
 
 export type AdminTab = (typeof TABS)[number]['id'];
 
-/** What a room's owner sees. The rest is the site's, and a site admin's. */
-const ROOM_TABS = new Set<AdminTab>(['room', 'obs']);
+/** What a station's owner sees. The rest is the site's, and a site admin's. */
+const STATION_TABS = new Set<AdminTab>(['station', 'obs']);
 
 /** The open tab lives in the URL hash, so a reload or a shared link reopens it. */
 export function tabFromHash(hash: string): AdminTab {
   const id = hash.replace(/^#/, '');
-  return TABS.some((tab) => tab.id === id) ? (id as AdminTab) : 'room';
+  return TABS.some((tab) => tab.id === id) ? (id as AdminTab) : 'station';
 }
 
 type CooldownUnit = 'minutes' | 'hours' | 'days';
@@ -144,24 +144,24 @@ export function elapsedTime(from: string, to: string): string {
 }
 
 export default function AdminPanel({ apiUrl }: AdminPanelProps) {
-  // `/admin?room=<slug>` manages that room; plain `/admin` is the main room.
-  const [room] = useState(() =>
-    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromSearch(window.location.search),
+  // `/admin?station=<slug>` manages that station; plain `/admin` is the main station.
+  const [station] = useState(() =>
+    typeof window === 'undefined' ? MAIN_STATION_SLUG : stationSlugFromSearch(window.location.search),
   );
-  const [me, setMe] = useState<RoomSnapshot['me']>(null);
-  const [roomName, setRoomName] = useState<string | null>(null);
-  const [roomRole, setRoomRole] = useState<RoomSnapshot['myRoomRole']>(null);
+  const [me, setMe] = useState<StationSnapshot['me']>(null);
+  const [stationName, setStationName] = useState<string | null>(null);
+  const [stationRole, setStationRole] = useState<StationSnapshot['myStationRole']>(null);
   const [loaded, setLoaded] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [rules, setRules] = useState<RuleSummary[]>([]);
-  const [members, setMembers] = useState<RoomMember[]>([]);
-  const [moderators, setModerators] = useState<RoomModerator[]>([]);
+  const [members, setMembers] = useState<StationMember[]>([]);
+  const [moderators, setModerators] = useState<StationModerator[]>([]);
   const [regions, setRegions] = useState<PlaybackRegion[]>([]);
   const [operations, setOperations] = useState<OperationsSnapshot | null>(null);
   const [operationsBusy, setOperationsBusy] = useState(false);
   const [moderation, setModeration] = useState<ModerationLog | null>(null);
   const [moderationBusy, setModerationBusy] = useState(false);
-  const [tab, setTab] = useState<AdminTab>('room');
+  const [tab, setTab] = useState<AdminTab>('station');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -185,15 +185,15 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   );
 
   const refresh = useCallback(async () => {
-    const snapshot: RoomSnapshot = await call(`/api/rooms/${room}`);
+    const snapshot: StationSnapshot = await call(`/api/stations/${station}`);
     setMe(snapshot.me);
-    setRoomName(snapshot.room.name);
-    setRoomRole(snapshot.myRoomRole);
+    setStationName(snapshot.station.name);
+    setStationRole(snapshot.myStationRole);
     setSettings(snapshot.settings);
-    if (snapshot.myRoomRole !== 'owner') return;
+    if (snapshot.myStationRole !== 'owner') return;
     const [ruleList, moderatorList] = await Promise.all([
-      call(`/api/rooms/${room}/rules`),
-      call(`/api/rooms/${room}/moderators`),
+      call(`/api/stations/${station}/rules`),
+      call(`/api/stations/${station}/moderators`),
     ]);
     setRules(ruleList.rules);
     setModerators(moderatorList.moderators);
@@ -201,7 +201,7 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
     if (snapshot.me?.role !== 'admin') return;
     const memberList = await call(`/api/users${search ? `?search=${encodeURIComponent(search)}` : ''}`);
     setMembers(memberList.users);
-  }, [call, room, search]);
+  }, [call, station, search]);
 
   const refreshOperations = useCallback(async () => {
     setOperationsBusy(true);
@@ -223,11 +223,11 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
   // A region list YouTube would not hand over leaves the field as free text
   // rather than blocking the rest of the panel.
   useEffect(() => {
-    if (roomRole !== 'owner') return;
-    void call(`/api/rooms/${room}/regions`)
+    if (stationRole !== 'owner') return;
+    void call(`/api/stations/${station}/regions`)
       .then((payload) => setRegions(payload.regions))
       .catch(() => setRegions([]));
-  }, [call, room, roomRole]);
+  }, [call, station, stationRole]);
 
   // The pages are prerendered, so the hash is only readable once this runs in a
   // browser.
@@ -296,27 +296,27 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
     );
   }
 
-  if (roomRole !== 'owner') {
+  if (stationRole !== 'owner') {
     return (
       <main className="admin admin-centred">
-        <p>Only this room's owner can manage it.</p>
-        <a className="admin-link" href={roomPath(room)}>
-          Back to the room
+        <p>Only this station's owner can manage it.</p>
+        <a className="admin-link" href={stationPath(station)}>
+          Back to the station
         </a>
       </main>
     );
   }
 
-  // A room owner manages their room; the site's own tabs are a site admin's.
+  // A station owner manages their station; the site's own tabs are a site admin's.
   const siteAdmin = me.role === 'admin';
-  const tabs = TABS.filter(({ id }) => siteAdmin || ROOM_TABS.has(id));
-  const openTab = tabs.some(({ id }) => id === tab) ? tab : 'room';
+  const tabs = TABS.filter(({ id }) => siteAdmin || STATION_TABS.has(id));
+  const openTab = tabs.some(({ id }) => id === tab) ? tab : 'station';
 
   return (
     <main className="admin">
       <header className="admin-header">
         <div>
-          <h1>{room === MAIN_ROOM_SLUG ? 'Room admin' : roomName}</h1>
+          <h1>{station === MAIN_STATION_SLUG ? 'Station admin' : stationName}</h1>
           <p>Signed in as {me.username}</p>
         </div>
         <div className="admin-header-links">
@@ -328,8 +328,8 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           >
             Source on GitHub <ExternalLink size={13} />
           </a>
-          <a className="admin-link" href={roomPath(room)}>
-            Back to the room
+          <a className="admin-link" href={stationPath(station)}>
+            Back to the station
           </a>
         </div>
       </header>
@@ -354,12 +354,12 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
       {error && <p className="admin-error">{error}</p>}
       {notice && <p className="admin-notice">{notice}</p>}
 
-      {openTab === 'room' && settings && (
-        <SettingsSection settings={settings} regions={regions} busy={busy} act={act} call={call} room={room} />
+      {openTab === 'station' && settings && (
+        <SettingsSection settings={settings} regions={regions} busy={busy} act={act} call={call} station={station} />
       )}
-      {openTab === 'room' && <RulesSection rules={rules} busy={busy} act={act} call={call} room={room} />}
-      {openTab === 'room' && (
-        <ModeratorsSection moderators={moderators} busy={busy} act={act} call={call} room={room} />
+      {openTab === 'station' && <RulesSection rules={rules} busy={busy} act={act} call={call} station={station} />}
+      {openTab === 'station' && (
+        <ModeratorsSection moderators={moderators} busy={busy} act={act} call={call} station={station} />
       )}
 
       {openTab === 'people' && (
@@ -370,7 +370,7 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
           busy={busy}
           act={act}
           call={call}
-          room={room}
+          station={station}
         />
       )}
 
@@ -389,32 +389,32 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
             busy={operationsBusy}
             onRefresh={() => void refreshOperations()}
           />
-          <ArchiveSection busy={busy} act={act} call={call} room={room} />
+          <ArchiveSection busy={busy} act={act} call={call} station={station} />
           <ExportsSection apiUrl={apiUrl} />
         </>
       )}
 
-      {openTab === 'obs' && <StreamWatchSection busy={busy} act={act} call={call} room={room} />}
-      {openTab === 'obs' && <ObsSources busy={busy} act={act} call={call} room={room} />}
+      {openTab === 'obs' && <StreamWatchSection busy={busy} act={act} call={call} station={station} />}
+      {openTab === 'obs' && <ObsSources busy={busy} act={act} call={call} station={station} />}
     </main>
   );
 }
 
 /**
- * Pulling in whatever the room has played on QueUp since the last time.
+ * Pulling in whatever the station has played on QueUp since the last time.
  *
- * The two years of history the archive starts with ship with the room and are
+ * The two years of history the archive starts with ship with the station and are
  * applied when the API starts. This is the other end of it: QueUp is still
  * running, still playing, and this reads the newest pages and stores what is
  * new. It stops where the two histories meet, so it is quick and safe to press
  * twice.
  */
 function ArchiveSection({ busy, act, call }: SectionProps) {
-  const [room, setRoom] = useState('dgg-radio');
+  const [queupRoom, setQueupRoom] = useState('dgg-radio');
   const [result, setResult] = useState<ArchiveRefresh | null>(null);
 
   function refresh() {
-    const slug = room.trim();
+    const slug = queupRoom.trim();
     if (!slug) return;
     void act(async () => {
       setResult(null);
@@ -430,8 +430,8 @@ function ArchiveSection({ busy, act, call }: SectionProps) {
         </h2>
       </div>
       <p className="admin-export-note">
-        The room's QueUp years arrive with the deployment. This brings across whatever has
-        played there since, newest first, and stops where the archive and the live room meet.
+        The station's QueUp years arrive with the deployment. This brings across whatever has
+        played there since, newest first, and stops where the archive and the live station meet.
         Pressing it twice in a row finds nothing the second time.
       </p>
       <div className="admin-block">
@@ -442,13 +442,13 @@ function ArchiveSection({ busy, act, call }: SectionProps) {
           }}
         >
           <input
-            value={room}
+            value={queupRoom}
             maxLength={80}
             placeholder="QueUp room name"
             aria-label="QueUp room name"
-            onChange={(event) => setRoom(event.currentTarget.value)}
+            onChange={(event) => setQueupRoom(event.currentTarget.value)}
           />
-          <button type="submit" disabled={busy || !room.trim()}>
+          <button type="submit" disabled={busy || !queupRoom.trim()}>
             <RefreshCw className={busy ? 'spin' : undefined} size={14} /> Bring across new plays
           </button>
         </form>
@@ -467,15 +467,15 @@ function ArchiveSection({ busy, act, call }: SectionProps) {
   );
 }
 
-/** What can be taken out of the room, and what is in each of them. */
+/** What can be taken out of the station, and what is in each of them. */
 const EXPORT_GROUPS = [
   {
-    title: 'What the room holds',
+    title: 'What the station holds',
     datasets: [
       {
         id: 'history',
-        label: 'Room history',
-        description: 'Every track this room has played or skipped, with who requested it and its votes.',
+        label: 'Station history',
+        description: 'Every track this station has played or skipped, with who requested it and its votes.',
       },
       {
         id: 'archive',
@@ -485,7 +485,7 @@ const EXPORT_GROUPS = [
       {
         id: 'tracks',
         label: 'Track catalogue',
-        description: 'Every track the room has a row for, with what each source says it is.',
+        description: 'Every track the station has a row for, with what each source says it is.',
       },
       {
         id: 'lookups',
@@ -510,14 +510,14 @@ const EXPORT_GROUPS = [
       {
         id: 'stats-genres',
         label: 'Genres',
-        description: 'Every genre by plays, this room and the QueUp archive counted apart.',
+        description: 'Every genre by plays, this station and the QueUp archive counted apart.',
       },
     ],
   },
 ] as const;
 
 /**
- * Copies of the room's data, as CSV.
+ * Copies of the station's data, as CSV.
  *
  * Plain links rather than buttons that fetch: the browser is being asked to
  * save a file, and a top-level navigation carries the session cookie and hands
@@ -534,7 +534,7 @@ function ExportsSection({ apiUrl }: { apiUrl: string }) {
         </h2>
       </div>
       <p className="admin-export-note">
-        A copy of what the room knows, as CSV. Everything but the provider cache opens in a
+        A copy of what the station knows, as CSV. Everything but the provider cache opens in a
         spreadsheet as it is; the cache keeps each provider's stored answer as JSON in its own
         column. A large export takes a few seconds to build before the download starts.
       </p>
@@ -557,13 +557,13 @@ function ExportsSection({ apiUrl }: { apiUrl: string }) {
   );
 }
 
-function RulesSection({ rules, room, busy, act, call }: SectionProps & { rules: RuleSummary[] }) {
+function RulesSection({ rules, station, busy, act, call }: SectionProps & { rules: RuleSummary[] }) {
   const [entries, setEntries] = useState<Record<string, RuleEntrySummary[]>>({});
 
   function moveRule(rule: RuleSummary, destination: MoveDestination) {
     const orderedIds = moveItem(rules, rule.id, destination);
     if (!orderedIds) return;
-    void act(() => call(`/api/rooms/${room}/rules/order`, 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
+    void act(() => call(`/api/stations/${station}/rules/order`, 'PATCH', { orderedIds }), `Moved "${rule.name}".`);
   }
 
   async function toggleEntries(ruleId: string) {
@@ -582,11 +582,11 @@ function RulesSection({ rules, room, busy, act, call }: SectionProps & { rules: 
       </h2>
       <p className="admin-help">
         A blocklist rule collects the tracks and artists that broke it, so blocking a song under it
-        teaches the room. An advisory rule is only shown to listeners. Switching a rule off hides it
+        teaches the station. An advisory rule is only shown to listeners. Switching a rule off hides it
         from the player and stops it being enforced, but keeps its list for later.
       </p>
 
-      <NewRuleForm busy={busy} act={act} call={call} room={room} />
+      <NewRuleForm busy={busy} act={act} call={call} station={station} />
 
       {rules.length === 0 ? (
         <p className="admin-empty">No rules yet.</p>
@@ -599,7 +599,7 @@ function RulesSection({ rules, room, busy, act, call }: SectionProps & { rules: 
               busy={busy}
               act={act}
               call={call}
-              room={room}
+              station={station}
               entries={entries[rule.id]}
               index={index}
               total={rules.length}
@@ -623,7 +623,7 @@ function PeopleSection({
   busy,
   act,
   call,
-}: SectionProps & { members: RoomMember[]; search: string; onSearch: (value: string) => void }) {
+}: SectionProps & { members: StationMember[]; search: string; onSearch: (value: string) => void }) {
   return (
     <section className="admin-card">
       <h2>
@@ -647,9 +647,9 @@ function PeopleSection({
                     <Shield size={13} /> {member.isRoot ? 'root admin' : member.role}
                   </span>
                 )}
-                {member.role === 'listener' && member.mainRoomRole && (
+                {member.role === 'listener' && member.mainStationRole && (
                   <span className="admin-meta">
-                    <Shield size={13} /> main room {member.mainRoomRole}
+                    <Shield size={13} /> main station {member.mainStationRole}
                   </span>
                 )}
                 {member.queuedCount > 0 && (
@@ -695,20 +695,20 @@ function PeopleSection({
                 <label className="admin-check">
                   <input
                     type="checkbox"
-                    checked={member.canCreateRooms}
+                    checked={member.canCreateStations}
                     disabled={busy}
                     onChange={(event) => {
-                      const canCreateRooms = event.currentTarget.checked;
+                      const canCreateStations = event.currentTarget.checked;
                       void act(
                         () =>
-                          call(`/api/users/${member.id}/room-creator`, 'PATCH', { canCreateRooms }),
-                        canCreateRooms
-                          ? `${member.username} can create a room.`
-                          : `${member.username} can no longer create a room.`,
+                          call(`/api/users/${member.id}/station-creator`, 'PATCH', { canCreateStations }),
+                        canCreateStations
+                          ? `${member.username} can create a station.`
+                          : `${member.username} can no longer create a station.`,
                       );
                     }}
                   />
-                  Can create a room
+                  Can create a station
                 </label>
               </div>
             </div>
@@ -721,7 +721,7 @@ function PeopleSection({
 }
 
 /**
- * Everything the room writes to the log. An action it does not know is still
+ * Everything the station writes to the log. An action it does not know is still
  * shown, spelled as it was stored, because a log that hides what it cannot
  * caption is worse than one that reads awkwardly.
  */
@@ -731,8 +731,8 @@ const MODERATION_VERBS: Record<string, string> = {
   block_track: 'blocked the track',
   block_artist: 'blocked the artist',
   clear_queue: 'cleared the queue of',
-  reorder_room_queue: 'reordered the room queue',
-  update_settings: 'changed room settings',
+  reorder_station_queue: 'reordered the station queue',
+  update_settings: 'changed station settings',
 };
 
 /** The parts of a record worth reading when it carries no reason of its own. */
@@ -747,7 +747,7 @@ export function moderationSummary(entry: ModerationEntry): string | null {
       ? `${removed} ${removed === 1 ? 'track' : 'tracks'} dropped.`
       : null;
   }
-  if (entry.action === 'reorder_room_queue') {
+  if (entry.action === 'reorder_station_queue') {
     const order = entry.details.orderedIds;
     return Array.isArray(order) ? `${order.length} tracks put in a new order.` : null;
   }
@@ -774,7 +774,7 @@ function ModerationSection({
         </button>
       </div>
       <p className="admin-help">
-        Every skip, removal, block, cleared queue and settings change the room has recorded, newest
+        Every skip, removal, block, cleared queue and settings change the station has recorded, newest
         first. It is written as each action happens and nothing here can be edited.
       </p>
 
@@ -818,7 +818,7 @@ function ModerationSection({
 }
 
 const CONNECTION_LABELS = {
-  room: 'Room page',
+  station: 'Station page',
   'embed-player': 'Synchronized video player',
   'embed-playing': 'Now-playing overlay',
   'embed-queue': 'Upcoming queue',
@@ -866,7 +866,7 @@ function OperationsSection({
 
           <p className="admin-operation-clock">
             The API has been up for {elapsedTime(snapshot.processStartedAt, snapshot.capturedAt)}. The
-            room clock checked {snapshot.clock.checks.toLocaleString()}{' '}
+            station clock checked {snapshot.clock.checks.toLocaleString()}{' '}
             {snapshot.clock.checks === 1 ? 'time' : 'times'} and advanced playback{' '}
             {snapshot.clock.advances.toLocaleString()}{' '}
             {snapshot.clock.advances === 1 ? 'time' : 'times'}.
@@ -887,12 +887,12 @@ function OperationsSection({
                 <li key={`${connection.connectedAt}-${connection.kind}-${connection.username ?? 'anonymous'}-${index}`}>
                   <div>
                     <strong>
-                      {connection.kind === 'room'
+                      {connection.kind === 'station'
                         ? connection.username ?? 'Anonymous browser'
                         : CONNECTION_LABELS[connection.kind]}
                     </strong>
                     <span>
-                      {connection.kind === 'room' ? CONNECTION_LABELS.room : 'OBS browser source'}
+                      {connection.kind === 'station' ? CONNECTION_LABELS.station : 'OBS browser source'}
                     </span>
                   </div>
                   <time dateTime={connection.connectedAt}>
@@ -945,10 +945,10 @@ function OperationsSection({
             ))}
           </ul>
           <p className="admin-help">
-            Every table the room has is in one of these groups, and they hold{' '}
+            Every table the station has is in one of these groups, and they hold{' '}
             {formatShare(measuredShare(snapshot.storage))} of the database. The rest is PostgreSQL's
-            own catalogues and the room it keeps inside its files — a fixed few megabytes rather
-            than a share of the data, so it shrinks as a proportion as the room fills up.
+            own catalogues and the station it keeps inside its files — a fixed few megabytes rather
+            than a share of the data, so it shrinks as a proportion as the station fills up.
           </p>
         </>
       )}
@@ -1040,17 +1040,17 @@ function optionDefault(option: SourceOption): string {
 }
 
 /**
- * The path, carrying the room when it is not the main one, and whatever has
+ * The path, carrying the station when it is not the main one, and whatever has
  * been changed from its default and nothing else.
  */
 export function buildSourcePath(
   path: string,
   options: SourceOption[],
   chosen: Record<string, string>,
-  room: string = MAIN_ROOM_SLUG,
+  station: string = MAIN_STATION_SLUG,
 ): string {
   const params = new URLSearchParams();
-  if (room !== MAIN_ROOM_SLUG) params.set('room', room);
+  if (station !== MAIN_STATION_SLUG) params.set('station', station);
   for (const option of options) {
     const value = chosen[option.name] ?? optionDefault(option);
     if (value === '' || value === optionDefault(option)) continue;
@@ -1062,7 +1062,7 @@ export function buildSourcePath(
 
 interface EmbedSourceProps {
   origin: string;
-  room: string;
+  station: string;
   path: string;
   name: string;
   size: string;
@@ -1075,9 +1075,9 @@ interface EmbedSourceProps {
  * list of prebuilt variants. One option makes two variants and five make
  * thirty-two, which is not a list anybody reads.
  */
-function EmbedSource({ origin, room, path, name, size, note, options = [] }: EmbedSourceProps) {
+function EmbedSource({ origin, station, path, name, size, note, options = [] }: EmbedSourceProps) {
   const [chosen, setChosen] = useState<Record<string, string>>({});
-  const sourcePath = buildSourcePath(path, options, chosen, room);
+  const sourcePath = buildSourcePath(path, options, chosen, station);
   const url = `${origin}${sourcePath}`;
   const set = (option: string, value: string) =>
     setChosen((current) => ({ ...current, [option]: value }));
@@ -1157,19 +1157,19 @@ interface StreamWatchDraft {
 }
 
 /**
- * Watching a destiny.gg embed, so the room knows who is on its own stream.
+ * Watching a destiny.gg embed, so the station knows who is on its own stream.
  *
  * The two counts are meant to disagree a little. The site counts embeds open;
  * chat counts people in chat with that embed selected, and only the second one
  * has names behind it. Neither is stored; mitchdev.net/dgg/embeds keeps the
  * site's history of every embed.
  */
-function StreamWatchSection({ room, busy, act, call }: SectionProps) {
+function StreamWatchSection({ station, busy, act, call }: SectionProps) {
   const [status, setStatus] = useState<StreamWatchStatus | null>(null);
   const [draft, setDraft] = useState<StreamWatchDraft | null>(null);
 
   const load = useCallback(async () => {
-    const next: StreamWatchStatus = await call(`/api/rooms/${room}/stream-watch`);
+    const next: StreamWatchStatus = await call(`/api/stations/${station}/stream-watch`);
     setStatus(next);
     // The form is only filled once, so a poll never overwrites what is being
     // typed into it.
@@ -1186,7 +1186,7 @@ function StreamWatchSection({ room, busy, act, call }: SectionProps) {
     event.preventDefault();
     if (!draft) return;
     void act(
-      async () => setStatus(await call(`/api/rooms/${room}/stream-watch`, 'PATCH', draft)),
+      async () => setStatus(await call(`/api/stations/${station}/stream-watch`, 'PATCH', draft)),
       draft.enabled ? `Watching ${draft.platform}/${draft.channel.trim().toLowerCase()}.` : 'Stream watch is off.',
     );
   }
@@ -1320,7 +1320,7 @@ const WATCHER_LAYOUT_LABELS: Record<WatcherLayout, string> = {
 const WATCHER_SHOW_LABELS: Record<string, string> = {
   speakers: 'Recent speakers',
   all: 'Everyone',
-  members: 'Room members',
+  members: 'Station members',
 };
 
 const WATCHER_NAME_LABELS: Record<string, string> = {
@@ -1448,7 +1448,7 @@ const WATCHER_SOURCE_OPTIONS: SourceOption[] = [
 
 function PersonalWatcherSource({
   origin,
-  room,
+  station,
   busy,
   act,
   call,
@@ -1458,7 +1458,7 @@ function PersonalWatcherSource({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void call(`/api/rooms/${room}/watcher-embed`)
+    void call(`/api/stations/${station}/watcher-embed`)
       .then((settings: WatcherEmbedSettings) => {
         setSaved(settings);
         setDraft(settings);
@@ -1477,12 +1477,12 @@ function PersonalWatcherSource({
   }
 
   const sourcePath = `/embed/watchers?profile=${saved.ownerId}${
-    room === MAIN_ROOM_SLUG ? '' : `&room=${room}`
+    station === MAIN_STATION_SLUG ? '' : `&station=${station}`
   }`;
   const url = `${origin}${sourcePath}`;
   // The same settings written out rather than looked up: a source that will not
   // change again until somebody edits the URL, and the thing to paste into an
-  // OBS on another machine that must keep working if this room is unreachable.
+  // OBS on another machine that must keep working if this station is unreachable.
   const fixedPath = buildSourcePath('/embed/watchers', WATCHER_SOURCE_OPTIONS, {
     show: saved.show,
     window: String(saved.window),
@@ -1496,7 +1496,7 @@ function PersonalWatcherSource({
     size: String(saved.size),
     roam: String(saved.roam),
     inset: String(saved.inset),
-  }, room);
+  }, station);
   const fixedUrl = `${origin}${fixedPath}`;
 
   function submit(event: SubmitEvent) {
@@ -1504,7 +1504,7 @@ function PersonalWatcherSource({
     if (!draft) return;
     const current = draft;
     void act(async () => {
-      const next: WatcherEmbedSettings = await call(`/api/rooms/${room}/watcher-embed`, 'PATCH', {
+      const next: WatcherEmbedSettings = await call(`/api/stations/${station}/watcher-embed`, 'PATCH', {
         show: current.show,
         window: current.window,
         max: current.max,
@@ -1700,7 +1700,7 @@ function PersonalWatcherSource({
   );
 }
 
-function ObsSources({ room, busy, act, call }: SectionProps) {
+function ObsSources({ station, busy, act, call }: SectionProps) {
   // The pages are prerendered, so the host is only known once this runs in a
   // browser. Until then the paths stand in for the full URLs.
   const [origin, setOrigin] = useState('');
@@ -1710,10 +1710,10 @@ function ObsSources({ room, busy, act, call }: SectionProps) {
     <section className="admin-card">
       <h2>OBS browser sources</h2>
       <p className="admin-help">
-        Add any of these as a Browser Source. The player carries the room's audio and stays in sync
+        Add any of these as a Browser Source. The player carries the station's audio and stays in sync
         with it; the overlays are transparent and silent.
       </p>
-      <PersonalWatcherSource origin={origin} busy={busy} act={act} call={call} room={room} />
+      <PersonalWatcherSource origin={origin} busy={busy} act={act} call={call} station={station} />
 
       <h3>Fixed sources</h3>
       <p className="admin-help">
@@ -1722,7 +1722,7 @@ function ObsSources({ room, busy, act, call }: SectionProps) {
       <ul className="admin-embed-links">
         <EmbedSource
           origin={origin}
-          room={room}
+          station={station}
           path="/embed/player"
           name="Synchronized video player"
           size="1920 × 1080"
@@ -1736,10 +1736,10 @@ function ObsSources({ room, busy, act, call }: SectionProps) {
             },
           ]}
         />
-        <EmbedSource origin={origin} room={room} path="/embed/playing" name="Now-playing overlay" size="1200 × 240" />
+        <EmbedSource origin={origin} station={station} path="/embed/playing" name="Now-playing overlay" size="1200 × 240" />
         <EmbedSource
           origin={origin}
-          room={room}
+          station={station}
           path="/embed/queue"
           name="Upcoming queue"
           size="Any width · 600 high"
@@ -1747,7 +1747,7 @@ function ObsSources({ room, busy, act, call }: SectionProps) {
         />
         <EmbedSource
           origin={origin}
-          room={room}
+          station={station}
           path="/embed/watchers"
           name="Who is watching"
           size="1920 × 1080"
@@ -1764,7 +1764,7 @@ function ObsSources({ room, busy, act, call }: SectionProps) {
         </li>
         <li>
           Turn on <strong>Shutdown source when not visible</strong>, so nothing plays off-scene. It
-          rejoins the room at the right timestamp when it comes back.
+          rejoins the station at the right timestamp when it comes back.
         </li>
         <li>
           Leave <strong>Refresh browser source when scene becomes active</strong> off. The shutdown
@@ -1781,7 +1781,7 @@ function ObsSources({ room, busy, act, call }: SectionProps) {
 
 interface RuleRowProps {
   rule: RuleSummary;
-  room: string;
+  station: string;
   busy: boolean;
   act: (work: () => Promise<unknown>, message: string) => Promise<void>;
   call: (path: string, method?: string, body?: unknown) => Promise<any>;
@@ -1795,7 +1795,7 @@ interface RuleRowProps {
 
 function RuleRow({
   rule,
-  room,
+  station,
   busy,
   act,
   call,
@@ -1959,7 +1959,7 @@ function RuleRow({
           busy={busy}
           act={act}
           call={call}
-          room={room}
+          station={station}
           onBlocked={onEntryRemoved}
         />
       )}
@@ -1995,8 +1995,8 @@ function RuleRow({
 }
 
 interface SectionProps {
-  /** The slug of the room being managed. */
-  room: string;
+  /** The slug of the station being managed. */
+  station: string;
   busy: boolean;
   act: (work: () => Promise<unknown>, message: string) => Promise<void>;
   call: (path: string, method?: string, body?: unknown) => Promise<any>;
@@ -2012,7 +2012,7 @@ interface SectionProps {
  * which is also how a channel is blocked: find one of its videos and block the
  * channel rather than the video.
  *
- * There is no channel search. The library the room searches YouTube with reads
+ * There is no channel search. The library the station searches YouTube with reads
  * videos and playlists and nothing else, and YouTube's own channel search costs
  * a hundred quota units a query for something any video by that channel already
  * answers for free.
@@ -2162,7 +2162,7 @@ function regionCode(text: string, regions: PlaybackRegion[]): string | null {
 function SettingsSection({
   settings,
   regions,
-  room,
+  station,
   busy,
   act,
   call,
@@ -2181,19 +2181,19 @@ function SettingsSection({
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    void act(() => call(`/api/rooms/${room}/settings`, 'PATCH', draft), 'Room settings saved.');
+    void act(() => call(`/api/stations/${station}/settings`, 'PATCH', draft), 'Station settings saved.');
   }
 
   return (
     <section className="admin-card">
-      <h2>Room settings</h2>
+      <h2>Station settings</h2>
       <form className="admin-form" onSubmit={submit}>
         <label className="admin-wide">
-          Room description
+          Station description
           <textarea
             rows={8}
             value={draft.description}
-            placeholder="What this room is, and anything listeners should know."
+            placeholder="What this station is, and anything listeners should know."
             onChange={(event) => setDraft({ ...draft, description: event.currentTarget.value })}
           />
           <small>Shown on the player. Leave a blank line between paragraphs.</small>
@@ -2321,7 +2321,7 @@ function SettingsSection({
           />
           Show who requested each track
           <small>
-            Turn this off to hide requesters from listeners until a track is ending. This room's
+            Turn this off to hide requesters from listeners until a track is ending. This station's
             owner and mods always see them.
           </small>
         </label>
@@ -2334,7 +2334,7 @@ function SettingsSection({
   );
 }
 
-function NewRuleForm({ room, busy, act, call }: SectionProps) {
+function NewRuleForm({ station, busy, act, call }: SectionProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [enforcement, setEnforcement] = useState<'blocklist' | 'advisory'>('blocklist');
@@ -2343,7 +2343,7 @@ function NewRuleForm({ room, busy, act, call }: SectionProps) {
     event.preventDefault();
     if (!name.trim()) return;
     void act(async () => {
-      await call(`/api/rooms/${room}/rules`, 'POST', { name: name.trim(), description: description.trim(), enforcement });
+      await call(`/api/stations/${station}/rules`, 'POST', { name: name.trim(), description: description.trim(), enforcement });
       setName('');
       setDescription('');
     }, `Added "${name.trim()}".`);
@@ -2387,20 +2387,20 @@ function NewRuleForm({ room, busy, act, call }: SectionProps) {
 }
 
 /**
- * Who runs this room. The owner picks the moderators by the name they sign in
+ * Who runs this station. The owner picks the moderators by the name they sign in
  * with; somebody who has never signed in to the radio cannot be picked yet.
  */
 function ModeratorsSection({
   moderators,
-  room,
+  station,
   busy,
   act,
   call,
-}: SectionProps & { moderators: RoomModerator[] }) {
+}: SectionProps & { moderators: StationModerator[] }) {
   const [username, setUsername] = useState('');
 
   const setModerator = (name: string, moderator: boolean) =>
-    call(`/api/rooms/${room}/moderators/${encodeURIComponent(name)}`, 'PUT', { moderator });
+    call(`/api/stations/${station}/moderators/${encodeURIComponent(name)}`, 'PUT', { moderator });
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
@@ -2409,7 +2409,7 @@ function ModeratorsSection({
     void act(async () => {
       await setModerator(name, true);
       setUsername('');
-    }, `${name} now moderates this room.`);
+    }, `${name} now moderates this station.`);
   }
 
   return (
@@ -2418,7 +2418,7 @@ function ModeratorsSection({
         <Users size={18} /> Moderators
       </h2>
       <p className="admin-help">
-        Moderators can skip, block, and reorder the queue here, and edit this room's rule lists.
+        Moderators can skip, block, and reorder the queue here, and edit this station's rule lists.
       </p>
       <ul className="admin-list">
         {moderators.map((member) => (
@@ -2440,7 +2440,7 @@ function ModeratorsSection({
                     onClick={() =>
                       void act(
                         () => setModerator(member.username, false),
-                        `${member.username} no longer moderates this room.`,
+                        `${member.username} no longer moderates this station.`,
                       )
                     }
                   >

@@ -34,7 +34,7 @@ export interface BlockingRule {
 /** Reads as "No meme songs", or "No meme songs and No Disney songs". */
 export function describeBlock(blocking: BlockingRule[]): string {
   const names = [...new Set(blocking.map(({ ruleName }) => ruleName))].map((name) => `"${name}"`);
-  if (names.length <= 1) return names[0] ?? 'a room rule';
+  if (names.length <= 1) return names[0] ?? 'a station rule';
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 }
 
@@ -44,7 +44,7 @@ export function describeBlock(blocking: BlockingRule[]): string {
  * out, which is why a collaboration under another channel needs its own entry.
  */
 export async function findBlockingRules(
-  roomId: string,
+  stationId: string,
   metadata: MediaMetadata,
   db: Database = getDatabase(),
 ): Promise<BlockingRule[]> {
@@ -67,7 +67,7 @@ export async function findBlockingRules(
     .innerJoin(rules, eq(ruleEntries.ruleId, rules.id))
     .where(
       and(
-        eq(rules.roomId, roomId),
+        eq(rules.stationId, stationId),
         eq(rules.active, true),
         eq(ruleEntries.provider, metadata.provider),
         or(...targets),
@@ -77,7 +77,7 @@ export async function findBlockingRules(
 }
 
 export async function listRules(
-  roomId: string,
+  stationId: string,
   db: Database = getDatabase(),
 ): Promise<RuleSummary[]> {
   const rows = await db
@@ -92,7 +92,7 @@ export async function listRules(
     })
     .from(rules)
     .leftJoin(ruleEntries, eq(ruleEntries.ruleId, rules.id))
-    .where(eq(rules.roomId, roomId))
+    .where(eq(rules.stationId, stationId))
     .groupBy(rules.id)
     .orderBy(asc(rules.position), asc(rules.name));
   return rows.map((row) => ({ ...row, entryCount: Number(row.entryCount) }));
@@ -100,7 +100,7 @@ export async function listRules(
 
 /** What the player shows: the rules currently switched on. */
 export async function listActiveRules(
-  roomId: string,
+  stationId: string,
   db: Database = getDatabase(),
 ): Promise<PublicRule[]> {
   return db
@@ -111,7 +111,7 @@ export async function listActiveRules(
       enforcement: rules.enforcement,
     })
     .from(rules)
-    .where(and(eq(rules.roomId, roomId), eq(rules.active, true)))
+    .where(and(eq(rules.stationId, stationId), eq(rules.active, true)))
     .orderBy(asc(rules.position), asc(rules.name));
 }
 
@@ -137,7 +137,7 @@ export async function listRuleEntries(
 }
 
 export async function createRule(
-  roomId: string,
+  stationId: string,
   input: { name: string; description: string; enforcement: RuleEnforcement },
   admin: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -145,11 +145,11 @@ export async function createRule(
   const [{ next }] = await db
     .select({ next: sql<number>`coalesce(max(${rules.position}), -1) + 1`.mapWith(Number) })
     .from(rules)
-    .where(eq(rules.roomId, roomId));
+    .where(eq(rules.stationId, stationId));
 
   const [created] = await db
     .insert(rules)
-    .values({ ...input, roomId, position: next, createdByUserId: admin.id })
+    .values({ ...input, stationId, position: next, createdByUserId: admin.id })
     .onConflictDoNothing()
     .returning({ id: rules.id });
   if (!created) throw new RuleError('RULE_EXISTS', 'A rule with that name already exists.');
@@ -176,12 +176,12 @@ export async function updateRule(
 }
 
 /**
- * Writes a new order for one room's whole rule list. The client sends every id,
+ * Writes a new order for one station's whole rule list. The client sends every id,
  * so a list that changed underneath the admin is rejected rather than
  * half-applied.
  */
 export async function reorderRules(
-  roomId: string,
+  stationId: string,
   orderedIds: string[],
   db: Database = getDatabase(),
 ): Promise<void> {
@@ -189,7 +189,7 @@ export async function reorderRules(
     const existing = await transaction
       .select({ id: rules.id })
       .from(rules)
-      .where(eq(rules.roomId, roomId));
+      .where(eq(rules.stationId, stationId));
     const ids = new Set(existing.map(({ id }) => id));
     if (orderedIds.length !== ids.size || orderedIds.some((id) => !ids.has(id))) {
       throw new RuleError('RULES_CHANGED', 'The rule list changed. Try the move again.', 409);
@@ -208,33 +208,33 @@ export async function deleteRule(ruleId: string, db: Database = getDatabase()): 
   if (!deleted) throw new RuleError('RULE_NOT_FOUND', 'That rule does not exist.', 404);
 }
 
-/** The room that keeps a rule, which is whose moderators may edit it. */
-export async function roomOfRule(ruleId: string, db: Database = getDatabase()): Promise<string> {
-  const [rule] = await db.select({ roomId: rules.roomId }).from(rules).where(eq(rules.id, ruleId));
+/** The station that keeps a rule, which is whose moderators may edit it. */
+export async function stationOfRule(ruleId: string, db: Database = getDatabase()): Promise<string> {
+  const [rule] = await db.select({ stationId: rules.stationId }).from(rules).where(eq(rules.id, ruleId));
   if (!rule) throw new RuleError('RULE_NOT_FOUND', 'That rule does not exist.', 404);
-  return rule.roomId;
+  return rule.stationId;
 }
 
-/** The room that keeps the rule an entry is listed under. */
-export async function roomOfRuleEntry(
+/** The station that keeps the rule an entry is listed under. */
+export async function stationOfRuleEntry(
   entryId: string,
   db: Database = getDatabase(),
 ): Promise<string> {
   const [entry] = await db
-    .select({ roomId: rules.roomId })
+    .select({ stationId: rules.stationId })
     .from(ruleEntries)
     .innerJoin(rules, eq(ruleEntries.ruleId, rules.id))
     .where(eq(ruleEntries.id, entryId));
   if (!entry) throw new RuleError('ENTRY_NOT_FOUND', 'That entry does not exist.', 404);
-  return entry.roomId;
+  return entry.stationId;
 }
 
 /**
- * Refuses unless every rule named is one of this room's. A moderator blocks
- * under their own room's rules; a rule kept by another room is edited there.
+ * Refuses unless every rule named is one of this station's. A moderator blocks
+ * under their own station's rules; a rule kept by another station is edited there.
  */
-export async function assertRulesInRoom(
-  roomId: string,
+export async function assertRulesInStation(
+  stationId: string,
   ruleIds: string[],
   db: Database = getDatabase(),
 ): Promise<void> {
@@ -242,9 +242,9 @@ export async function assertRulesInRoom(
   const found = await db
     .select({ id: rules.id })
     .from(rules)
-    .where(and(eq(rules.roomId, roomId), inArray(rules.id, ruleIds)));
+    .where(and(eq(rules.stationId, stationId), inArray(rules.id, ruleIds)));
   if (found.length !== new Set(ruleIds).size) {
-    throw new RuleError('RULE_NOT_FOUND', 'That rule is not one of this room\'s.', 404);
+    throw new RuleError('RULE_NOT_FOUND', 'That rule is not one of this station\'s.', 404);
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * The room's histories are searched the same way, so the one rule about it
+ * The station's histories are searched the same way, so the one rule about it
  * lives here rather than in each of them.
  */
 

@@ -8,7 +8,7 @@ import { seedGenres } from './genre';
 import type { StoredGenre } from './genre';
 
 /**
- * What the room ships with.
+ * What the station ships with.
  *
  * Two things take far longer to work out than they take to carry: the QueUp
  * years, which are two days of somebody else's API at twenty plays a page, and
@@ -17,7 +17,7 @@ import type { StoredGenre } from './genre';
  * them by deploying and never fetches either.
  *
  * Everything here only fills gaps. A row the database already has is left
- * exactly as it is, so anything the room has learned since — a play imported
+ * exactly as it is, so anything the station has learned since — a play imported
  * last week, a genre worked out against the running database — survives every
  * later deploy. These files are a floor, not an authority.
  *
@@ -26,8 +26,8 @@ import type { StoredGenre } from './genre';
  * rows to be told each one is already there. Regenerating a file changes its
  * digest, so it applies again without anyone remembering to say so.
  *
- * None of it may stop the API serving. A room with no archive and no genre is
- * a working room with less in it, so a missing or unreadable file is a log line
+ * None of it may stop the API serving. A station with no archive and no genre is
+ * a working station with less in it, so a missing or unreadable file is a log line
  * rather than a failure.
  */
 

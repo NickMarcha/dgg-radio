@@ -17,7 +17,7 @@ process.env.ADMIN_DGG_USERNAMES = 'picklesnathan, StrawWaffle';
 
 const { AdminError, isRootAdmin, listAdmins, listUsers, setUserRole } = await import('./admins');
 const schema = await import('./db/schema');
-const { MAIN_ROOM_ID } = await import('./rooms');
+const { MAIN_STATION_ID } = await import('./stations');
 const { media, queueItems, users, userChatCounts } = schema;
 
 const connectionString = testConnectionString();
@@ -99,7 +99,7 @@ describe.skipIf(!connectionString)('admin management', () => {
       .returning({ id: schema.media.id });
     await db
       .insert(queueItems)
-      .values({ roomId: MAIN_ROOM_ID, mediaId: mediaId!, requestedByUserId: nathan });
+      .values({ stationId: MAIN_STATION_ID, mediaId: mediaId!, requestedByUserId: nathan });
 
     const listed = await listUsers(undefined, db);
     const counts = Object.fromEntries(listed.map((u) => [u.username, u.queuedCount]));

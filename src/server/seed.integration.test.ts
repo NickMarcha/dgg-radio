@@ -21,7 +21,7 @@ const schema = await import('./db/schema');
 const { legacyPlays, seedState, trackGenres } = schema;
 const connectionString = testConnectionString();
 
-describe.skipIf(!connectionString)('what the room ships with', () => {
+describe.skipIf(!connectionString)('what the station ships with', () => {
   const pool = new Pool({ connectionString });
   const db = drizzle(pool, { schema });
   let directory = '';
@@ -100,7 +100,7 @@ describe.skipIf(!connectionString)('what the room ships with', () => {
       requesterName: 'somebody else',
       provider: 'youtube',
       providerMediaId: 'aaa',
-      title: 'What the room already called it',
+      title: 'What the station already called it',
       durationSeconds: 210,
     });
 
@@ -108,7 +108,7 @@ describe.skipIf(!connectionString)('what the room ships with', () => {
     // written is simply already better than what it carries.
     expect(await applyArchiveSeed(path, db)).toEqual({ added: 0, kept: 1, skipped: false });
     const [stored] = await db.select().from(legacyPlays);
-    expect(stored?.title).toBe('What the room already called it');
+    expect(stored?.title).toBe('What the station already called it');
   });
 
   it('records nothing for a file that is not there', async () => {

@@ -15,7 +15,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 const { getArtistDetail, getTrackDetail } = await import('./catalogue');
 const { storeGenre } = await import('./genre');
 const schema = await import('./db/schema');
-const { MAIN_ROOM_ID } = await import('./rooms');
+const { MAIN_STATION_ID } = await import('./stations');
 const { legacyPlays, media, queueItems, trackGenres, users, votes } = schema;
 const connectionString = testConnectionString();
 
@@ -55,7 +55,7 @@ describe.skipIf(!connectionString)('one track, and who published it', () => {
 
   async function play(mediaId: string, requesterId: string, at: Date) {
     await db.insert(queueItems).values({
-      roomId: MAIN_ROOM_ID,
+      stationId: MAIN_STATION_ID,
       mediaId,
       requestedByUserId: requesterId,
       status: 'played',
@@ -95,9 +95,9 @@ describe.skipIf(!connectionString)('one track, and who published it', () => {
 
     const track = await getTrackDetail('youtube', 'aaaaaaaaaaa', db);
 
-    expect(track.totals).toMatchObject({ roomPlays: 1, archivePlays: 2, upvotes: 6, downvotes: 2 });
-    expect(track.roomPlays).toHaveLength(1);
-    expect(track.roomPlays[0]?.requester?.username).toBe('picklesnathan');
+    expect(track.totals).toMatchObject({ stationPlays: 1, archivePlays: 2, upvotes: 6, downvotes: 2 });
+    expect(track.stationPlays).toHaveLength(1);
+    expect(track.stationPlays[0]?.requester?.username).toBe('picklesnathan');
     expect(track.archivePlays).toHaveLength(2);
     // An archived play is a name and nothing more: there is no account behind it.
     expect(track.archivePlays[0]?.requester).toBeNull();
@@ -160,18 +160,18 @@ describe.skipIf(!connectionString)('one track, and who published it', () => {
     const artist = await getArtistDetail('youtube', 'channel-1', db);
 
     expect(artist.name).toBe('An Artist');
-    expect(artist.totals).toEqual({ tracks: 2, roomPlays: 2, archivePlays: 1 });
+    expect(artist.totals).toEqual({ tracks: 2, stationPlays: 2, archivePlays: 1 });
     // Most played first, across both.
     expect(artist.tracks.map((track) => track.providerMediaId)).toEqual([
       'bbbbbbbbbbb',
       'aaaaaaaaaaa',
     ]);
-    expect(artist.tracks[0]).toMatchObject({ roomPlays: 2, archivePlays: 0 });
-    expect(artist.tracks[1]).toMatchObject({ roomPlays: 0, archivePlays: 1 });
+    expect(artist.tracks[0]).toMatchObject({ stationPlays: 2, archivePlays: 0 });
+    expect(artist.tracks[1]).toMatchObject({ stationPlays: 0, archivePlays: 1 });
     expect(quiet).toBeDefined();
   });
 
-  it('refuses an artist the room has no tracks by', async () => {
+  it('refuses an artist the station has no tracks by', async () => {
     await expect(getArtistDetail('youtube', 'channel-nobody', db)).rejects.toMatchObject({
       code: 'ARTIST_NOT_FOUND',
     });

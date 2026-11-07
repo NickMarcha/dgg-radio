@@ -26,8 +26,8 @@ const GROUP_NAMES = [
   'History and voting',
   'Personal playlists',
   'QueUp archive',
-  'Room state and internal tables',
   'Rules and moderation',
+  'Station state and internal tables',
   'Stream overlay',
   'Track catalogue and provider cache',
 ];
@@ -165,7 +165,7 @@ describe.skipIf(!connectionString)('database storage snapshot', () => {
     const measured = snapshot.groups.reduce((total, group) => total + group.totalBytes, 0);
     const unmeasured = snapshot.databaseBytes - measured;
 
-    // Catalogues and the room PostgreSQL keeps inside its own files. It is a
+    // Catalogues and the station PostgreSQL keeps inside its own files. It is a
     // fixed cost of a few megabytes rather than a share of the data, so on a
     // database holding anything at all it cannot be most of the total.
     expect(unmeasured).toBeGreaterThanOrEqual(0);
@@ -173,7 +173,7 @@ describe.skipIf(!connectionString)('database storage snapshot', () => {
   });
 
   it('reaches the migrations table outside the public schema', async () => {
-    const internal = group(await getStorageSnapshot(db), 'Room state and internal tables');
+    const internal = group(await getStorageSnapshot(db), 'Station state and internal tables');
 
     expect(internal.tables).toContain('drizzle.__drizzle_migrations');
     expect(internal.rowCount).toBeGreaterThan(0);

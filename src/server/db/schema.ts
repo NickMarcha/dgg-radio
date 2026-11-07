@@ -17,9 +17,9 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-/** A site-wide role. Moderating a room is a room role, kept in `room_members`. */
+/** A site-wide role. Moderating a station is a station role, kept in `station_members`. */
 export const userRole = pgEnum('user_role', ['listener', 'admin']);
-export const roomRole = pgEnum('room_role', ['owner', 'mod']);
+export const stationRole = pgEnum('station_role', ['owner', 'mod']);
 export const userTeam = pgEnum('user_team', ['pepe', 'yee']);
 export const mediaProvider = pgEnum('media_provider', ['youtube', 'soundcloud']);
 /**
@@ -88,8 +88,8 @@ export const users = pgTable(
     username: text('username').notNull(),
     avatarUrl: text('avatar_url'),
     role: userRole('role').notNull().default('listener'),
-    /** Whitelisted by a site admin to create a room of their own. */
-    canCreateRooms: boolean('can_create_rooms').notNull().default(false),
+    /** Whitelisted by a site admin to create a station of their own. */
+    canCreateStations: boolean('can_create_stations').notNull().default(false),
     team: userTeam('team'),
     /** The Destiny flair their username takes its colour from, or null for no colour. */
     flair: text('flair'),
@@ -201,9 +201,9 @@ export const playlistItems = pgTable(
 /**
  * Provider lookups cost something every time: YouTube bills quota, and
  * SoundCloud answers come from an unofficial endpoint worth asking sparingly.
- * This holds the last answer per track, whether or not the room could play it,
+ * This holds the last answer per track, whether or not the station could play it,
  * so a submission and the check just before playback do not both cost, and so
- * a track the room keeps refusing is asked about once rather than once per
+ * a track the station keeps refusing is asked about once rather than once per
  * attempt. Rows are overwritten in place, never deleted, so a re-check that
  * fails leaves the previous answer visible.
  *
@@ -214,7 +214,7 @@ export const mediaLookups = pgTable('media_lookups', {
   provider: mediaProvider('provider').notNull(),
   metadata: jsonb('metadata').$type<MediaMetadata>().notNull(),
   /**
-   * Why the room could not play the track when it was asked, or null when it
+   * Why the station could not play the track when it was asked, or null when it
    * could. Stored so a repeat question is answered from here rather than from
    * the provider, and so a cached answer cannot let a refused track through.
    */
@@ -222,7 +222,7 @@ export const mediaLookups = pgTable('media_lookups', {
   playbackIssueMessage: text('playback_issue_message'),
   /**
    * The countries YouTube allowed or blocked, kept as it gave them. The region
-   * verdict is worked out from this on every read, so moving the room's
+   * verdict is worked out from this on every read, so moving the station's
    * playback region needs no new lookups.
    */
   regionRestriction: jsonb('region_restriction').$type<RegionRestriction>(),
@@ -258,23 +258,23 @@ export const playbackRegions = pgTable('playback_regions', {
 });
 
 /**
- * A room: its own queue, settings, rules, and stream. The main room is the one
- * at `/`, and its id is fixed (`MAIN_ROOM_ID` in `rooms.ts`) so the code can
- * name it without a lookup. Every other room is created later and gets a random
+ * A station: its own queue, settings, rules, and stream. The main station is the one
+ * at `/`, and its id is fixed (`MAIN_STATION_ID` in `stations.ts`) so the code can
+ * name it without a lookup. Every other station is created later and gets a random
  * id.
  */
-export const rooms = pgTable(
-  'rooms',
+export const stations = pgTable(
+  'stations',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    /** The room's name in its URL, lowercase. */
+    /** The station's name in its URL, lowercase. */
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('rooms_slug_unique').on(table.slug),
-    check('rooms_slug_shape', sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]{1,31}$'`),
+    uniqueIndex('stations_slug_unique').on(table.slug),
+    check('stations_slug_shape', sql`${table.slug} ~ '^[a-z0-9][a-z0-9-]{1,31}$'`),
   ],
 );
 
@@ -282,9 +282,9 @@ export const queueItems = pgTable(
   'queue_items',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    roomId: uuid('room_id')
+    stationId: uuid('station_id')
       .notNull()
-      .references(() => rooms.id, { onDelete: 'cascade' }),
+      .references(() => stations.id, { onDelete: 'cascade' }),
     mediaId: uuid('media_id')
       .notNull()
       .references(() => media.id),
@@ -299,7 +299,7 @@ export const queueItems = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     moderationReason: text('moderation_reason'),
     /**
-     * What the room owes the requester an explanation for, written for them to
+     * What the station owes the requester an explanation for, written for them to
      * read. `moderationReason` is the internal log and can hold a moderator's
      * private note, so the two must never be the same column. Cleared once the
      * requester has seen it.
@@ -308,7 +308,7 @@ export const queueItems = pgTable(
   },
   (table) => [
     index('queue_items_status_requested_index').on(table.status, table.requestedAt),
-    index('queue_items_room_status_index').on(table.roomId, table.status),
+    index('queue_items_station_status_index').on(table.stationId, table.status),
     index('queue_items_requester_notice_index')
       .on(table.requestedByUserId)
       .where(sql`${table.listenerNotice} is not null`),
@@ -318,30 +318,30 @@ export const queueItems = pgTable(
       table.position,
     ),
     uniqueIndex('queue_items_one_playing_unique')
-      .on(table.roomId)
+      .on(table.stationId)
       .where(sql`${table.status} = 'playing'`),
   ],
 );
 
 /**
- * A seat in one room's DJ rotation, held while the user has something queued
- * there. Keyed by user, so a listener queues in one room at a time. Lower `seq`
+ * A seat in one station's DJ rotation, held while the user has something queued
+ * there. Keyed by user, so a listener queues in one station at a time. Lower `seq`
  * plays sooner; taking the back of the rotation is taking a fresh number.
  */
-export const roomSeats = pgTable(
-  'room_seats',
+export const stationSeats = pgTable(
+  'station_seats',
   {
     userId: uuid('user_id')
       .primaryKey()
       .references(() => users.id, { onDelete: 'cascade' }),
-    roomId: uuid('room_id')
+    stationId: uuid('station_id')
       .notNull()
-      .references(() => rooms.id, { onDelete: 'cascade' }),
+      .references(() => stations.id, { onDelete: 'cascade' }),
     seq: bigint('seq', { mode: 'number' })
       .notNull()
       .default(sql`nextval('dj_rotation_seq')`),
   },
-  (table) => [index('room_seats_room_seq_index').on(table.roomId, table.seq)],
+  (table) => [index('station_seats_station_seq_index').on(table.stationId, table.seq)],
 );
 
 export const votes = pgTable(
@@ -371,10 +371,10 @@ export const rules = pgTable(
   'rules',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    /** The room that keeps this rule and whose moderators edit its list. */
-    roomId: uuid('room_id')
+    /** The station that keeps this rule and whose moderators edit its list. */
+    stationId: uuid('station_id')
       .notNull()
-      .references(() => rooms.id, { onDelete: 'cascade' }),
+      .references(() => stations.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
     enforcement: ruleEnforcement('enforcement').notNull(),
@@ -385,13 +385,13 @@ export const rules = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('rules_room_name_lower_unique').on(table.roomId, sql`lower(${table.name})`),
+    uniqueIndex('rules_station_name_lower_unique').on(table.stationId, sql`lower(${table.name})`),
   ],
 );
 
 /**
  * One blocked track or artist, attributed to a rule it broke. The same track can
- * be listed under several rules, because one track can break several: the room
+ * be listed under several rules, because one track can break several: the station
  * shows every reason rather than picking one. Blocking an artist covers their
  * whole catalogue; a collaboration released under someone else's channel needs
  * its own track entry.
@@ -428,35 +428,35 @@ export const ruleEntries = pgTable(
 );
 
 /**
- * Who runs a room. An owner manages the room and picks its moderators; a mod
- * moderates it. Site admins act in every room without a row here.
+ * Who runs a station. An owner manages the station and picks its moderators; a mod
+ * moderates it. Site admins act in every station without a row here.
  */
-export const roomMembers = pgTable(
-  'room_members',
+export const stationMembers = pgTable(
+  'station_members',
   {
-    roomId: uuid('room_id')
+    stationId: uuid('station_id')
       .notNull()
-      .references(() => rooms.id, { onDelete: 'cascade' }),
+      .references(() => stations.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    role: roomRole('role').notNull(),
+    role: stationRole('role').notNull(),
     addedByUserId: uuid('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    primaryKey({ columns: [table.roomId, table.userId] }),
-    index('room_members_user_index').on(table.userId),
+    primaryKey({ columns: [table.stationId, table.userId] }),
+    index('station_members_user_index').on(table.userId),
   ],
 );
 
-export const roomSettings = pgTable(
-  'room_settings',
+export const stationSettings = pgTable(
+  'station_settings',
   {
-    roomId: uuid('room_id')
+    stationId: uuid('station_id')
       .primaryKey()
-      .references(() => rooms.id, { onDelete: 'cascade' }),
-    /** Free text shown on the player: what this room is and how to behave. */
+      .references(() => stations.id, { onDelete: 'cascade' }),
+    /** Free text shown on the player: what this station is and how to behave. */
     description: text('description').notNull().default(''),
     maxDurationSeconds: integer('max_duration_seconds').notNull().default(420),
     repeatCooldownSeconds: integer('repeat_cooldown_seconds').notNull().default(5_400),
@@ -473,23 +473,23 @@ export const roomSettings = pgTable(
   },
   (table) => [
     check(
-      'room_settings_duration_range',
+      'station_settings_duration_range',
       sql`${table.maxDurationSeconds} between 60 and 1800`,
     ),
     check(
-      'room_settings_repeat_cooldown_range',
+      'station_settings_repeat_cooldown_range',
       sql`${table.repeatCooldownSeconds} between 300 and 2592000`,
     ),
     // The region is admin-editable now, so only its shape is enforced.
-    check('room_settings_country_code', sql`${table.targetCountry} ~ '^[A-Z]{2}$'`),
-    check('room_settings_skip_downvotes', sql`${table.skipDownvotes} >= 1`),
-    check('room_settings_skip_ratio', sql`${table.skipRatioPercent} between 1 and 100`),
+    check('station_settings_country_code', sql`${table.targetCountry} ~ '^[A-Z]{2}$'`),
+    check('station_settings_skip_downvotes', sql`${table.skipDownvotes} >= 1`),
+    check('station_settings_skip_ratio', sql`${table.skipRatioPercent} between 1 and 100`),
   ],
 );
 
 /**
- * Which stream a room watches on destiny.gg/bigscreen, so the overlay and the
- * admin page know whose watchers to count. One row per room.
+ * Which stream a station watches on destiny.gg/bigscreen, so the overlay and the
+ * admin page know whose watchers to count. One row per station.
  *
  * The channel is stored lowercase because that is how Destiny chat reports it
  * in `watching`, while the bigscreen link is written `#kick/dggJams`.
@@ -497,9 +497,9 @@ export const roomSettings = pgTable(
 export const streamWatch = pgTable(
   'stream_watch',
   {
-    roomId: uuid('room_id')
+    stationId: uuid('station_id')
       .primaryKey()
-      .references(() => rooms.id, { onDelete: 'cascade' }),
+      .references(() => stations.id, { onDelete: 'cascade' }),
     /** Whether one channel's chat roster is read, which is what the overlay draws. */
     enabled: boolean('enabled').notNull().default(false),
     platform: watchPlatform('platform').notNull().default('kick'),
@@ -556,12 +556,12 @@ export const watcherEmbedSettings = pgTable(
   ],
 );
 
-export const roomState = pgTable(
-  'room_state',
+export const stationState = pgTable(
+  'station_state',
   {
-    roomId: uuid('room_id')
+    stationId: uuid('station_id')
       .primaryKey()
-      .references(() => rooms.id, { onDelete: 'cascade' }),
+      .references(() => stations.id, { onDelete: 'cascade' }),
     currentQueueItemId: uuid('current_queue_item_id').references(() => queueItems.id),
     revision: integer('revision').notNull().default(0),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -590,7 +590,7 @@ export const moderationActions = pgTable(
  * Keyed by the provider's own id rather than by `media.id`, because the archive
  * imported from QueUp holds 34,114 tracks that have no `media` row and never
  * will until somebody reaches for one. Genre is a property of the recording,
- * not of this room's copy of it, so one table labels both lists.
+ * not of this station's copy of it, so one table labels both lists.
  *
  * A row with no genres is an answer too: it records that the source was asked
  * and had nothing, so an enrichment run does not ask again.
@@ -633,13 +633,13 @@ export const trackGenres = pgTable(
 );
 
 /**
- * What the community played on QueUp before this room existed, kept as an
+ * What the community played on QueUp before this station existed, kept as an
  * archive of another service's records rather than folded into `queue_items`.
  *
- * Nothing in it is a first-class part of the room: the requester is a QueUp
+ * Nothing in it is a first-class part of the station: the requester is a QueUp
  * username with no Destiny account behind it, the track is whatever QueUp held
  * rather than a row in `media`, and the votes were cast somewhere else. So the
- * room's own machinery — stats, profiles, the DJ rotation, the repeat cooldown
+ * station's own machinery — stats, profiles, the DJ rotation, the repeat cooldown
  * — deliberately ignores this table, and the history page shows it as a
  * separate, older list.
  *
@@ -671,11 +671,11 @@ export const legacyPlays = pgTable(
  * The archive and the genre answers are committed to the repository and applied
  * when the API starts. Left alone, that is 68,000 rows re-offered to PostgreSQL
  * on every restart to be told each one is already there — about four seconds
- * before the room can serve, spent to change nothing.
+ * before the station can serve, spent to change nothing.
  *
  * So each file records the digest of what was applied. An unchanged file is
  * skipped; regenerating one changes its digest and it applies again by itself.
- * Nothing here is the room's data, only a note about what has been read.
+ * Nothing here is the station's data, only a note about what has been read.
  */
 export const seedState = pgTable('seed_state', {
   name: text('name').primaryKey(),

@@ -135,7 +135,7 @@ async function main(): Promise<void> {
     limit ${sampleSize}
   `);
 
-  console.log(`Asking MusicBrainz about ${wanted.rows.length} of the room's most played tracks`);
+  console.log(`Asking MusicBrainz about ${wanted.rows.length} of the station's most played tracks`);
 
   const rows = [];
   let linked = 0;

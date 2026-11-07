@@ -146,7 +146,7 @@ function TrackGrid({
 function TrackView({ track, apiUrl }: { track: TrackDetail; apiUrl: string }) {
   const library = usePlaylistLibrary(apiUrl, track.mediaId ? [track.mediaId] : []);
   const { totals } = track;
-  const plays = totals.roomPlays + totals.archivePlays;
+  const plays = totals.stationPlays + totals.archivePlays;
 
   return (
     <>
@@ -190,7 +190,7 @@ function TrackView({ track, apiUrl }: { track: TrackDetail; apiUrl: string }) {
 
       <dl className="stat-strip catalogue-stats">
         <div><dt>Plays</dt><dd>{plays.toLocaleString()}</dd></div>
-        <div><dt>In this room</dt><dd>{totals.roomPlays.toLocaleString()}</dd></div>
+        <div><dt>In this station</dt><dd>{totals.stationPlays.toLocaleString()}</dd></div>
         <div><dt>On QueUp</dt><dd>{totals.archivePlays.toLocaleString()}</dd></div>
         <div><dt>Votes</dt><dd>+{totals.upvotes} / -{totals.downvotes}</dd></div>
       </dl>
@@ -206,11 +206,11 @@ function TrackView({ track, apiUrl }: { track: TrackDetail; apiUrl: string }) {
       )}
 
       <PlayTable
-        plays={track.roomPlays}
-        title="In this room"
+        plays={track.stationPlays}
+        title="In this station"
         note={
-          totals.roomPlays > track.roomPlays.length
-            ? `The last ${track.roomPlays.length} of ${totals.roomPlays.toLocaleString()}`
+          totals.stationPlays > track.stationPlays.length
+            ? `The last ${track.stationPlays.length} of ${totals.stationPlays.toLocaleString()}`
             : 'Newest first'
         }
       />
@@ -260,12 +260,12 @@ function ArtistView({ artist }: { artist: ArtistDetail }) {
 
       <dl className="stat-strip">
         <div><dt>Tracks</dt><dd>{totals.tracks.toLocaleString()}</dd></div>
-        <div><dt>Plays here</dt><dd>{totals.roomPlays.toLocaleString()}</dd></div>
+        <div><dt>Plays here</dt><dd>{totals.stationPlays.toLocaleString()}</dd></div>
         <div><dt>Plays on QueUp</dt><dd>{totals.archivePlays.toLocaleString()}</dd></div>
       </dl>
 
       <p className="catalogue-span">
-        Only tracks this room has a row for can be attributed to anyone: the QueUp archive
+        Only tracks this station has a row for can be attributed to anyone: the QueUp archive
         recorded who requested a play and never who made the track.
       </p>
 
@@ -295,7 +295,7 @@ function ArtistView({ artist }: { artist: ArtistDetail }) {
                       </div>
                     </div>
                   </td>
-                  <td data-label="Here">{track.roomPlays}</td>
+                  <td data-label="Here">{track.stationPlays}</td>
                   <td data-label="QueUp">{track.archivePlays}</td>
                 </tr>
               ))}

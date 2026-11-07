@@ -24,7 +24,7 @@ describe.skipIf(!connectionString)('the QueUp archive', () => {
   beforeAll(async () => {
     await migrate(db, { migrationsFolder: 'drizzle' });
     // Unlike the other tables here, this one is filled by a script rather than
-    // by the room, so a test database somebody has imported into starts dirty.
+    // by the station, so a test database somebody has imported into starts dirty.
     await db.execute(sql`truncate table ${legacyPlays}, ${media} restart identity cascade`);
   });
 
@@ -117,7 +117,7 @@ describe.skipIf(!connectionString)('the QueUp archive', () => {
     expect(byRequester.entries.map((entry) => entry.title)).toEqual(['Track 4', 'Track 1']);
   });
 
-  it('names the room row an archived track already has, and leaves the rest null', async () => {
+  it('names the station row an archived track already has, and leaves the rest null', async () => {
     await archive(2);
     await db.insert(media).values({
       provider: 'youtube',

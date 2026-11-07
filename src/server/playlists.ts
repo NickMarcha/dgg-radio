@@ -25,8 +25,8 @@ import {
   enqueueMedia,
   resolveMediaForLibrary,
   resolvePlaylistForLibrary,
-  RoomError,
-} from './room';
+  StationError,
+} from './station';
 
 function hasDatabaseCode(error: unknown, code: string): boolean {
   let current = error;
@@ -370,7 +370,7 @@ export async function removePlaylistTrack(
 }
 
 /**
- * Saves a pasted link or a search result the room has never played. A link
+ * Saves a pasted link or a search result the station has never played. A link
  * naming a whole provider playlist saves every track it holds and reports the
  * ones it could not. Ownership is checked before the provider is asked
  * anything, so a guess at someone else's playlist ID cannot spend a lookup.
@@ -477,7 +477,7 @@ export async function addLegacyPlayToPlaylist(
 }
 
 export async function queuePlaylistTrack(
-  roomId: string,
+  stationId: string,
   playlistId: string,
   mediaId: string,
   user: AuthenticatedUser,
@@ -498,7 +498,7 @@ export async function queuePlaylistTrack(
   if (!saved) {
     throw new PlaylistError('PLAYLIST_TRACK_NOT_FOUND', 'That track is not in this playlist.', 404);
   }
-  return enqueueMedia(roomId, saved.canonicalUrl, user, db);
+  return enqueueMedia(stationId, saved.canonicalUrl, user, db);
 }
 
 /**
@@ -507,7 +507,7 @@ export async function queuePlaylistTrack(
  * caller sees exactly what is still waiting and can ask again.
  */
 export async function queuePlaylist(
-  roomId: string,
+  stationId: string,
   playlistId: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -530,10 +530,10 @@ export async function queuePlaylist(
 
   for (const track of playlist.tracks.slice(0, MAX_QUEUE_IMPORT_TRACKS)) {
     try {
-      await enqueueMedia(roomId, track.media.canonicalUrl, user, db);
+      await enqueueMedia(stationId, track.media.canonicalUrl, user, db);
       result.added += 1;
     } catch (error) {
-      if (error instanceof RoomError || error instanceof MediaLookupError) {
+      if (error instanceof StationError || error instanceof MediaLookupError) {
         result.skipped.push({
           mediaId: track.media.id,
           title: track.media.title,
@@ -580,7 +580,7 @@ async function resolveTracks(
         } catch (error) {
           resolved.set(key, {
             reason:
-              error instanceof MediaLookupError || error instanceof RoomError
+              error instanceof MediaLookupError || error instanceof StationError
                 ? error.message
                 : 'Could not be read.',
           });

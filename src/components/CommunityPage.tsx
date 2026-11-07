@@ -1,4 +1,4 @@
-import { lastRoomSlug } from '../client/room';
+import { lastStationSlug } from '../client/station';
 import { ChevronLeft, ChevronRight, ListMusic, Play, Search, X } from 'lucide-react';
 import { useEffect, useState, type SubmitEvent } from 'react';
 import { DEFAULT_EMOTE } from '../shared/contracts';
@@ -13,7 +13,7 @@ import type {
   LegacyJammerStats,
   LegacyPlay,
   LegacyTrackStats,
-  RoomUser,
+  StationUser,
   UserProfile,
 } from '../shared/contracts';
 import SiteHeader from './SiteHeader';
@@ -55,7 +55,7 @@ function Avatar({
   large = false,
   title,
 }: {
-  user: RoomUser;
+  user: StationUser;
   large?: boolean;
   title?: string;
 }) {
@@ -80,7 +80,7 @@ const EMOTE_EXPLAINER =
   'Your profile emote is the dancing or music emote you use most in Destiny chat. ' +
   'MMMM stands in until your chat has been counted.';
 
-function TeamText({ team, title }: { team: RoomUser['team']; title?: string }) {
+function TeamText({ team, title }: { team: StationUser['team']; title?: string }) {
   if (!team) {
     return <span className="team-unassigned" title={title}>team unassigned</span>;
   }
@@ -92,8 +92,8 @@ function TeamText({ team, title }: { team: RoomUser['team']; title?: string }) {
 }
 
 /**
- * Requesting a track from a list of ones already played. It is the room's
- * ordinary request, so everything the room decides about a request still
+ * Requesting a track from a list of ones already played. It is the station's
+ * ordinary request, so everything the station decides about a request still
  * applies and the answer comes back as a notice rather than a new row here.
  */
 function QueueButton({
@@ -323,14 +323,14 @@ function ProfileView({ profile, apiUrl }: { profile: UserProfile; apiUrl: string
 }
 
 /** Which history a table on the stats page is about. */
-type StatsScope = 'room' | 'queup';
+type StatsScope = 'station' | 'queup';
 
 /** Genre adds a third: the two counted together, stacked rather than summed. */
 type GenreScope = 'both' | StatsScope;
 
 const GENRE_SCOPES: { scope: GenreScope; label: string }[] = [
   { scope: 'both', label: 'Both' },
-  { scope: 'room', label: 'This room' },
+  { scope: 'station', label: 'This station' },
   { scope: 'queup', label: 'QueUp' },
 ];
 
@@ -338,7 +338,7 @@ const GENRE_SCOPES: { scope: GenreScope; label: string }[] = [
  * What the community plays, by genre.
  *
  * The two histories are counted separately and shown that way, because they are
- * wildly different sizes: this room has a few hundred plays against the
+ * wildly different sizes: this station has a few hundred plays against the
  * archive's tens of thousands, so a single merged bar would be a chart of
  * QueUp with a rounding error on the end. Reading them together is still
  * useful, which is what `Both` is for -- it stacks the two rather than adding
@@ -349,11 +349,11 @@ function GenreSection({ genres }: { genres: GenreStats }) {
   if (genres.genres.length === 0) return null;
 
   const plays = (row: GenreCount) =>
-    scope === 'room'
-      ? row.roomPlays
+    scope === 'station'
+      ? row.stationPlays
       : scope === 'queup'
         ? row.archivePlays
-        : row.roomPlays + row.archivePlays;
+        : row.stationPlays + row.archivePlays;
 
   const shown = genres.genres
     .filter((row) => plays(row) > 0)
@@ -392,7 +392,7 @@ function GenreSection({ genres }: { genres: GenreStats }) {
           {shown.map((row) => {
             const total = plays(row);
             const width = (total / largest) * 100;
-            const roomShare = total > 0 ? (row.roomPlays / total) * 100 : 0;
+            const stationShare = total > 0 ? (row.stationPlays / total) * 100 : 0;
             return (
               <li key={row.genre}>
                 <span className="genre-name">
@@ -417,13 +417,13 @@ function GenreSection({ genres }: { genres: GenreStats }) {
                 </span>
                 <span className="genre-bar" aria-hidden="true">
                   <span className="genre-bar-fill" style={{ width: `${width}%` }}>
-                    {scope === 'both' && <span className="genre-bar-room" style={{ width: `${roomShare}%` }} />}
+                    {scope === 'both' && <span className="genre-bar-station" style={{ width: `${stationShare}%` }} />}
                   </span>
                 </span>
                 <span className="genre-plays">
                   {total.toLocaleString()}
-                  {scope === 'both' && row.roomPlays > 0 && (
-                    <small> · {row.roomPlays.toLocaleString()} here</small>
+                  {scope === 'both' && row.stationPlays > 0 && (
+                    <small> · {row.stationPlays.toLocaleString()} here</small>
                   )}
                 </span>
               </li>
@@ -445,7 +445,7 @@ function GenreSection({ genres }: { genres: GenreStats }) {
 }
 
 /**
- * The room's own numbers, or the QueUp years it inherited. Offered per table
+ * The station's own numbers, or the QueUp years it inherited. Offered per table
  * rather than once for the page, because the two are answers to different
  * questions and somebody comparing them wants one of each on screen.
  */
@@ -462,7 +462,7 @@ function ScopeToggle({
   return (
     <div className="stats-scope" role="group" aria-label="Which history">
       {[
-        { scope: 'room' as const, label: 'This room' },
+        { scope: 'station' as const, label: 'This station' },
         { scope: 'queup' as const, label: 'QueUp' },
       ].map((option) => (
         <button
@@ -607,7 +607,7 @@ function periodLabel(state: StatsState): string {
 /**
  * Years across the top, and the months of whichever year is open underneath.
  *
- * Only periods the room actually has plays in are offered. A month picker full
+ * Only periods the station actually has plays in are offered. A month picker full
  * of months nothing happened in invites clicking through empty pages, and the
  * archive starts partway through 2024, so several of them would be.
  */
@@ -721,7 +721,7 @@ function OverviewSection({ stats }: { stats: CommunityStats }) {
 }
 
 function TracksSection({ stats }: { stats: CommunityStats }) {
-  const [scope, setScope] = useState<StatsScope>('room');
+  const [scope, setScope] = useState<StatsScope>('station');
   const hasArchive = stats.legacy.totals.plays > 0;
 
   return (
@@ -787,7 +787,7 @@ function TracksSection({ stats }: { stats: CommunityStats }) {
 }
 
 function JammersSection({ stats }: { stats: CommunityStats }) {
-  const [scope, setScope] = useState<StatsScope>('room');
+  const [scope, setScope] = useState<StatsScope>('station');
   const hasArchive = stats.legacy.totals.plays > 0;
 
   return (
@@ -934,7 +934,7 @@ function StatsView({ apiUrl }: { apiUrl: string }) {
 
 const HISTORY_PAGE = 50;
 
-type HistoryTab = 'room' | 'queup';
+type HistoryTab = 'station' | 'queup';
 
 /**
  * Which history, what was searched for, and which page of it. It lives in the
@@ -949,13 +949,13 @@ interface HistoryState {
   page: number;
 }
 
-const START: HistoryState = { tab: 'room', search: '', genre: '', page: 1 };
+const START: HistoryState = { tab: 'station', search: '', genre: '', page: 1 };
 
 function readHistoryState(): HistoryState {
   const params = new URLSearchParams(window.location.search);
   const page = Number(params.get('page'));
   return {
-    tab: params.get('tab') === 'queup' ? 'queup' : 'room',
+    tab: params.get('tab') === 'queup' ? 'queup' : 'station',
     search: params.get('q')?.trim() ?? '',
     genre: params.get('genre')?.trim() ?? '',
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -989,7 +989,7 @@ interface FeedPage<Entry> {
 
 /**
  * One history, one page at a time. Both of them answer the same shape, so the
- * room's own plays and the QueUp archive are read by the same hook and behave
+ * station's own plays and the QueUp archive are read by the same hook and behave
  * the same way: newest first, a page number, and a search that narrows the list
  * and the count together.
  */
@@ -1118,8 +1118,8 @@ function Pager({
 }
 
 /**
- * What the room played on QueUp, before this site existed. It reads differently
- * from the room's own history on purpose: the names are QueUp names with no
+ * What the station played on QueUp, before this site existed. It reads differently
+ * from the station's own history on purpose: the names are QueUp names with no
  * profile behind them, the votes were cast there, and none of it counts towards
  * anything here.
  *
@@ -1265,12 +1265,12 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
     });
   };
 
-  const room = useHistoryFeed<HistoryEntry>(
+  const station = useHistoryFeed<HistoryEntry>(
     apiUrl,
     '/api/history',
     state.search,
     state.genre,
-    state.tab === 'room' ? state.page : 1,
+    state.tab === 'station' ? state.page : 1,
     'The history could not be read.',
     ready,
   );
@@ -1285,19 +1285,19 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
   );
 
   // One library across both tabs, so a track saved out of the archive shows as
-  // saved in the room's own history too.
+  // saved in the station's own history too.
   const library = usePlaylistLibrary(apiUrl, [
-    ...room.entries.map(({ media }) => media.id),
+    ...station.entries.map(({ media }) => media.id),
     ...archive.entries.flatMap((entry) => (entry.mediaId ? [entry.mediaId] : [])),
   ]);
 
-  // A room nobody has imported into has no second list, and offering an empty
+  // A station nobody has imported into has no second list, and offering an empty
   // tab would be explaining an absence rather than showing anything. A search
   // the archive does not match still leaves the tab there, saying zero.
   const narrowed = Boolean(state.search || state.genre);
   const hasArchive = archive.total > 0 || narrowed;
-  const active = hasArchive ? state.tab : 'room';
-  const showing = active === 'room' ? room : archive;
+  const active = hasArchive ? state.tab : 'station';
+  const showing = active === 'station' ? station : archive;
   const total = showing.total;
 
   // A shared link can name a page that a later search no longer reaches. Only
@@ -1309,7 +1309,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
     if (state.page > pageCount) go({ page: pageCount });
   }, [showing.loading, total, state.page]);
 
-  /** Requesting a track from either history, through the room's ordinary path. */
+  /** Requesting a track from either history, through the station's ordinary path. */
   async function queue(id: string, title: string, request: { path: string; body?: unknown }) {
     setQueueing(id);
     setNotice(null);
@@ -1322,11 +1322,11 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error((payload as ApiErrorBody | null)?.error.message ?? 'The room refused that track.');
+        throw new Error((payload as ApiErrorBody | null)?.error.message ?? 'The station refused that track.');
       }
       setNotice(`Added "${title}" to your queue.`);
     } catch (caught) {
-      setNotice(caught instanceof Error ? caught.message : 'The room refused that track.');
+      setNotice(caught instanceof Error ? caught.message : 'The station refused that track.');
     } finally {
       setQueueing(null);
     }
@@ -1342,9 +1342,9 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
       <header className="community-title">
         <h1>History</h1>
         <p>
-          {active === 'room'
+          {active === 'station'
             ? 'The latest completed and skipped tracks, newest first.'
-            : 'What the room played on QueUp before this one existed. The names are QueUp names.'}
+            : 'What the station played on QueUp before this one existed. The names are QueUp names.'}
         </p>
       </header>
 
@@ -1384,13 +1384,13 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
           <button
             type="button"
             role="tab"
-            id="history-tab-room"
-            aria-selected={active === 'room'}
-            aria-controls="history-panel-room"
-            className={active === 'room' ? 'is-active' : undefined}
-            onClick={() => go({ tab: 'room' })}
+            id="history-tab-station"
+            aria-selected={active === 'station'}
+            aria-controls="history-panel-station"
+            className={active === 'station' ? 'is-active' : undefined}
+            onClick={() => go({ tab: 'station' })}
           >
-            DGG Radio <small>{room.total.toLocaleString()}</small>
+            DGG Radio <small>{station.total.toLocaleString()}</small>
           </button>
           <button
             type="button"
@@ -1413,32 +1413,32 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
       )}
       {notice && <p className="history-notice" role="status">{notice}</p>}
 
-      {active === 'room' ? (
+      {active === 'station' ? (
         <section
           className="community-section history-section"
           role={hasArchive ? 'tabpanel' : undefined}
-          id="history-panel-room"
-          aria-labelledby={hasArchive ? 'history-tab-room' : undefined}
+          id="history-panel-station"
+          aria-labelledby={hasArchive ? 'history-tab-station' : undefined}
         >
-          {room.error ? (
-            <p className="community-error" role="alert">{room.error}</p>
+          {station.error ? (
+            <p className="community-error" role="alert">{station.error}</p>
           ) : (
             <>
               <HistoryTable
-                entries={room.entries}
+                entries={station.entries}
                 showRequester
                 library={library}
                 queueing={queueing}
                 onSelectGenre={(genre) => go({ genre })}
-                empty={narrowed ? 'No track this room has played matches that.' : undefined}
+                empty={narrowed ? 'No track this station has played matches that.' : undefined}
                 onQueue={(entry) =>
                   void queue(entry.id, entry.media.title, {
-                    path: `/api/rooms/${lastRoomSlug()}/queue`,
+                    path: `/api/stations/${lastStationSlug()}/queue`,
                     body: { url: entry.media.canonicalUrl },
                   })
                 }
               />
-              <GenreCredit shown={room.entries.some((entry) => entry.genres)} />
+              <GenreCredit shown={station.entries.some((entry) => entry.genres)} />
             </>
           )}
         </section>
@@ -1457,7 +1457,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
             empty={narrowed ? 'No archived play matches that.' : 'Nothing has been imported from QueUp.'}
             onQueue={(entry) =>
               void queue(entry.id, entry.title, {
-                path: `/api/rooms/${lastRoomSlug()}/queue/legacy/${encodeURIComponent(entry.id)}`,
+                path: `/api/stations/${lastStationSlug()}/queue/legacy/${encodeURIComponent(entry.id)}`,
               })
             }
           />

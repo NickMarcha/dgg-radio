@@ -17,7 +17,7 @@ const schema = await import('./db/schema');
 const { legacyPlays, trackGenres } = schema;
 const connectionString = testConnectionString();
 
-describe.skipIf(!connectionString)('exporting the room', () => {
+describe.skipIf(!connectionString)('exporting the station', () => {
   const pool = new Pool({ connectionString });
   const db = drizzle(pool, { schema });
 

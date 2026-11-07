@@ -194,7 +194,7 @@ describe.skipIf(!connectionString)('what a track is', () => {
     await label('known', { source: 'discogs', level: 'master', genres: ['worked out here'] });
 
     const seed = [
-      // The room already has this one, from a run against its own database.
+      // The station already has this one, from a run against its own database.
       {
         ...youtube('known'),
         source: 'discogs' as const,
@@ -265,14 +265,14 @@ describe.skipIf(!connectionString)('what a track is', () => {
     ]);
     await label('rocktrack', { source: 'discogs', level: 'master', genres: ['Rock'] });
     await label('housetrack', { source: 'discogs', level: 'master', genres: ['Electronic'] });
-    // Artist-level genre describes a catalogue, so it is not what the room plays.
+    // Artist-level genre describes a catalogue, so it is not what the station plays.
     await label('housetrack', { source: 'musicbrainz', level: 'artist', genres: ['ambient'] });
 
     const stats = await getGenreStats(db);
 
     expect(stats.genres).toEqual([
-      { genre: 'Rock', roomPlays: 0, archivePlays: 2, sources: ['discogs'] },
-      { genre: 'Electronic', roomPlays: 0, archivePlays: 1, sources: ['discogs'] },
+      { genre: 'Rock', stationPlays: 0, archivePlays: 2, sources: ['discogs'] },
+      { genre: 'Electronic', stationPlays: 0, archivePlays: 1, sources: ['discogs'] },
     ]);
     expect(stats.coverage).toEqual({ labelledTracks: 2, tracks: 2 });
   });
@@ -288,11 +288,11 @@ describe.skipIf(!connectionString)('what a track is', () => {
     // both of them are named, because the chart merges the count and not the
     // vocabularies.
     expect(stats.genres).toEqual([
-      { genre: 'Rock', roomPlays: 0, archivePlays: 1, sources: ['discogs', 'musicbrainz'] },
+      { genre: 'Rock', stationPlays: 0, archivePlays: 1, sources: ['discogs', 'musicbrainz'] },
     ]);
   });
 
-  it('labels a track the room has never played, because the archive is most of them', async () => {
+  it('labels a track the station has never played, because the archive is most of them', async () => {
     await db.insert(media).values({
       provider: 'youtube',
       providerMediaId: 'video000001',

@@ -1,12 +1,12 @@
 import { Headphones, Plus, Settings } from 'lucide-react';
 import { useCallback, useEffect, useState, type SubmitEvent } from 'react';
-import type { RoomListing, SessionSnapshot } from '../shared/contracts';
-import { roomPath } from '../client/room';
+import type { StationListing, SessionSnapshot } from '../shared/contracts';
+import { stationPath } from '../client/station';
 import SiteHeader from './SiteHeader';
 import SiteNav from './SiteNav';
-import './RoomsPage.css';
+import './StationsPage.css';
 
-interface RoomsPageProps {
+interface StationsPageProps {
   apiUrl: string;
 }
 
@@ -21,8 +21,8 @@ export function slugFromName(name: string): string {
     .replace(/-+$/, '');
 }
 
-export default function RoomsPage({ apiUrl }: RoomsPageProps) {
-  const [rooms, setRooms] = useState<RoomListing[] | null>(null);
+export default function StationsPage({ apiUrl }: StationsPageProps) {
+  const [stations, setStations] = useState<StationListing[] | null>(null);
   const [session, setSession] = useState<SessionSnapshot | null>(null);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -31,16 +31,16 @@ export default function RoomsPage({ apiUrl }: RoomsPageProps) {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [roomList, me] = await Promise.all([
-      fetch(`${apiUrl}/api/rooms`, { credentials: 'include' }).then((response) => response.json()),
+    const [stationList, me] = await Promise.all([
+      fetch(`${apiUrl}/api/stations`, { credentials: 'include' }).then((response) => response.json()),
       fetch(`${apiUrl}/api/me`, { credentials: 'include' }).then((response) => response.json()),
     ]);
-    setRooms((roomList as { rooms: RoomListing[] }).rooms);
+    setStations((stationList as { stations: StationListing[] }).stations);
     setSession(me as SessionSnapshot);
   }, [apiUrl]);
 
   useEffect(() => {
-    void load().catch(() => setError('The rooms could not be loaded.'));
+    void load().catch(() => setError('The stations could not be loaded.'));
   }, [load]);
 
   async function create(event: SubmitEvent<HTMLFormElement>) {
@@ -48,46 +48,46 @@ export default function RoomsPage({ apiUrl }: RoomsPageProps) {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/api/rooms`, {
+      const response = await fetch(`${apiUrl}/api/stations`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), slug }),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error?.message ?? 'The room could not be created.');
-      window.location.href = roomPath((body as { slug: string }).slug);
+      if (!response.ok) throw new Error(body?.error?.message ?? 'The station could not be created.');
+      window.location.href = stationPath((body as { slug: string }).slug);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The room could not be created.');
+      setError(cause instanceof Error ? cause.message : 'The station could not be created.');
       setBusy(false);
     }
   }
 
-  const owned = session?.rooms.owned ?? [];
+  const owned = session?.stations.owned ?? [];
 
   return (
-    <div className="rooms-app">
+    <div className="stations-app">
       <SiteHeader apiUrl={apiUrl} />
-      <SiteNav active="rooms" />
-      <main className="rooms-main">
-        <h1>Rooms</h1>
+      <SiteNav active="stations" />
+      <main className="stations-main">
+        <h1>Stations</h1>
 
-        {error && <p className="rooms-error" role="alert">{error}</p>}
+        {error && <p className="stations-error" role="alert">{error}</p>}
 
-        {rooms === null ? (
-          <p className="rooms-muted">Loading…</p>
+        {stations === null ? (
+          <p className="stations-muted">Loading…</p>
         ) : (
-          <ul className="rooms-list">
-            {rooms.map((room) => (
-              <li key={room.slug}>
-                <a href={roomPath(room.slug)}>{room.name}</a>
-                <span className="rooms-playing">
-                  {room.nowPlaying
-                    ? `${room.nowPlaying.title}${room.nowPlaying.artist ? ` · ${room.nowPlaying.artist}` : ''}`
+          <ul className="stations-list">
+            {stations.map((station) => (
+              <li key={station.slug}>
+                <a href={stationPath(station.slug)}>{station.name}</a>
+                <span className="stations-playing">
+                  {station.nowPlaying
+                    ? `${station.nowPlaying.title}${station.nowPlaying.artist ? ` · ${station.nowPlaying.artist}` : ''}`
                     : 'Nothing playing'}
                 </span>
-                <span className="rooms-listeners" title="Listening now">
-                  <Headphones size={14} /> {room.listenerCount}
+                <span className="stations-listeners" title="Listening now">
+                  <Headphones size={14} /> {station.listenerCount}
                 </span>
               </li>
             ))}
@@ -95,12 +95,12 @@ export default function RoomsPage({ apiUrl }: RoomsPageProps) {
         )}
 
         {owned.length > 0 && (
-          <section className="rooms-owned">
-            <h2>Your room</h2>
-            {owned.map((room) => (
-              <p key={room.slug}>
-                <a href={roomPath(room.slug)}>{room.name}</a>
-                <a className="rooms-manage" href={`/admin?room=${encodeURIComponent(room.slug)}`}>
+          <section className="stations-owned">
+            <h2>Your station</h2>
+            {owned.map((station) => (
+              <p key={station.slug}>
+                <a href={stationPath(station.slug)}>{station.name}</a>
+                <a className="stations-manage" href={`/admin?station=${encodeURIComponent(station.slug)}`}>
                   <Settings size={14} /> Manage
                 </a>
               </p>
@@ -108,9 +108,9 @@ export default function RoomsPage({ apiUrl }: RoomsPageProps) {
           </section>
         )}
 
-        {session?.rooms.canCreate && (
-          <section className="rooms-create">
-            <h2>Create a room</h2>
+        {session?.stations.canCreate && (
+          <section className="stations-create">
+            <h2>Create a station</h2>
             <form onSubmit={(event) => void create(event)}>
               <label>
                 Name
@@ -127,8 +127,8 @@ export default function RoomsPage({ apiUrl }: RoomsPageProps) {
               </label>
               <label>
                 Address
-                <span className="rooms-slug">
-                  <span>/r/</span>
+                <span className="stations-slug">
+                  <span>/s/</span>
                   <input
                     value={slug}
                     maxLength={32}

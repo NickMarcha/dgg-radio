@@ -16,7 +16,7 @@ const standIn = {
 };
 
 describe('the PostHog project key', () => {
-  it('is optional, so a room with no analytics still starts', () => {
+  it('is optional, so a station with no analytics still starts', () => {
     expect(parseEnv(base).POSTHOG_PROJECT_KEY).toBeUndefined();
     expect(parseEnv({ ...base, POSTHOG_PROJECT_KEY: '' }).POSTHOG_PROJECT_KEY).toBeUndefined();
   });
@@ -45,11 +45,11 @@ describe('the OAuth provider origins', () => {
     expect(env.DGG_AUTHORIZE_ORIGIN).toBe(DGG_ORIGIN);
   });
 
-  it('accept the local stand-in for a room served over http', () => {
+  it('accept the local stand-in for a station served over http', () => {
     expect(parseEnv({ ...base, ...standIn }).DGG_ORIGIN).toBe(standIn.DGG_ORIGIN);
   });
 
-  it('refuse the local stand-in once the room is served over https', () => {
+  it('refuse the local stand-in once the station is served over https', () => {
     const deployed = { ...base, APP_ORIGIN: 'https://dgg-radio.netlify.app', ...standIn };
     expect(() => parseEnv(deployed)).toThrow(/development only/);
   });

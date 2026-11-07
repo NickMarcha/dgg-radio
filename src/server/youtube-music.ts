@@ -5,12 +5,12 @@
  * This is what makes identity resolution work at all. `Fatboy Slim - Right
  * Here, Right Now [Official 4K Video]` is not a title any catalogue holds, and
  * `Fatboy Slim` is not who the upload is credited to -- the channel is. The
- * card carries both properly, on 78% of the room's tracks.
+ * card carries both properly, on 78% of the station's tracks.
  *
  * There is no API for it. The card comes out of the watch page's own
  * `ytInitialData`, which is YouTube's private response and will change shape
  * without warning. So this is deliberately confined to the offline enrichment
- * script: nothing a listener does depends on it, and when it breaks the room
+ * script: nothing a listener does depends on it, and when it breaks the station
  * carries on with whatever genres it already has.
  */
 

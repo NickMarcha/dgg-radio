@@ -2,11 +2,11 @@ import type { MediaProvider } from '../shared/contracts';
 import './TrackLinks.css';
 
 /**
- * The room's own pages for a track and for whoever published it, and the way
+ * The station's own pages for a track and for whoever published it, and the way
  * out to the provider.
  *
  * Both paths are keyed by the provider's own id rather than by a `media` row,
- * for the same reason genre is: most of what the room knows about is the QueUp
+ * for the same reason genre is: most of what the station knows about is the QueUp
  * archive, and none of that has a row here.
  */
 export function trackPath(provider: MediaProvider, providerMediaId: string): string {
@@ -21,7 +21,7 @@ export function providerName(provider: MediaProvider): string {
   return provider === 'youtube' ? 'YouTube' : 'SoundCloud';
 }
 
-/** A title, going to what the room knows about it rather than out to YouTube. */
+/** A title, going to what the station knows about it rather than out to YouTube. */
 export function TrackLink({
   provider,
   providerMediaId,
@@ -37,7 +37,7 @@ export function TrackLink({
 /**
  * Where the track actually lives. Two letters in the provider's own colour,
  * because this sits on every row of every list beside a title that wants the
- * room, and the colour already says which service it is.
+ * station, and the colour already says which service it is.
  */
 export function ProviderLink({
   provider,
@@ -65,7 +65,7 @@ export function ProviderLink({
   );
 }
 
-/** The channel or account, where the room knows which one it was. */
+/** The channel or account, where the station knows which one it was. */
 export function ArtistLink({
   provider,
   providerArtistId,

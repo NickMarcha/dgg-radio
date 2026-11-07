@@ -27,9 +27,9 @@ services:
       DGG_AUTHORIZE_ORIGIN: http://${TEST_HOST:-localhost}:8789
       DGG_CLIENT_ID: dev-client
       DGG_CLIENT_SECRET: dev-secret
-      # Analytics belong to the deployed room. This API reads the same .env the
+      # Analytics belong to the deployed station. This API reads the same .env the
       # deployed one does, so without this a slow request on this machine lands
-      # in the project the real room reports to — and the alert on
+      # in the project the real station reports to — and the alert on
       # api_request_slow fires on any value above zero, from anywhere.
       POSTHOG_PROJECT_KEY: ""
     ports:
@@ -41,7 +41,7 @@ services:
     profiles: [tunnel]
 
   # destiny.gg allows one application per account and no test applications, so
-  # there is no second client to point a local room at. This serves the same
+  # there is no second client to point a local station at. This serves the same
   # OAuth endpoints against invented identities. It exists in this file only,
   # runs no build, and is excluded from the API image by .dockerignore, so
   # there is no path by which it reaches production.

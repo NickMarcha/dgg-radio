@@ -17,7 +17,7 @@ import {
 /**
  * How long a stored answer stands. Nothing here depends on the playback region:
  * a row keeps the countries YouTube named rather than a verdict about one of
- * them, so moving the room's region re-reads the same row instead of asking
+ * them, so moving the station's region re-reads the same row instead of asking
  * every provider again.
  *
  * 1. A row recording a playback issue stands for an hour, whichever provider
@@ -57,7 +57,7 @@ function storedIssue(cached: CachedAnswer): MediaLookupError | null {
   if (!cached.playbackIssueCode) return null;
   return new MediaLookupError(
     cached.playbackIssueCode,
-    cached.playbackIssueMessage ?? 'The room cannot play that track.',
+    cached.playbackIssueMessage ?? 'The station cannot play that track.',
   );
 }
 
@@ -199,7 +199,7 @@ export async function warmYouTubeLookups(
       if (parsed.provider !== 'youtube' || !parsed.providerMediaId) continue;
       wanted.set(parsed.providerMediaId, cacheKey(parsed));
     } catch {
-      // Not a link this room can read. The caller's own lookup says so.
+      // Not a link this station can read. The caller's own lookup says so.
     }
   }
   if (wanted.size === 0) return;

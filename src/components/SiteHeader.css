@@ -57,9 +57,9 @@
   animation: disclaimer-shake 400ms ease-in-out;
 }
 
-.room-presence,
+.station-presence,
 .account,
-.room-presence > span,
+.station-presence > span,
 .text-button,
 .login-button,
 .admin-label {
@@ -67,13 +67,13 @@
   align-items: center;
 }
 
-.room-presence {
+.station-presence {
   gap: 14px;
   color: var(--muted);
   font-size: 16px;
 }
 
-.room-presence > span {
+.station-presence > span {
   gap: 5px;
 }
 
@@ -183,7 +183,7 @@
     grid-template-columns: 1fr auto;
   }
 
-  .room-presence {
+  .station-presence {
     display: none;
   }
 }
@@ -213,6 +213,24 @@
 
   .login-button {
     font-size: 15px;
+  }
+
+  /*
+   * Signed out, the account is one button. On a row of its own it leaves the
+   * rest of that row and the space beside the brand empty, so it sits beside
+   * the brand instead, with the shorter label.
+   */
+  .topbar:has(.login-button) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .topbar:has(.login-button) .account {
+    width: auto;
+  }
+
+  .login-long {
+    display: none;
   }
 }
 

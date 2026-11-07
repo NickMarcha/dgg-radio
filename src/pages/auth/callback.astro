@@ -8,7 +8,7 @@ if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
 <BaseLayout title="Signing in — DGG Radio" description="Completing your Destiny sign-in.">
   <main class="callback">
     <p class="callback__status" id="status">Completing your Destiny sign-in…</p>
-    <a class="callback__home" id="home" href="/" hidden>Back to the room</a>
+    <a class="callback__home" id="home" href="/" hidden>Back to the station</a>
   </main>
 </BaseLayout>
 
@@ -30,7 +30,7 @@ if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
   }
 
   if (!code || !state) {
-    fail('That sign-in link was incomplete. Start again from the room.');
+    fail('That sign-in link was incomplete. Start again from the station.');
   } else {
     fetch(`${apiUrl}/api/auth/callback`, {
       method: 'POST',

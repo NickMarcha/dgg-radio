@@ -38,7 +38,7 @@ The rules read `.flair-flair1.flair-flair1`, naming the same class twice. That
 is deliberate.
 
 A username here is almost always a link that is already coloured by the
-component it sits in. `.profile-link` sets `color: inherit` in the room and
+component it sits in. `.profile-link` sets `color: inherit` in the station and
 `color: var(--text)` on the community pages, both a single class, so whichever
 stylesheet loads last wins. Worse, `.queue-copy a` sets a colour at one class
 plus one element, which a single class cannot beat at any source order.

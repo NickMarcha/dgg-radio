@@ -15,7 +15,7 @@ import type {
   HistoryEntry,
   HistoryPage,
   HistoryQuery,
-  RoomUser,
+  StationUser,
   StatsPeriod,
   SelectorStats,
   TeamStats,
@@ -156,7 +156,7 @@ function historyMatches(search: string) {
 }
 
 /**
- * One page of what this room has played, newest first.
+ * One page of what this station has played, newest first.
  *
  * Paged by offset rather than by a cursor, because the page a reader is on has
  * to survive being put in a link and sent to somebody. The cost is that a track
@@ -259,9 +259,9 @@ export async function listJammers(
 }
 
 /**
- * The tracks the room has actually reached, most played first. A play is a
+ * The tracks the station has actually reached, most played first. A play is a
  * queue item that started, so a track skipped part-way still counts as one:
- * the room heard it and voted on it.
+ * the station heard it and voted on it.
  */
 export async function listTopTracks(
   limit = 100,
@@ -454,7 +454,7 @@ export async function getUserProfile(
   };
   const voteCount = summary.upvotes + summary.downvotes;
 
-  const roomUser: RoomUser = {
+  const stationUser: StationUser = {
     id: user.id,
     username: user.username,
     avatarUrl: user.avatarUrl,
@@ -465,7 +465,7 @@ export async function getUserProfile(
   };
 
   return {
-    user: roomUser,
+    user: stationUser,
     joinedAt: user.joinedAt.toISOString(),
     lastSeenAt: user.lastSeenAt.toISOString(),
     isSelf: viewerId === user.id,

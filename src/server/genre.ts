@@ -17,7 +17,7 @@ import { ALL_TIME, periodRange } from './period';
 /**
  * Reading and writing what a track is.
  *
- * Genre is a property of the recording rather than of this room's copy of one,
+ * Genre is a property of the recording rather than of this station's copy of one,
  * so everything here is keyed by the provider's own id. That is what lets the
  * QueUp archive be labelled: those 34,114 tracks have no `media` row, and the
  * point of the import was not to make one for each.
@@ -250,16 +250,16 @@ export function matchesGenre(provider: Column, providerMediaId: Column, genre: s
 export const TOP_GENRES = 20;
 
 /**
- * What the community plays, by genre, counted separately for this room and for
+ * What the community plays, by genre, counted separately for this station and for
  * the QueUp years it inherited.
  *
  * Both histories are counted because the archive is most of what there is: this
- * room has a few hundred plays against the archive's tens of thousands, and a
- * genre chart drawn from the room alone would be about the last few weeks.
+ * station has a few hundred plays against the archive's tens of thousands, and a
+ * genre chart drawn from the station alone would be about the last few weeks.
  * Keeping them apart is what stops that from being hidden.
  *
  * Artist-level genre is left out. It describes a catalogue rather than a track,
- * so counting it would say the room plays a lot of whatever its most prolific
+ * so counting it would say the station plays a lot of whatever its most prolific
  * artists are tagged with, which is a different claim from the one being made.
  *
  * The two sources keep their own vocabularies, so this list mixes Discogs'
@@ -276,12 +276,12 @@ export async function getGenreStats(
   const [counted, [coverage]] = await Promise.all([
     db.execute<{
       genre: string;
-      room_plays: number;
+      station_plays: number;
       archive_plays: number;
       sources: GenreSource[];
     }>(genreStatsQuery(limit, period)),
     // Coverage is about the catalogue rather than about a month: how much of
-    // what the room knows carries a genre at all. Narrowing it by period would
+    // what the station knows carries a genre at all. Narrowing it by period would
     // answer a different and much less useful question.
     db.execute<{ labelled_tracks: number; tracks: number }>(sql`
       with known as (
@@ -292,7 +292,7 @@ export async function getGenreStats(
         select provider, provider_media_id from legacy_plays
       ),
       -- Joined rather than asked once per track: a correlated exists here is
-      -- one index probe for every track the room knows.
+      -- one index probe for every track the station knows.
       labelled as (
         select distinct provider, provider_media_id
         from track_genres
@@ -311,7 +311,7 @@ export async function getGenreStats(
   return {
     genres: counted.rows.map((row) => ({
       genre: row.genre,
-      roomPlays: row.room_plays,
+      stationPlays: row.station_plays,
       archivePlays: row.archive_plays,
       sources: row.sources,
     })),
@@ -331,7 +331,7 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
   const range = periodRange(period);
   // Both histories are narrowed by the same window, on whichever column dates
   // a play in each of them.
-  const room = range
+  const station = range
     ? sql`and queue_items.started_at >= ${range.from} and queue_items.started_at < ${range.to}`
     : sql``;
   const archive = range
@@ -348,13 +348,13 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
         select
           provider,
           provider_media_id,
-          sum(room)::int as room_plays,
+          sum(station)::int as station_plays,
           sum(archive)::int as archive_plays
         from (
-          select media.provider, media.provider_media_id, 1 as room, 0 as archive
+          select media.provider, media.provider_media_id, 1 as station, 0 as archive
           from queue_items
           join media on media.id = queue_items.media_id
-          where queue_items.status in ('played', 'skipped') ${room}
+          where queue_items.status in ('played', 'skipped') ${station}
           union all
           select provider, provider_media_id, 0, 1 from legacy_plays ${archive}
         ) as plays
@@ -364,7 +364,7 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
         select
           play_counts.provider,
           play_counts.provider_media_id,
-          play_counts.room_plays,
+          play_counts.station_plays,
           play_counts.archive_plays,
           track_genres.source,
           lower(label.name) as key,
@@ -380,16 +380,16 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
       -- counted once. Grouped rather than distinct on, because grouping can be
       -- hashed and distinct on obliges Postgres to sort the whole set.
       per_track as (
-        select provider, provider_media_id, key, room_plays, archive_plays
+        select provider, provider_media_id, key, station_plays, archive_plays
         from labelled
-        group by provider, provider_media_id, key, room_plays, archive_plays
+        group by provider, provider_media_id, key, station_plays, archive_plays
       ),
       counted as (
         select
           key,
-          sum(room_plays)::int as room_plays,
+          sum(station_plays)::int as station_plays,
           sum(archive_plays)::int as archive_plays,
-          sum(room_plays + archive_plays) as plays
+          sum(station_plays + archive_plays) as plays
         from per_track
         group by key
       ),
@@ -401,7 +401,7 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
           name,
           row_number() over (
             partition by key
-            order by sum(room_plays + archive_plays) desc, (left(name, 1) = upper(left(name, 1))) desc, name
+            order by sum(station_plays + archive_plays) desc, (left(name, 1) = upper(left(name, 1))) desc, name
           ) as rank
         from labelled
         group by key, name
@@ -417,7 +417,7 @@ export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_
         from labelled
         group by key
       )
-      select naming.name as genre, counted.room_plays, counted.archive_plays, sources.sources
+      select naming.name as genre, counted.station_plays, counted.archive_plays, sources.sources
       from counted
       join naming on naming.key = counted.key and naming.rank = 1
       join sources on sources.key = counted.key
@@ -478,7 +478,7 @@ async function askAboutNowPlaying(
     const found = await searchGenre(identity.artist, identity.title);
     remember(key, found ? summariseGenres([found]) : null);
   } catch {
-    // A source being unreachable is not worth a room error. Remembering the
+    // A source being unreachable is not worth a station error. Remembering the
     // silence stops every listener's poll from asking again for an hour.
     remember(key, null);
   } finally {
@@ -495,9 +495,9 @@ function remember(key: string, genres: TrackGenres | null): void {
 }
 
 /**
- * What the track playing now is, without ever making the room wait for it.
+ * What the track playing now is, without ever making the station wait for it.
  *
- * Every open room asks for the snapshot every fifteen seconds, so this answers
+ * Every open station asks for the snapshot every fifteen seconds, so this answers
  * from memory or answers null and goes looking in the background. The next poll
  * has whatever it found. That also means one lookup per track rather than one
  * per listener per poll.
@@ -524,7 +524,7 @@ export function nowPlayingGenres(
  * YouTube tracks this source has not answered for, most played first.
  *
  * Most played first is the whole point. Labelling 34,114 tracks against a
- * one-request-a-second API is days of work, and the room repeats far fewer
+ * one-request-a-second API is days of work, and the station repeats far fewer
  * tracks than it has: coverage by play count runs ahead of coverage by track
  * count, so a run that is stopped after an hour has still labelled the music
  * people actually hear.

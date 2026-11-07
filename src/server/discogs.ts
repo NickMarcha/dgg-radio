@@ -15,7 +15,7 @@ import { normalize } from './musicbrainz';
  *
  * What comes back is stored in `track_genres` beside every other source. That
  * is a decision rather than an oversight: the Discogs API terms restrict how
- * long their content may be kept, and the room's operator has confirmed
+ * long their content may be kept, and the station's operator has confirmed
  * permission to keep it. The bulk of the table still comes from the CC0 monthly
  * dump, which carries no such restriction.
  *

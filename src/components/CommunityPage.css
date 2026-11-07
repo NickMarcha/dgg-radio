@@ -32,7 +32,7 @@
   gap: 16px;
 }
 
-/* A cropping frame, for the same reasons as the room's. */
+/* A cropping frame, for the same reasons as the station's. */
 .community-avatar {
   --avatar-box: 28;
   width: 28px;
@@ -145,7 +145,7 @@
   padding: 0.25rem 0.5rem;
 }
 
-/* The archive's totals, beside the room's own and visibly not them. */
+/* The archive's totals, beside the station's own and visibly not them. */
 .stat-strip-legacy {
   margin-top: -8px;
   opacity: 0.86;
@@ -336,8 +336,8 @@
   background: var(--accent-soft);
 }
 
-/* This room's share of the same bar, so the split is readable at a glance. */
-.genre-bar-room {
+/* This station's share of the same bar, so the split is readable at a glance. */
+.genre-bar-station {
   display: block;
   height: 100%;
   min-width: 2px;
@@ -371,7 +371,7 @@
   }
 }
 
-/* What the room said about a track somebody asked to hear again. */
+/* What the station said about a track somebody asked to hear again. */
 .history-notice {
   margin: 0 0 14px;
   color: var(--accent-soft);
@@ -387,7 +387,7 @@
 }
 
 /*
- * Two histories on one page: what this room has played, and the QueUp years it
+ * Two histories on one page: what this station has played, and the QueUp years it
  * inherited. Same underline the site nav uses, one level in, because it is the
  * same kind of choice.
  */
@@ -838,7 +838,7 @@
 
 /*
  * The QueUp archive, in the second history tab and deliberately quieter than
- * the room's own: the plays are somebody else's records, and a reader who has
+ * the station's own: the plays are somebody else's records, and a reader who has
  * switched tabs should be able to feel that without reading the heading again.
  */
 .legacy-table {

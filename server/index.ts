@@ -10,11 +10,11 @@ import { watchTracker } from '../src/server/watchers';
 import {
   advanceIfExpired,
   currentRevision,
-  ensureRoomExists,
-  listRoomIds,
-} from '../src/server/room';
-import { findRoomIdBySlug, MAIN_ROOM_ID } from '../src/server/rooms';
-import { roomConnectionRequestSchema } from '../src/shared/roomConnection';
+  ensureStationExists,
+  listStationIds,
+} from '../src/server/station';
+import { findStationIdBySlug, MAIN_STATION_ID } from '../src/server/stations';
+import { stationConnectionRequestSchema } from '../src/shared/stationConnection';
 import { WebSocket, WebSocketServer } from 'ws';
 import { ConnectionRegistry } from './connections';
 
@@ -42,32 +42,32 @@ function operationsSnapshot() {
 
 /**
  * The overlay is pushed the snapshot itself rather than a revision to go and
- * fetch, the way the room socket works: every field of it is already public in
+ * fetch, the way the station socket works: every field of it is already public in
  * Destiny chat, so there is no private state to keep out of a shared message.
  * An unchanged snapshot is not resent, which on a quiet channel is most seconds.
- * Each overlay is sent the snapshot of the room it named.
+ * Each overlay is sent the snapshot of the station it named.
  */
 const lastWatchersMessage = new Map<string, string>();
 
-function watchersMessage(roomId: string): string {
-  return JSON.stringify({ type: 'watchers', snapshot: watchTracker.snapshot(roomId) });
+function watchersMessage(stationId: string): string {
+  return JSON.stringify({ type: 'watchers', snapshot: watchTracker.snapshot(stationId) });
 }
 
 function broadcastWatchers(): void {
-  const byRoom = new Map<string, WebSocket[]>();
+  const byStation = new Map<string, WebSocket[]>();
   for (const client of connections.clientsOfKind('embed-watchers')) {
-    const roomId = connections.roomOf(client);
-    if (roomId === undefined) continue;
-    byRoom.set(roomId, [...(byRoom.get(roomId) ?? []), client]);
+    const stationId = connections.stationOf(client);
+    if (stationId === undefined) continue;
+    byStation.set(stationId, [...(byStation.get(stationId) ?? []), client]);
   }
-  for (const roomId of lastWatchersMessage.keys()) {
-    if (!byRoom.has(roomId)) lastWatchersMessage.delete(roomId);
+  for (const stationId of lastWatchersMessage.keys()) {
+    if (!byStation.has(stationId)) lastWatchersMessage.delete(stationId);
   }
 
-  for (const [roomId, clients] of byRoom) {
-    const message = watchersMessage(roomId);
-    if (message === lastWatchersMessage.get(roomId)) continue;
-    lastWatchersMessage.set(roomId, message);
+  for (const [stationId, clients] of byStation) {
+    const message = watchersMessage(stationId);
+    if (message === lastWatchersMessage.get(stationId)) continue;
+    lastWatchersMessage.set(stationId, message);
     for (const client of clients) {
       if (client.readyState === WebSocket.OPEN) client.send(message);
     }
@@ -75,29 +75,29 @@ function broadcastWatchers(): void {
 }
 
 /**
- * Tells the sockets on one room that it changed, or every room's sockets when
- * no room is named: a change to a person, such as their team, shows wherever
+ * Tells the sockets on one station that it changed, or every station's sockets when
+ * no station is named: a change to a person, such as their team, shows wherever
  * their name does.
  */
-function broadcastRoomChanged(roomId?: string): void {
-  const roomIds = roomId === undefined ? [...connections.roomIds()] : [roomId];
-  for (const id of roomIds) {
+function broadcastStationChanged(stationId?: string): void {
+  const stationIds = stationId === undefined ? [...connections.stationIds()] : [stationId];
+  for (const id of stationIds) {
     void currentRevision(id)
       .then((revision) => {
-        const message = JSON.stringify({ type: 'room_changed', revision });
-        for (const client of connections.clientsInRoom(id)) {
+        const message = JSON.stringify({ type: 'station_changed', revision });
+        for (const client of connections.clientsInStation(id)) {
           if (client.readyState === WebSocket.OPEN) client.send(message);
         }
       })
-      .catch((error) => console.error('Could not broadcast room state', error));
+      .catch((error) => console.error('Could not broadcast station state', error));
   }
 }
 
 const app = createApp({
-  listenerCount: (roomId) => connections.listenerCount(roomId),
-  eligibleVoterCount: (roomId) => connections.eligibleVoterCount(roomId),
+  listenerCount: (stationId) => connections.listenerCount(stationId),
+  eligibleVoterCount: (stationId) => connections.eligibleVoterCount(stationId),
   operationsSnapshot,
-  onRoomChanged: broadcastRoomChanged,
+  onStationChanged: broadcastStationChanged,
 });
 
 // Apply pending migrations before serving. Deploys are automated from `main`,
@@ -108,7 +108,7 @@ await migrate(getDatabase(), { migrationsFolder: 'drizzle' });
 
 // The QueUp years and what every track is, shipped in the repository so that a
 // deploy carries them. They only fill gaps, so anything this database has
-// learned since survives. Unlike a migration this is allowed to fail: a room
+// learned since survives. Unlike a migration this is allowed to fail: a station
 // with less in it still works, and a seed file is no reason to refuse to serve.
 try {
   const seeded = await applySeeds();
@@ -126,11 +126,11 @@ try {
   console.error('Could not apply the seeds', error);
 }
 
-await ensureRoomExists(MAIN_ROOM_ID);
+await ensureStationExists(MAIN_STATION_ID);
 
 // Watching a destiny.gg embed, if an admin has turned it on. It connects to
 // nothing while it is off, and a failure here is never a reason to refuse to
-// serve the room.
+// serve the station.
 // An open overlay is reason enough to hold the chat socket, so the tracker is
 // told how many there are.
 watchTracker
@@ -149,9 +149,9 @@ const webSocketServer = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-  const connectionRequest = roomConnectionRequestSchema.safeParse({
+  const connectionRequest = stationConnectionRequestSchema.safeParse({
     kind: requestUrl.searchParams.get('kind'),
-    room: requestUrl.searchParams.get('room'),
+    station: requestUrl.searchParams.get('station'),
     visitorId: requestUrl.searchParams.get('visitorId') ?? undefined,
   });
   if (
@@ -171,45 +171,45 @@ server.on('upgrade', (request, socket, head) => {
 
 webSocketServer.on('connection', async (client, request) => {
   const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
-  const connectionRequest = roomConnectionRequestSchema.parse({
+  const connectionRequest = stationConnectionRequestSchema.parse({
     kind: requestUrl.searchParams.get('kind'),
-    room: requestUrl.searchParams.get('room'),
+    station: requestUrl.searchParams.get('station'),
     visitorId: requestUrl.searchParams.get('visitorId') ?? undefined,
   });
-  const roomId = await findRoomIdBySlug(connectionRequest.room);
-  if (!roomId) {
+  const stationId = await findStationIdBySlug(connectionRequest.station);
+  if (!stationId) {
     // 4404 is in the range the protocol leaves to applications; the client
-    // stops retrying a room that does not exist rather than looping on it.
-    client.close(4404, 'That room does not exist.');
+    // stops retrying a station that does not exist rather than looping on it.
+    client.close(4404, 'That station does not exist.');
     return;
   }
   const sessionToken = readSessionTokenFromCookieHeader(request.headers.cookie);
   const user = sessionToken ? await getSessionUserByToken(sessionToken) : null;
   connections.add(client, {
     kind: connectionRequest.kind,
-    roomId,
+    stationId,
     userId: user?.id ?? null,
     username: user?.username ?? null,
-    visitorId: connectionRequest.kind === 'room' ? connectionRequest.visitorId : null,
+    visitorId: connectionRequest.kind === 'station' ? connectionRequest.visitorId : null,
   });
   client.send(
     JSON.stringify({
       type: 'connected',
-      revision: await currentRevision(roomId),
+      revision: await currentRevision(stationId),
       authenticated: Boolean(user),
     }),
   );
-  broadcastRoomChanged(roomId);
+  broadcastStationChanged(stationId);
 
   if (connectionRequest.kind === 'embed-watchers') {
-    client.send(watchersMessage(roomId));
+    client.send(watchersMessage(stationId));
     // The first overlay is a reason to open the chat socket, and waiting for
     // the next refresh would leave it dark for a quarter of a minute.
     void watchTracker.refresh().catch((error) => console.error('Stream watch refresh failed', error));
   }
 
   const removeConnection = () => {
-    if (connections.delete(client)) broadcastRoomChanged(roomId);
+    if (connections.delete(client)) broadcastStationChanged(stationId);
   };
   client.on('close', removeConnection);
   client.on('error', removeConnection);
@@ -223,14 +223,14 @@ const clock = setInterval(() => {
   clockBusy = true;
   clockChecks += 1;
   lastClockCheckAt = new Date();
-  // Every room is ticked, and one failing does not stop the others.
-  void listRoomIds()
-    .then(async (roomIds) => {
-      const results = await Promise.allSettled(roomIds.map((roomId) => advanceIfExpired(roomId)));
+  // Every station is ticked, and one failing does not stop the others.
+  void listStationIds()
+    .then(async (stationIds) => {
+      const results = await Promise.allSettled(stationIds.map((stationId) => advanceIfExpired(stationId)));
       const changed: string[] = [];
       results.forEach((result, index) => {
-        if (result.status === 'rejected') console.error('Room clock failed', result.reason);
-        else if (result.value) changed.push(roomIds[index]!);
+        if (result.status === 'rejected') console.error('Station clock failed', result.reason);
+        else if (result.value) changed.push(stationIds[index]!);
       });
       return changed;
     })
@@ -238,10 +238,10 @@ const clock = setInterval(() => {
       if (changed.length > 0) {
         clockAdvances += 1;
         lastClockAdvanceAt = new Date();
-        for (const roomId of changed) broadcastRoomChanged(roomId);
+        for (const stationId of changed) broadcastStationChanged(stationId);
       }
     })
-    .catch((error) => console.error('Room clock failed', error))
+    .catch((error) => console.error('Station clock failed', error))
     .finally(() => {
       clockBusy = false;
     });

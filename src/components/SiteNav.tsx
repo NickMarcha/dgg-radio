@@ -1,10 +1,10 @@
 interface SiteNavProps {
-  active?: 'room' | 'rooms' | 'stats' | 'history' | 'playlists';
+  active?: 'station' | 'stations' | 'stats' | 'history' | 'playlists';
 }
 
 const links = [
-  { key: 'room', href: '/', label: 'Room' },
-  { key: 'rooms', href: '/rooms', label: 'Rooms' },
+  { key: 'station', href: '/', label: 'Listen' },
+  { key: 'stations', href: '/stations', label: 'Stations' },
   { key: 'stats', href: '/stats', label: 'Stats' },
   { key: 'history', href: '/history', label: 'History' },
   { key: 'playlists', href: '/playlists', label: 'Playlists' },

@@ -31,22 +31,22 @@ import type {
   PublicRule,
   QueueItem,
   QueueMovePlan,
-  RoomSnapshot,
-  RoomUser,
+  StationSnapshot,
+  StationUser,
   SearchResult,
 } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
 import { moveItem, type MoveDestination } from './reorder';
-import { createRoomSocketUrl, getRoomVisitorId } from './roomSocket';
-import { rememberRoom, roomSlugFromPath } from '../client/room';
-import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
+import { createStationSocketUrl, getStationVisitorId } from './stationSocket';
+import { rememberStation, stationSlugFromPath } from '../client/station';
+import { MAIN_STATION_SLUG } from '../shared/stationConnection';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
 import SiteHeader, { SiteHeaderAccount, SiteHeaderPresence } from './SiteHeader';
 import SiteNav from './SiteNav';
 import { usePlaylistLibrary } from './usePlaylistLibrary';
-import './RadioRoom.css';
+import './RadioStation.css';
 
-interface RadioRoomProps {
+interface RadioStationProps {
   apiUrl: string;
   posthogKey?: string;
   posthogHost?: string;
@@ -184,7 +184,7 @@ function formatDuration(seconds: number): string {
   return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-function UserAvatar({ user }: { user: RoomUser }) {
+function UserAvatar({ user }: { user: StationUser }) {
   return (
     <span className={userClass(user, 'avatar avatar-frame')} aria-hidden="true">
       {user.avatarUrl ? (
@@ -211,18 +211,18 @@ interface QueueRowProps {
   canMoveBottom?: boolean;
 }
 
-function canMoveRoomItem(
-  room: RoomSnapshot,
+function canMoveStationItem(
+  station: StationSnapshot,
   item: QueueItem,
   index: number,
   destination: MoveDestination,
 ): boolean {
-  const currentRequesterId = room.current?.requestedBy?.id;
-  const lockedLastId = room.queue.find(
+  const currentRequesterId = station.current?.requestedBy?.id;
+  const lockedLastId = station.queue.find(
     ({ requestedBy }) => requestedBy?.id === currentRequesterId,
   )?.id;
   if (item.id === lockedLastId) return false;
-  const lastMovableIndex = room.queue.length - (lockedLastId ? 2 : 1);
+  const lastMovableIndex = station.queue.length - (lockedLastId ? 2 : 1);
   return destination === 'up' || destination === 'top'
     ? index > 0
     : index < lastMovableIndex;
@@ -355,13 +355,13 @@ function QueueRow({
   );
 }
 
-export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoomProps) {
-  // One generated page serves every room, so the room is read from the address.
-  const [roomSlug] = useState(() =>
-    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromPath(window.location.pathname),
+export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioStationProps) {
+  // One generated page serves every station, so the station is read from the address.
+  const [stationSlug] = useState(() =>
+    typeof window === 'undefined' ? MAIN_STATION_SLUG : stationSlugFromPath(window.location.pathname),
   );
-  const roomApi = `/api/rooms/${roomSlug}`;
-  const [room, setRoom] = useState<RoomSnapshot | null>(null);
+  const stationApi = `/api/stations/${stationSlug}`;
+  const [station, setStation] = useState<StationSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -378,30 +378,30 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   const capturedConnection = useRef(false);
   const playlistLibrary = usePlaylistLibrary(
     apiUrl,
-    room?.current ? [room.current.media.id] : [],
-    Boolean(room?.me),
+    station?.current ? [station.current.media.id] : [],
+    Boolean(station?.me),
   );
 
   useEffect(() => {
     initClientAnalytics(posthogKey, posthogHost);
   }, [posthogHost, posthogKey]);
 
-  // Only a room that answered is worth sending a later request to.
-  const loadedSlug = room?.room.slug;
+  // Only a station that answered is worth sending a later request to.
+  const loadedSlug = station?.station.slug;
   useEffect(() => {
-    if (loadedSlug) rememberRoom(loadedSlug);
+    if (loadedSlug) rememberStation(loadedSlug);
   }, [loadedSlug]);
 
   useEffect(() => {
-    if (!room) return;
-    if (room.me && identifiedUserId.current !== room.me.id) {
-      identifyClientUser(room.me.id, { role: room.me.role, team: room.me.team });
-      identifiedUserId.current = room.me.id;
-    } else if (!room.me && identifiedUserId.current) {
+    if (!station) return;
+    if (station.me && identifiedUserId.current !== station.me.id) {
+      identifyClientUser(station.me.id, { role: station.me.role, team: station.me.team });
+      identifiedUserId.current = station.me.id;
+    } else if (!station.me && identifiedUserId.current) {
       resetClientUser();
       identifiedUserId.current = null;
     }
-  }, [room?.me]);
+  }, [station?.me]);
 
   const apiRequest = useCallback(
     async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -429,18 +429,18 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const refreshRoom = useCallback(async () => {
     try {
-      const snapshot = await apiRequest<RoomSnapshot>(roomApi);
-      setRoom(snapshot);
+      const snapshot = await apiRequest<StationSnapshot>(stationApi);
+      setStation(snapshot);
       setNotice(null);
     } catch (error) {
       if (error instanceof ApiRequestError && error.status >= 500) {
-        captureClientException(error, { area: 'room_snapshot', status: error.status });
+        captureClientException(error, { area: 'station_snapshot', status: error.status });
       }
-      setNotice(error instanceof Error ? error.message : 'The room could not be loaded.');
+      setNotice(error instanceof Error ? error.message : 'The station could not be loaded.');
     } finally {
       setLoading(false);
     }
-  }, [apiRequest, roomApi]);
+  }, [apiRequest, stationApi]);
 
   useEffect(() => {
     void refreshRoom();
@@ -451,10 +451,10 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   useEffect(() => {
     let stopped = false;
     let socket: WebSocket | undefined;
-    const wsUrl = createRoomSocketUrl(apiUrl, {
-      kind: 'room',
-      room: roomSlug,
-      visitorId: getRoomVisitorId(),
+    const wsUrl = createStationSocketUrl(apiUrl, {
+      kind: 'station',
+      station: stationSlug,
+      visitorId: getStationVisitorId(),
     });
 
     const connect = () => {
@@ -470,7 +470,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       socket.onerror = () => socket?.close();
       socket.onclose = (event) => {
         setConnected(false);
-        // 4404: the room does not exist, which retrying will not change.
+        // 4404: the station does not exist, which retrying will not change.
         if (!stopped && event.code !== 4404) {
           reconnectTimer.current = window.setTimeout(connect, 2_000);
         }
@@ -483,14 +483,14 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
       socket?.close();
     };
-  }, [apiUrl, refreshRoom, roomSlug]);
+  }, [apiUrl, refreshRoom, stationSlug]);
 
   /**
-   * Someone queued in another room is asked whether to bring their queue here,
-   * with what this room would leave behind. Answers whether it moved.
+   * Someone queued in another station is asked whether to bring their queue here,
+   * with what this station would leave behind. Answers whether it moved.
    */
   const offerQueueMove = async (): Promise<boolean> => {
-    const plan = await apiRequest<QueueMovePlan>(`${roomApi}/queue/move`);
+    const plan = await apiRequest<QueueMovePlan>(`${stationApi}/queue/move`);
     if (!plan.from) return false;
     const coming = plan.tracks.filter((track) => track.refused === null).length;
     const leaving = plan.tracks.filter((track) => track.refused !== null);
@@ -498,11 +498,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       `You have ${plan.tracks.length} track${plan.tracks.length === 1 ? '' : 's'} waiting in ${plan.from.name}.`,
       `Move your queue here? ${coming} will come along and you will leave the rotation there.`,
       ...(leaving.length > 0
-        ? ['', 'This room will not take:', ...leaving.map((track) => `• ${track.title}: ${track.refused}`)]
+        ? ['', 'This station will not take:', ...leaving.map((track) => `• ${track.title}: ${track.refused}`)]
         : []),
     ];
     if (!window.confirm(lines.join('\n'))) return false;
-    await apiRequest(`${roomApi}/queue/move`, { method: 'POST' });
+    await apiRequest(`${stationApi}/queue/move`, { method: 'POST' });
     return true;
   };
 
@@ -521,7 +521,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       try {
         payload = await send();
       } catch (error) {
-        // A listener queues in one room; asking here is how they change which.
+        // A listener queues in one station; asking here is how they change which.
         if (!(error instanceof ApiRequestError && error.code === 'QUEUED_ELSEWHERE')) throw error;
         if (!(await offerQueueMove())) {
           setNotice(error.message);
@@ -549,18 +549,18 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
     // One box for both: a playlist link takes the bulk path on its own.
     if (isPlaylistUrl(url)) {
-      const imported = await mutate<PlaylistImport>(`${roomApi}/queue/playlist`, 'POST', { url });
+      const imported = await mutate<PlaylistImport>(`${stationApi}/queue/playlist`, 'POST', { url });
       if (imported) {
         setRequestUrl('');
         setImportReport(imported);
       }
       return;
     }
-    if (await mutate(`${roomApi}/queue`, 'POST', { url })) setRequestUrl('');
+    if (await mutate(`${stationApi}/queue`, 'POST', { url })) setRequestUrl('');
   };
 
   const addSearchResult = async (result: SearchResult) => {
-    if (await mutate(`${roomApi}/queue`, 'POST', { url: result.url })) {
+    if (await mutate(`${stationApi}/queue`, 'POST', { url: result.url })) {
       setResults((current) => current.filter((entry) => entry.url !== result.url));
     }
   };
@@ -581,7 +581,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
       setResults(payload.results);
     } catch (cause) {
       const error = cause instanceof Error ? cause : new Error('Search failed.');
-      // An answer the room meant to give -- a rate limit, a query it rejected --
+      // An answer the station meant to give -- a rate limit, a query it rejected --
       // is not a fault worth a trace. A provider that failed or an API that
       // could not be reached is, and the query rides along because a replay
       // masks what people type and the search box is the one field that
@@ -597,9 +597,9 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
   };
 
   const vote = async (value: -1 | 1) => {
-    if (!room?.current) return;
-    const nextValue = room.current.myVote === value ? 0 : value;
-    await mutate(`/api/queue/${room.current.id}/vote`, 'POST', { value: nextValue });
+    if (!station?.current) return;
+    const nextValue = station.current.myVote === value ? 0 : value;
+    await mutate(`/api/queue/${station.current.id}/vote`, 'POST', { value: nextValue });
   };
 
   const askReason = (action: string): string | null => {
@@ -614,22 +614,22 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const moveMyTrack = useCallback(
     async (item: QueueItem, destination: MoveDestination) => {
-      const orderedIds = moveItem(room?.myQueue ?? [], item.id, destination);
+      const orderedIds = moveItem(station?.myQueue ?? [], item.id, destination);
       if (orderedIds) await mutate('/api/queue/order', 'PATCH', { orderedIds });
     },
-    [room?.myQueue, mutate],
+    [station?.myQueue, mutate],
   );
 
-  const moveRoomTrack = useCallback(
+  const moveStationTrack = useCallback(
     async (item: QueueItem, destination: MoveDestination) => {
-      const currentRequesterId = room?.current?.requestedBy?.id;
-      const lockedLastId = room?.queue.find(
+      const currentRequesterId = station?.current?.requestedBy?.id;
+      const lockedLastId = station?.queue.find(
         ({ requestedBy }) => requestedBy?.id === currentRequesterId,
       )?.id;
-      const orderedIds = moveItem(room?.queue ?? [], item.id, destination, lockedLastId);
-      if (orderedIds) await mutate(`${roomApi}/queue/room-order`, 'PATCH', { orderedIds });
+      const orderedIds = moveItem(station?.queue ?? [], item.id, destination, lockedLastId);
+      if (orderedIds) await mutate(`${stationApi}/queue/station-order`, 'PATCH', { orderedIds });
     },
-    [room?.current?.requestedBy?.id, room?.queue, mutate],
+    [station?.current?.requestedBy?.id, station?.queue, mutate],
   );
 
   const withdrawMyTrack = async (item: QueueItem) => {
@@ -663,36 +663,36 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
   const skip = async () => {
     const reason = askReason('Skip the current track');
-    if (reason) await mutate(`${roomApi}/current/skip`, 'POST', { reason });
+    if (reason) await mutate(`${stationApi}/current/skip`, 'POST', { reason });
   };
 
   const blockCurrent = () => {
-    if (!room?.current) return;
-    setBlockTarget({ item: room.current, fromPlayer: true });
+    if (!station?.current) return;
+    setBlockTarget({ item: station.current, fromPlayer: true });
   };
 
   const logout = async () => {
     if (await mutate('/api/auth/logout', 'POST')) await refreshRoom();
   };
 
-  // Site admins come back as owners, so this is the room's own answer.
-  const owner = room?.myRoomRole === 'owner';
-  const moderator = owner || room?.myRoomRole === 'mod';
+  // Site admins come back as owners, so this is the station's own answer.
+  const owner = station?.myStationRole === 'owner';
+  const moderator = owner || station?.myStationRole === 'mod';
 
   return (
     <div className="radio-app">
       <SiteHeader>
-        <SiteHeaderPresence connected={connected} listenerCount={room?.listenerCount ?? 0} />
-        <SiteHeaderAccount apiUrl={apiUrl} me={room?.me ?? null} busy={busy} onLogout={() => void logout()} />
+        <SiteHeaderPresence connected={connected} listenerCount={station?.listenerCount ?? 0} />
+        <SiteHeaderAccount apiUrl={apiUrl} me={station?.me ?? null} busy={busy} onLogout={() => void logout()} />
       </SiteHeader>
 
-      <SiteNav active="room" />
+      <SiteNav active="station" />
 
-      {room && room.room.slug !== MAIN_ROOM_SLUG && (
-        <div className="room-name">
-          <h1>{room.room.name}</h1>
+      {station && station.station.slug !== MAIN_STATION_SLUG && (
+        <div className="station-name">
+          <h1>{station.station.name}</h1>
           {owner && (
-            <a href={`/admin?room=${encodeURIComponent(room.room.slug)}`}>
+            <a href={`/admin?station=${encodeURIComponent(station.station.slug)}`}>
               <Settings size={14} /> Manage
             </a>
           )}
@@ -701,12 +701,12 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
 
       {notice && <div className="notice" role="alert">{notice}</div>}
 
-      <main className="room-layout" aria-busy={loading}>
+      <main className="station-layout" aria-busy={loading}>
         <div className="main-column">
           <MediaPlayer
-            current={room?.current ?? null}
-            genres={room?.currentGenres ?? null}
-            serverTime={room?.serverTime ?? null}
+            current={station?.current ?? null}
+            genres={station?.currentGenres ?? null}
+            serverTime={station?.serverTime ?? null}
             onListeningStarted={(provider) => captureClientEvent('listening_started', { provider })}
             onPlayerError={(message, provider, errorCode) =>
               captureClientException(new Error(message), {
@@ -720,35 +720,35 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
           <section className="now-controls">
             <div className="vote-group" aria-label="Vote on the current track">
               <button
-                className={room?.current?.myVote === 1 ? 'vote-active vote-up' : ''}
+                className={station?.current?.myVote === 1 ? 'vote-active vote-up' : ''}
                 type="button"
-                disabled={!room?.me || !room.current || busy}
+                disabled={!station?.me || !station.current || busy}
                 onClick={() => void vote(1)}
               >
-                <ThumbsUp size={17} /> {room?.current?.upvotes ?? 0}
+                <ThumbsUp size={17} /> {station?.current?.upvotes ?? 0}
               </button>
               <button
-                className={room?.current?.myVote === -1 ? 'vote-active vote-down' : ''}
+                className={station?.current?.myVote === -1 ? 'vote-active vote-down' : ''}
                 type="button"
-                disabled={!room?.me || !room.current || busy}
+                disabled={!station?.me || !station.current || busy}
                 onClick={() => void vote(-1)}
               >
-                <ThumbsDown size={17} /> {room?.current?.downvotes ?? 0}
+                <ThumbsDown size={17} /> {station?.current?.downvotes ?? 0}
               </button>
-              {!room?.me && <span>Sign in to vote</span>}
+              {!station?.me && <span>Sign in to vote</span>}
             </div>
-            {room?.me && room.current && (
+            {station?.me && station.current && (
               <SaveToPlaylistButton
-                key={room.current.media.id}
+                key={station.current.media.id}
                 target={{
                   kind: 'media',
-                  mediaId: room.current.media.id,
-                  title: room.current.media.title,
+                  mediaId: station.current.media.id,
+                  title: station.current.media.title,
                 }}
                 library={playlistLibrary}
               />
             )}
-            {moderator && room?.current && (
+            {moderator && station?.current && (
               <div className="admin-actions">
                 <button type="button" disabled={busy} onClick={blockCurrent}>
                   <Ban size={16} /> Block
@@ -793,17 +793,17 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                       type="url"
                       placeholder="https://www.youtube.com/watch?v=..."
                       value={requestUrl}
-                      disabled={!room?.me || busy}
+                      disabled={!station?.me || busy}
                       onChange={(event) => setRequestUrl(event.target.value)}
                     />
-                    <button type="submit" disabled={!room?.me || !requestUrl.trim() || busy}>
+                    <button type="submit" disabled={!station?.me || !requestUrl.trim() || busy}>
                       {isPlaylistUrl(requestUrl.trim()) ? 'Import playlist' : 'Add to queue'}
                     </button>
                   </div>
                 </form>
                 <p>
                   A playlist or set link adds up to 50 of its tracks to your queue. Requests are
-                  checked for availability in {room?.settings.targetCountry ?? 'the playback region'},
+                  checked for availability in {station?.settings.targetCountry ?? 'the playback region'},
                   embedding, age restriction, and the length limit first.
                 </p>
               </>
@@ -817,12 +817,12 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                       type="search"
                       placeholder="Boards of Canada"
                       value={searchQuery}
-                      disabled={!room?.me || busy}
+                      disabled={!station?.me || busy}
                       onChange={(event) => setSearchQuery(event.target.value)}
                     />
                     <button
                       type="submit"
-                      disabled={!room?.me || searchQuery.trim().length < 2 || busy}
+                      disabled={!station?.me || searchQuery.trim().length < 2 || busy}
                     >
                       {searching ? 'Searching...' : 'Search'}
                     </button>
@@ -869,7 +869,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             {blockTarget && (
         <BlockDialog
           target={blockTarget}
-          rules={room?.rules ?? []}
+          rules={station?.rules ?? []}
           busy={busy}
           onCancel={() => setBlockTarget(null)}
           onConfirm={(choice) => void confirmBlock(choice)}
@@ -903,14 +903,14 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
               <h2>Top Jammers</h2>
               <span>Votes received on played tracks</span>
             </div>
-            {room?.selectorStats.length ? (
+            {station?.selectorStats.length ? (
               <div className="stats-table-wrap">
                 <table className="stats-table">
                   <thead>
                     <tr><th>Jammer</th><th>Plays</th><th>Up</th><th>Down</th><th>Score</th></tr>
                   </thead>
                   <tbody>
-                    {room.selectorStats.map((entry, index) => (
+                    {station.selectorStats.map((entry, index) => (
                       <tr key={entry.user.id}>
                         <td>
                           <span className="rank">{index + 1}</span>
@@ -939,11 +939,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
           </section>
 
           <details className="rules-section">
-            <summary>Room rules <ChevronDown size={16} /></summary>
+            <summary>Station rules <ChevronDown size={16} /></summary>
             <div className="rules-content">
-              {room?.rules.length ? (
+              {station?.rules.length ? (
                 <ol className="rule-list">
-                  {room.rules.map((rule) => (
+                  {station.rules.map((rule) => (
                     <li key={rule.id}>
                       <strong>{rule.name}</strong>
                       {rule.description && <p>{rule.description}</p>}
@@ -956,13 +956,13 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             </div>
           </details>
 
-          {room?.settings.description && (
+          {station?.settings.description && (
             <details className="rules-section" open>
               <summary>
-                About this room <ChevronDown size={16} />
+                About this station <ChevronDown size={16} />
               </summary>
               <div className="rules-content">
-                {room.settings.description
+                {station.settings.description
                   .split(/\n{2,}/)
                   .map((paragraph, index) => (
                     <p key={index}>{paragraph}</p>
@@ -976,13 +976,13 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
           <div className="queue-heading">
             <div>
               <h2>Up next</h2>
-              <span>{room?.queue.length ?? 0} waiting · one turn each</span>
+              <span>{station?.queue.length ?? 0} waiting · one turn each</span>
             </div>
             <Clock3 size={18} />
           </div>
-          {room?.queue.length ? (
+          {station?.queue.length ? (
             <ol className="queue-list">
-              {room.queue.map((item, index) => (
+              {station.queue.map((item, index) => (
                 <QueueRow
                   key={item.id}
                   item={item}
@@ -991,11 +991,11 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                   canRemove={owner}
                   busy={busy}
                   onModerate={(action, selected) => void moderateQueueItem(action, selected)}
-                  onMove={moderator ? (selected, destination) => void moveRoomTrack(selected, destination) : undefined}
-                  canMoveUp={moderator && canMoveRoomItem(room, item, index, 'up')}
-                  canMoveDown={moderator && canMoveRoomItem(room, item, index, 'down')}
-                  canMoveTop={moderator && canMoveRoomItem(room, item, index, 'top')}
-                  canMoveBottom={moderator && canMoveRoomItem(room, item, index, 'bottom')}
+                  onMove={moderator ? (selected, destination) => void moveStationTrack(selected, destination) : undefined}
+                  canMoveUp={moderator && canMoveStationItem(station, item, index, 'up')}
+                  canMoveDown={moderator && canMoveStationItem(station, item, index, 'down')}
+                  canMoveTop={moderator && canMoveStationItem(station, item, index, 'top')}
+                  canMoveBottom={moderator && canMoveStationItem(station, item, index, 'bottom')}
                 />
               ))}
             </ol>
@@ -1007,19 +1007,19 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
             </div>
           )}
 
-          {room?.me && (
+          {station?.me && (
             <>
-              {room.myNotices.length > 0 && (
+              {station.myNotices.length > 0 && (
                 <>
                   <div className="queue-heading queue-heading-mine">
                     <div>
                       <h2>Dropped from your queue</h2>
-                      <span>The room could not play these when your turn came</span>
+                      <span>The station could not play these when your turn came</span>
                     </div>
                     <TriangleAlert size={18} />
                   </div>
                   <ul className="queue-notices">
-                    {room.myNotices.map((entry) => (
+                    {station.myNotices.map((entry) => (
                       <li key={entry.queueItemId}>
                         <div>
                           <strong>{entry.title}</strong>
@@ -1044,16 +1044,16 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                 <div>
                   <h2>Your queue</h2>
                   <span>
-                    {room.myQueue.length
-                      ? `${room.myQueue.length} waiting · the top one plays on your turn`
+                    {station.myQueue.length
+                      ? `${station.myQueue.length} waiting · the top one plays on your turn`
                       : 'Nothing queued'}
                   </span>
                 </div>
                 <ListMusic size={18} />
               </div>
-              {room.myQueue.length > 0 && (
+              {station.myQueue.length > 0 && (
                 <ol className="queue-list">
-                  {room.myQueue.map((item, index) => (
+                  {station.myQueue.map((item, index) => (
                     <QueueRow
                       key={item.id}
                       item={item}
@@ -1064,9 +1064,9 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
                       onWithdraw={(selected) => void withdrawMyTrack(selected)}
                       onMove={(selected, destination) => void moveMyTrack(selected, destination)}
                       canMoveUp={index > 0}
-                      canMoveDown={index < room.myQueue.length - 1}
+                      canMoveDown={index < station.myQueue.length - 1}
                       canMoveTop={index > 0}
-                      canMoveBottom={index < room.myQueue.length - 1}
+                      canMoveBottom={index < station.myQueue.length - 1}
                     />
                   ))}
                 </ol>
@@ -1081,7 +1081,7 @@ export default function RadioRoom({ apiUrl, posthogKey, posthogHost }: RadioRoom
         </aside>
       </main>
 
-      <footer className="room-footer">
+      <footer className="station-footer">
         Vibed by StrawWaffle <img className="footer-charm" src="/YeeCharm.gif" alt="" />
       </footer>
     </div>

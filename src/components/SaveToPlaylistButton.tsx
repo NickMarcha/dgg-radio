@@ -10,7 +10,7 @@ interface SaveToPlaylistButtonProps {
   onChanged?: () => void | Promise<void>;
   /**
    * Told which media row an archive track turned out to be, the first time
-   * anyone saves it. Until then the room has no row for it and cannot say which
+   * anyone saves it. Until then the station has no row for it and cannot say which
    * playlists it is in.
    */
   onResolved?: (mediaId: string) => void;

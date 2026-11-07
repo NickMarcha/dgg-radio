@@ -28,15 +28,15 @@ export interface MediaMetadata {
 
 /**
  * What a provider says about one track, split into what it is and whether this
- * room can play it. `playbackIssue` is room policy the personal library
+ * station can play it. `playbackIssue` is station policy the personal library
  * ignores: saving a track keeps it regardless, and the same issue is raised
  * again when someone asks for it in the queue.
  */
 export interface MediaInspection {
   metadata: MediaMetadata;
   /**
-   * Why the room cannot play it, region aside. This part is the same wherever
-   * the room plays from, so it can be stored and reused as it stands.
+   * Why the station cannot play it, region aside. This part is the same wherever
+   * the station plays from, so it can be stored and reused as it stands.
    */
   playbackIssue: MediaLookupError | null;
   /**
@@ -285,7 +285,7 @@ async function fetchYouTubeVideos(
 
 /**
  * Reads one video's answer. Separate from fetching so a batch and a single
- * lookup describe a video the same way, including which of them the room
+ * lookup describe a video the same way, including which of them the station
  * refuses to play.
  */
 export function describeYouTubeVideo(id: string, video: YouTubeVideo | undefined): MediaInspection {
@@ -358,7 +358,7 @@ export async function inspectYouTubeVideos(
 
 /**
  * Whether the radio's own player can carry this video. These conditions belong
- * to the room rather than to the track, so a personal library keeps the track
+ * to the station rather than to the track, so a personal library keeps the track
  * anyway and hears about the problem when it is queued. The region is decided
  * separately, by `regionPlaybackIssue`, because it alone depends on a setting.
  */
@@ -377,7 +377,7 @@ function youTubePlaybackIssue(video: YouTubeVideo): MediaLookupError | null {
 
 /**
  * The region half of the same question, kept separate because it is the only
- * part that depends on where the room plays from. YouTube names the countries
+ * part that depends on where the station plays from. YouTube names the countries
  * once, so a stored answer settles it for every region without asking again.
  */
 export function regionPlaybackIssue(
@@ -435,7 +435,7 @@ async function resolveSoundCloudTrack(url: string): Promise<unknown> {
 
 /**
  * The permalink for a track known only by its numeric id, which is how QueUp
- * recorded every SoundCloud track it played. Nothing in the room can act on a
+ * recorded every SoundCloud track it played. Nothing in the station can act on a
  * bare id — the parser, the cache and `media` all key off the permalink — so an
  * import turns ids back into links here before going anywhere near them.
  */
@@ -686,8 +686,8 @@ export async function searchMedia(query: string, limit: number): Promise<SearchR
 
 /**
  * Reads a link and separates the questions the providers answer together: what
- * the track is, whether this room's player can carry it, and which countries
- * it is restricted to. It asks nothing about the room, so one answer serves
+ * the track is, whether this station's player can carry it, and which countries
+ * it is restricted to. It asks nothing about the station, so one answer serves
  * every playback region. A link that cannot be read at all still throws,
  * because there is nothing to describe.
  */
@@ -702,7 +702,7 @@ export async function inspectMedia(
     : lookupSoundCloud(parsed);
 }
 
-/** The admission view: a track the room cannot play is a failed lookup. */
+/** The admission view: a track the station cannot play is a failed lookup. */
 export async function lookupMedia(
   value: string,
   credentials: MediaLookupCredentials,

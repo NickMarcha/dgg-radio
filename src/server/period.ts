@@ -5,7 +5,7 @@ import type { StatsPeriod } from '../shared/contracts';
  * Narrowing the stats to a year or a month.
  *
  * Everything is bounded in UTC, which is what the timestamps are stored in.
- * A room whose listeners are spread across time zones has no local midnight to
+ * A station whose listeners are spread across time zones has no local midnight to
  * prefer, and a month that means something different depending on who is asking
  * is worse than one that is an hour off somebody's idea of it.
  *

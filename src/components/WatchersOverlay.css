@@ -1,5 +1,5 @@
 /*
- * Who is watching the room's stream, drawn over it in OBS.
+ * Who is watching the station's stream, drawn over it in OBS.
  *
  * The emote rules come from https://r2cdn.destiny.gg/emotes/emotes.css, linked
  * by the page. That file declares only `.emote.<prefix>` — a background image and
@@ -238,7 +238,7 @@
 
 /*
  * Motion: one set of paths shared by every layout that moves, scaled by the
- * source's `roam` and by how much room the layout has to wander in. They
+ * source's `roam` and by how much station the layout has to wander in. They
  * animate margins rather than `translate` or `transform`, because a layout may
  * already be using both to seat a watcher, and the emote underneath may be
  * animating a transform of its own.

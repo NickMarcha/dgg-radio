@@ -2,8 +2,8 @@
   min-height: 100vh;
 }
 
-/* Only rooms other than the main one name themselves; the main room is the site. */
-.room-name {
+/* Only stations other than the main one name themselves; the main station is the site. */
+.station-name {
   width: min(1320px, calc(100% - 48px));
   margin: 16px auto 0;
   display: flex;
@@ -11,7 +11,7 @@
   gap: 1rem;
 }
 
-.room-name h1 {
+.station-name h1 {
   margin: 0;
   font-family: var(--font-display);
   font-size: 2rem;
@@ -19,7 +19,7 @@
   line-height: 1;
 }
 
-.room-name a {
+.station-name a {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -37,7 +37,7 @@
   padding: 10px 13px;
 }
 
-.room-layout {
+.station-layout {
   width: min(1320px, calc(100% - 48px));
   margin: 24px auto 48px;
   display: grid;
@@ -46,7 +46,7 @@
   align-items: start;
 }
 
-.room-footer {
+.station-footer {
   width: min(1320px, calc(100% - 48px));
   margin: 0 auto;
   padding: 0 0 24px;
@@ -291,7 +291,7 @@
 .request-section h2,
 .stats-section h2,
 .queue-heading h2,
-.room-settings h3 {
+.station-settings h3 {
   margin: 0;
   font-size: 20px;
 }
@@ -301,7 +301,7 @@
 }
 
 .request-form label,
-.room-settings label {
+.station-settings label {
   display: block;
   margin-bottom: 6px;
   color: var(--muted);
@@ -310,7 +310,7 @@
 }
 
 .request-form > div,
-.room-settings > div:last-child {
+.station-settings > div:last-child {
   display: flex;
   gap: 8px;
 }
@@ -322,7 +322,7 @@
 }
 
 .request-form button,
-.room-settings button {
+.station-settings button {
   flex: 0 0 auto;
   padding: 0 14px;
   border-color: var(--accent);
@@ -615,13 +615,13 @@
   font-size: 15px;
 }
 
-.room-settings {
+.station-settings {
   padding: 14px;
   border-top: 1px solid var(--line);
   background: var(--surface);
 }
 
-.room-settings > div:first-child {
+.station-settings > div:first-child {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -629,12 +629,12 @@
   color: var(--accent-soft);
 }
 
-.room-settings h3 {
+.station-settings h3 {
   color: var(--text);
   font-size: 16px;
 }
 
-.room-settings input {
+.station-settings input {
   width: 100%;
   height: 36px;
   padding: 0 9px;
@@ -660,7 +660,7 @@
 }
 
 @media (max-width: 900px) {
-  .room-layout {
+  .station-layout {
     display: flex;
     flex-direction: column;
   }
@@ -696,13 +696,13 @@
 }
 
 @media (max-width: 620px) {
-  .room-layout,
-  .room-name,
+  .station-layout,
+  .station-name,
   .notice {
     width: calc(100% - 24px);
   }
 
-  .room-layout {
+  .station-layout {
     margin-top: 12px;
     gap: 12px;
   }

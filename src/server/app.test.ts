@@ -13,12 +13,12 @@ vi.mock('./auth', async (importOriginal) => ({
   getSessionUser: vi.fn(),
 }));
 
-vi.mock('./room', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./room')>()),
-  roomOfQueueItem: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
+vi.mock('./station', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./station')>()),
+  stationOfQueueItem: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
   blockQueueItemMedia: vi.fn(),
   removeQueuedTrack: vi.fn(),
-  reorderRoomQueue: vi.fn(),
+  reorderStationQueue: vi.fn(),
   skipCurrentTrack: vi.fn(),
   voteOnCurrentTrack: vi.fn(),
   withdrawQueuedTrack: vi.fn(),
@@ -29,18 +29,18 @@ vi.mock('./rules', async (importOriginal) => ({
   reorderRules: vi.fn(),
 }));
 
-vi.mock('./rooms', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./rooms')>()),
-  roomRoleOf: vi.fn(),
-  roomAccessOf: vi.fn().mockResolvedValue({ owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false }),
-  setRoomModerator: vi.fn(),
-  findRoomIdBySlug: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
+vi.mock('./stations', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./stations')>()),
+  stationRoleOf: vi.fn(),
+  stationAccessOf: vi.fn().mockResolvedValue({ owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false }),
+  setStationModerator: vi.fn(),
+  findStationIdBySlug: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
 }));
 
 vi.mock('./admins', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./admins')>()),
   listUsers: vi.fn().mockResolvedValue([]),
-  setRoomCreator: vi.fn(),
+  setStationCreator: vi.fn(),
   setUserRole: vi.fn(),
 }));
 
@@ -72,8 +72,8 @@ const { reorderRules } = await import('./rules');
 const { getStorageSnapshot } = await import('./storage');
 const { resetRateLimits } = await import('./rate-limit');
 const { addPlaylistTrackByUrl, createPlaylist, queuePlaylistTrack } = await import('./playlists');
-const { findRoomIdBySlug, MAIN_ROOM_ID, roomRoleOf, setRoomModerator } = await import('./rooms');
-const { setRoomCreator } = await import('./admins');
+const { findStationIdBySlug, MAIN_STATION_ID, stationRoleOf, setStationModerator } = await import('./stations');
+const { setStationCreator } = await import('./admins');
 const {
   findWatcherEmbedSettings,
   getOrCreateWatcherEmbedSettings,
@@ -82,11 +82,11 @@ const {
 const {
   blockQueueItemMedia,
   removeQueuedTrack,
-  reorderRoomQueue,
+  reorderStationQueue,
   skipCurrentTrack,
   voteOnCurrentTrack,
   withdrawQueuedTrack,
-} = await import('./room');
+} = await import('./station');
 const { createApp } = await import('./app');
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -151,7 +151,7 @@ const storageSnapshot = {
 };
 vi.mocked(getStorageSnapshot).mockResolvedValue(storageSnapshot);
 
-const onRoomChanged = vi.fn();
+const onStationChanged = vi.fn();
 const operationsSnapshot = vi.fn(() => ({
   capturedAt: '2026-08-30T03:01:00.000Z',
   processStartedAt: '2026-08-30T03:00:00.000Z',
@@ -170,26 +170,26 @@ const app = createApp({
   listenerCount: () => 1,
   eligibleVoterCount: () => 3,
   operationsSnapshot,
-  onRoomChanged,
+  onStationChanged,
 });
 
 describe('role authorization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // A site admin owns every room; anyone else holds whatever a test gives them.
-    vi.mocked(roomRoleOf).mockImplementation(async (who) =>
+    // A site admin owns every station; anyone else holds whatever a test gives them.
+    vi.mocked(stationRoleOf).mockImplementation(async (who) =>
       who?.role === 'admin' ? 'owner' : null,
     );
   });
 
-  /** A listener who moderates the main room, which is a room role rather than a site one. */
-  function asRoomMod() {
+  /** A listener who moderates the main station, which is a station role rather than a site one. */
+  function asStationMod() {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
-    vi.mocked(roomRoleOf).mockResolvedValue('mod');
+    vi.mocked(stationRoleOf).mockResolvedValue('mod');
   }
 
-  it('allows a mod to block, skip, and reorder the room queue', async () => {
-    asRoomMod();
+  it('allows a mod to block, skip, and reorder the station queue', async () => {
+    asStationMod();
 
     expect(
       (await request(`/api/queue/${QUEUE_ID}/block`, 'POST', {
@@ -198,25 +198,25 @@ describe('role authorization', () => {
       })).status,
     ).toBe(200);
     expect(
-      (await request('/api/rooms/main/current/skip', 'POST', { reason: 'Wrong room for this track' })).status,
+      (await request('/api/stations/main/current/skip', 'POST', { reason: 'Wrong station for this track' })).status,
     ).toBe(200);
     expect(
-      (await request('/api/rooms/main/queue/room-order', 'PATCH', { orderedIds: [QUEUE_ID] })).status,
+      (await request('/api/stations/main/queue/station-order', 'PATCH', { orderedIds: [QUEUE_ID] })).status,
     ).toBe(200);
 
     expect(blockQueueItemMedia).toHaveBeenCalledOnce();
     expect(skipCurrentTrack).toHaveBeenCalledOnce();
-    expect(reorderRoomQueue).toHaveBeenCalledOnce();
+    expect(reorderStationQueue).toHaveBeenCalledOnce();
   });
 
   it('does not let a mod remove tracks or use admin endpoints', async () => {
-    asRoomMod();
+    asStationMod();
 
     expect(
       (await request(`/api/queue/${QUEUE_ID}/remove`, 'POST', { reason: 'Remove this track' })).status,
     ).toBe(403);
     expect((await app.request('/api/users')).status).toBe(403);
-    expect((await request('/api/rooms/main/rules/order', 'PATCH', { orderedIds: [RULE_ID] })).status).toBe(403);
+    expect((await request('/api/stations/main/rules/order', 'PATCH', { orderedIds: [RULE_ID] })).status).toBe(403);
     expect(removeQueuedTrack).not.toHaveBeenCalled();
     expect(reorderRules).not.toHaveBeenCalled();
   });
@@ -224,10 +224,10 @@ describe('role authorization', () => {
   it('rejects moderation actions from listeners', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
 
-    const response = await request('/api/rooms/main/queue/room-order', 'PATCH', { orderedIds: [QUEUE_ID] });
+    const response = await request('/api/stations/main/queue/station-order', 'PATCH', { orderedIds: [QUEUE_ID] });
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: { code: 'MODERATOR_REQUIRED' } });
-    expect(reorderRoomQueue).not.toHaveBeenCalled();
+    expect(reorderStationQueue).not.toHaveBeenCalled();
   });
 
   it('lets any signed-in listener take back their own queued track', async () => {
@@ -242,7 +242,7 @@ describe('role authorization', () => {
     expect(withdrawQueuedTrack).toHaveBeenCalledOnce();
   });
 
-  it('uses distinct signed-in room listeners as the skip-ratio denominator', async () => {
+  it('uses distinct signed-in station listeners as the skip-ratio denominator', async () => {
     const listener = user('listener');
     vi.mocked(getSessionUser).mockResolvedValue(listener);
 
@@ -268,56 +268,56 @@ describe('role authorization', () => {
     expect(setUserRole).not.toHaveBeenCalled();
   });
 
-  it("lets a room's owner pick its moderators, and nobody below that", async () => {
+  it("lets a station's owner pick its moderators, and nobody below that", async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
-    vi.mocked(roomRoleOf).mockResolvedValue('owner');
-    const path = '/api/rooms/main/moderators/radio_user';
+    vi.mocked(stationRoleOf).mockResolvedValue('owner');
+    const path = '/api/stations/main/moderators/radio_user';
 
     expect((await request(path, 'PUT', { moderator: true })).status).toBe(200);
-    expect(setRoomModerator).toHaveBeenCalledWith(MAIN_ROOM_ID, 'radio_user', true, user('listener'));
+    expect(setStationModerator).toHaveBeenCalledWith(MAIN_STATION_ID, 'radio_user', true, user('listener'));
 
-    asRoomMod();
+    asStationMod();
     expect((await request(path, 'PUT', { moderator: true })).status).toBe(403);
-    expect(setRoomModerator).toHaveBeenCalledOnce();
+    expect(setStationModerator).toHaveBeenCalledOnce();
   });
 
-  it('keeps the room creator whitelist to site admins', async () => {
+  it('keeps the station creator whitelist to site admins', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
-    vi.mocked(roomRoleOf).mockResolvedValue('owner');
-    const path = `/api/users/${USER_ID}/room-creator`;
+    vi.mocked(stationRoleOf).mockResolvedValue('owner');
+    const path = `/api/users/${USER_ID}/station-creator`;
 
-    expect((await request(path, 'PATCH', { canCreateRooms: true })).status).toBe(403);
-    expect(setRoomCreator).not.toHaveBeenCalled();
+    expect((await request(path, 'PATCH', { canCreateStations: true })).status).toBe(403);
+    expect(setStationCreator).not.toHaveBeenCalled();
 
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
-    expect((await request(path, 'PATCH', { canCreateRooms: true })).status).toBe(200);
-    expect(setRoomCreator).toHaveBeenCalledWith(USER_ID, true);
+    expect((await request(path, 'PATCH', { canCreateStations: true })).status).toBe(200);
+    expect(setStationCreator).toHaveBeenCalledWith(USER_ID, true);
   });
 
   it('routes an admin rule reorder past the /api/rules/:id handler', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    const response = await request('/api/rooms/main/rules/order', 'PATCH', { orderedIds: [RULE_ID] });
+    const response = await request('/api/stations/main/rules/order', 'PATCH', { orderedIds: [RULE_ID] });
     expect(response.status).toBe(200);
-    expect(reorderRules).toHaveBeenCalledWith(MAIN_ROOM_ID, [RULE_ID]);
+    expect(reorderRules).toHaveBeenCalledWith(MAIN_STATION_ID, [RULE_ID]);
   });
 });
 
-describe('rooms by name', () => {
+describe('stations by name', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('answers 404 for a room that does not exist, before asking anything of it', async () => {
+  it('answers 404 for a station that does not exist, before asking anything of it', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
-    vi.mocked(findRoomIdBySlug).mockResolvedValueOnce(null);
+    vi.mocked(findStationIdBySlug).mockResolvedValueOnce(null);
 
-    const response = await request('/api/rooms/nowhere/queue', 'POST', {
+    const response = await request('/api/stations/nowhere/queue', 'POST', {
       url: 'https://www.youtube.com/watch?v=aaaaaaaaaaa',
     });
 
     expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({ error: { code: 'ROOM_NOT_FOUND' } });
+    expect(await response.json()).toMatchObject({ error: { code: 'STATION_NOT_FOUND' } });
   });
 });
 
@@ -326,7 +326,7 @@ describe('the header session endpoint', () => {
     vi.clearAllMocks();
   });
 
-  it('names the signed-in listener without the room snapshot behind it', async () => {
+  it('names the signed-in listener without the station snapshot behind it', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
 
     const response = await app.request('/api/me');
@@ -343,7 +343,7 @@ describe('the header session endpoint', () => {
         role: 'listener',
         team: null,
       },
-      rooms: { owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false },
+      stations: { owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false },
     });
   });
 
@@ -356,7 +356,7 @@ describe('the header session endpoint', () => {
     expect(await response.json()).toEqual({
       listenerCount: 1,
       me: null,
-      rooms: { owned: [], canCreate: false },
+      stations: { owned: [], canCreate: false },
     });
   });
 });
@@ -389,7 +389,7 @@ describe('the operations endpoint', () => {
 describe('personal watcher sources', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(roomRoleOf).mockImplementation(async (who) =>
+    vi.mocked(stationRoleOf).mockImplementation(async (who) =>
       who?.role === 'admin' ? 'owner' : null,
     );
     vi.mocked(findWatcherEmbedSettings).mockResolvedValue(watcherEmbedSettings);
@@ -420,7 +420,7 @@ describe('personal watcher sources', () => {
   it('creates and returns the signed-in admin source', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    const response = await app.request('/api/rooms/main/watcher-embed');
+    const response = await app.request('/api/stations/main/watcher-embed');
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toContain('no-store');
@@ -430,7 +430,7 @@ describe('personal watcher sources', () => {
   it('saves only the signed-in admin source', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('admin'));
 
-    const response = await request('/api/rooms/main/watcher-embed', 'PATCH', {
+    const response = await request('/api/stations/main/watcher-embed', 'PATCH', {
       layout: 'climb',
       max: 10,
     });
@@ -445,8 +445,8 @@ describe('personal watcher sources', () => {
   it('does not let a listener create or edit a source', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
 
-    expect((await app.request('/api/rooms/main/watcher-embed')).status).toBe(403);
-    expect((await request('/api/rooms/main/watcher-embed', 'PATCH', { layout: 'safe' })).status).toBe(403);
+    expect((await app.request('/api/stations/main/watcher-embed')).status).toBe(403);
+    expect((await request('/api/stations/main/watcher-embed', 'PATCH', { layout: 'safe' })).status).toBe(403);
     expect(getOrCreateWatcherEmbedSettings).not.toHaveBeenCalled();
     expect(updateWatcherEmbedSettings).not.toHaveBeenCalled();
   });
@@ -494,7 +494,7 @@ describe('rate limiting', () => {
       await app.request('/api/search?q=hello');
     }
 
-    const queued = await request('/api/rooms/main/queue', 'POST', {
+    const queued = await request('/api/stations/main/queue', 'POST', {
       url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     });
 
@@ -507,7 +507,7 @@ describe('personal playlist routes', () => {
     vi.clearAllMocks();
   });
 
-  it('creates a private playlist without notifying the room', async () => {
+  it('creates a private playlist without notifying the station', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
     vi.mocked(createPlaylist).mockResolvedValue(PLAYLIST_ID);
 
@@ -516,10 +516,10 @@ describe('personal playlist routes', () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ id: PLAYLIST_ID });
     expect(createPlaylist).toHaveBeenCalledWith('Driving', USER_ID);
-    expect(onRoomChanged).not.toHaveBeenCalled();
+    expect(onStationChanged).not.toHaveBeenCalled();
   });
 
-  it('saves a pasted link into a playlist without notifying the room', async () => {
+  it('saves a pasted link into a playlist without notifying the station', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
     vi.mocked(addPlaylistTrackByUrl).mockResolvedValue({ attempted: 1, saved: 1, duplicates: 0, skipped: [] });
 
@@ -534,11 +534,11 @@ describe('personal playlist routes', () => {
       'https://www.youtube.com/watch?v=ccccccccccc',
       USER_ID,
     );
-    expect(onRoomChanged).not.toHaveBeenCalled();
+    expect(onStationChanged).not.toHaveBeenCalled();
   });
 
   // The browser preflights a cross-origin PUT, so leaving it out of the allowed
-  // methods silently blocked every save from the room and history pages.
+  // methods silently blocked every save from the station and history pages.
   it('lets the browser preflight the PUT that saves a track', async () => {
     const response = await app.request(`/api/playlists/${PLAYLIST_ID}/tracks/${MEDIA_ID}`, {
       method: 'OPTIONS',
@@ -551,7 +551,7 @@ describe('personal playlist routes', () => {
     expect(response.headers.get('access-control-allow-methods')).toContain('PUT');
   });
 
-  it('queues an owned playlist track and notifies the room', async () => {
+  it('queues an owned playlist track and notifies the station', async () => {
     vi.mocked(getSessionUser).mockResolvedValue(user('listener'));
     vi.mocked(queuePlaylistTrack).mockResolvedValue({
       id: QUEUE_ID,
@@ -560,18 +560,18 @@ describe('personal playlist routes', () => {
     });
 
     const response = await request(
-      `/api/rooms/main/playlists/${PLAYLIST_ID}/tracks/${MEDIA_ID}/queue`,
+      `/api/stations/main/playlists/${PLAYLIST_ID}/tracks/${MEDIA_ID}/queue`,
       'POST',
       {},
     );
 
     expect(response.status).toBe(201);
     expect(queuePlaylistTrack).toHaveBeenCalledWith(
-      MAIN_ROOM_ID,
+      MAIN_STATION_ID,
       PLAYLIST_ID,
       MEDIA_ID,
       user('listener'),
     );
-    expect(onRoomChanged).toHaveBeenCalledOnce();
+    expect(onStationChanged).toHaveBeenCalledOnce();
   });
 });

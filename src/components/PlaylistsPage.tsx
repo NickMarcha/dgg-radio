@@ -1,4 +1,4 @@
-import { lastRoomSlug } from '../client/room';
+import { lastStationSlug } from '../client/station';
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -243,8 +243,8 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
   function queueTrack(mediaId: string) {
     if (!detail) return;
     void act(async () => {
-      const room = lastRoomSlug();
-      await call(`/api/rooms/${room}/playlists/${detail.id}/tracks/${mediaId}/queue`, 'POST');
+      const station = lastStationSlug();
+      await call(`/api/stations/${station}/playlists/${detail.id}/tracks/${mediaId}/queue`, 'POST');
     }, 'Added the track to your queue.');
   }
 
@@ -252,7 +252,7 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
     if (!detail) return;
     void act(async () => {
       const result = await call<PlaylistQueueResult>(
-        `/api/rooms/${lastRoomSlug()}/playlists/${detail.id}/queue`,
+        `/api/stations/${lastStationSlug()}/playlists/${detail.id}/queue`,
         'POST',
       );
       setQueueResult(result);
@@ -428,7 +428,7 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
                               ))}
                             </ul>
                           )}
-                          {queueResult.added > 0 && <a href="/player">Open the room</a>}
+                          {queueResult.added > 0 && <a href="/player">Open the station</a>}
                         </div>
                       )}
 

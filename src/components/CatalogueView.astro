@@ -12,6 +12,6 @@ if (!apiUrl) throw new Error('PUBLIC_API_URL is required');
 const title = kind === 'track' ? 'Track · DGG Radio' : 'Artist · DGG Radio';
 ---
 
-<BaseLayout title={title} description="What this room has played, and when.">
+<BaseLayout title={title} description="What this station has played, and when.">
   <CataloguePage client:load apiUrl={apiUrl} kind={kind} />
 </BaseLayout>

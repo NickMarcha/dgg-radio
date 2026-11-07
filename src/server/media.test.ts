@@ -224,7 +224,7 @@ describe('lookupMedia against SoundCloud', () => {
     expect(typeof client.api.getClientId).toBe('function');
   });
 
-  it('maps a resolved track onto the room media shape', async () => {
+  it('maps a resolved track onto the station media shape', async () => {
     resolveTrack.mockResolvedValue(resolved);
 
     await expect(run()).resolves.toEqual({
@@ -274,7 +274,7 @@ describe('lookupMedia against SoundCloud', () => {
     await expect(run()).rejects.toMatchObject({ code: 'SOUNDCLOUD_NOT_STREAMABLE' });
   });
 
-  // The personal library keeps a track the room cannot play, so the same answer
+  // The personal library keeps a track the station cannot play, so the same answer
   // has to arrive as a description rather than a failure.
   it('still describes an unplayable track when only inspecting it', async () => {
     resolveTrack.mockResolvedValue({ ...resolved, streamable: false });
@@ -350,7 +350,7 @@ describe('inspectYouTubeVideos', () => {
     expect(answers.get('goneVideo01')).toMatchObject({ code: 'YOUTUBE_NOT_FOUND' });
   });
 
-  it('keeps a video the room cannot play, with the reason it cannot', async () => {
+  it('keeps a video the station cannot play, with the reason it cannot', async () => {
     const { fetcher } = fetcherFor([item('blockedVid1', { status: { embeddable: false } })]);
 
     const answers = await inspectYouTubeVideos(['blockedVid1'], credentials, fetcher);

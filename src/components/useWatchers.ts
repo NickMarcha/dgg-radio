@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { WatchersSnapshot } from '../shared/contracts';
-import { createRoomSocketUrl, embedConnectionKind } from './roomSocket';
+import { createStationSocketUrl, embedConnectionKind } from './stationSocket';
 
 /**
- * Who is watching the room's stream, kept current from the API.
+ * Who is watching the station's stream, kept current from the API.
  *
- * Unlike the room socket, which announces a revision and sends the browser off
+ * Unlike the station socket, which announces a revision and sends the browser off
  * to fetch its own snapshot, this one carries the snapshot itself: every field
  * of it is already public in Destiny chat, so there is no private state to keep
  * out of a shared message, and the roster moves too often to fetch each time.
@@ -14,7 +14,7 @@ import { createRoomSocketUrl, embedConnectionKind } from './roomSocket';
  * the chat socket open while an overlay is connected, so opening this page is
  * enough to start the tracker on a channel nobody is watching yet.
  */
-export function useWatchers(apiUrl: string, roomSlug: string): WatchersSnapshot | null {
+export function useWatchers(apiUrl: string, stationSlug: string): WatchersSnapshot | null {
   const [snapshot, setSnapshot] = useState<WatchersSnapshot | null>(null);
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export function useWatchers(apiUrl: string, roomSlug: string): WatchersSnapshot 
 
     // One fetch, so the source is not blank while the socket opens. It never
     // overwrites anything the socket has already delivered.
-    void fetch(`${apiUrl}/api/rooms/${roomSlug}/watchers`)
+    void fetch(`${apiUrl}/api/stations/${stationSlug}/watchers`)
       .then((response) => (response.ok ? response.json() : null))
       .then((body: WatchersSnapshot | null) => {
         if (!stopped && body) setSnapshot((current) => current ?? body);
@@ -33,7 +33,7 @@ export function useWatchers(apiUrl: string, roomSlug: string): WatchersSnapshot 
 
     const connect = () => {
       const kind = embedConnectionKind('watchers');
-      socket = new WebSocket(createRoomSocketUrl(apiUrl, { kind, room: roomSlug }));
+      socket = new WebSocket(createStationSocketUrl(apiUrl, { kind, station: stationSlug }));
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data as string) as {
@@ -57,7 +57,7 @@ export function useWatchers(apiUrl: string, roomSlug: string): WatchersSnapshot 
       if (reconnect) window.clearTimeout(reconnect);
       socket?.close();
     };
-  }, [apiUrl, roomSlug]);
+  }, [apiUrl, stationSlug]);
 
   return snapshot;
 }

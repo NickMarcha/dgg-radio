@@ -2,7 +2,7 @@
 
 One rolling file. Update it at the end of a session rather than adding another.
 Session narrative belongs in git history; what belongs here is the state of the
-room, what is waiting on a person, and the things that are true but not visible
+station, what is waiting on a person, and the things that are true but not visible
 in the code.
 
 Last updated 2026-11-06.
@@ -16,15 +16,15 @@ run against the local Postgres:
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-**Rooms are mostly built and not pushed.** `docs/plans/rooms.md` is the plan.
+**Stations are mostly built and not pushed.** `docs/plans/stations.md` is the plan.
 Steps 1 to 6 and the first two parts of step 7 are committed on `main` locally:
-rooms with their own queue, rules, stream and overlays; owners and mods as room
-roles; `/rooms` to list and create them; `/admin?room=<slug>` for an owner;
-moving a queue between rooms. Pushing deploys migrations `0028` to `0032`,
-which move every existing row to the main room; each was checked against a
+stations with their own queue, rules, stream and overlays; owners and mods as station
+roles; `/stations` to list and create them; `/admin?station=<slug>` for an owner;
+moving a queue between stations. Pushing deploys migrations `0028` to `0032`,
+which move every existing row to the main station; each was checked against a
 database holding rows from before it. Still to build from step 7: following
-and snapshotting another room's rule, per-rule edit grants, the revertable rule
-log, and per-room and site-wide stats. Stats still count every room together.
+and snapshotting another station's rule, per-rule edit grants, the revertable rule
+log, and per-station and site-wide stats. Stats still count every station together.
 
 Before that, everything was on `main` and pushed, through `77294b4` on 2026-10-02: the
 Last.fm research, the silence-watch fix and socket alerting, the seasonal
@@ -59,9 +59,9 @@ answer. Split the change into two migrations that are each unambiguous —
 `0026` and `0027` are that, additive then destructive — or ask the operator to
 run it with `!` in the session.
 
-### The room can see who is watching its stream
+### The station can see who is watching its stream
 
-The newest and largest part of the room. When the radio streams to a Kick
+The newest and largest part of the station. When the radio streams to a Kick
 channel it is watched through `destiny.gg/bigscreen#kick/dggJams`, and Destiny
 chat knows who has that embed open. The API reads that and serves it to an OBS
 overlay.
@@ -70,7 +70,7 @@ overlay.
 `docs/research/dgg-embed-watchers-websockets.md` is the measured behaviour of
 both destiny.gg sockets. The plan's history graph was built and then removed
 (migration `0028`): mitchdev.net/dgg/embeds already records every destiny.gg
-embed over time, so the room keeps no history of its own and the admin page
+embed over time, so the station keeps no history of its own and the admin page
 links there instead. What is left is the tracker, the overlay, the emote
 somebody last used, a source that keeps its settings, and the motion options.
 
@@ -96,7 +96,7 @@ and `/health` reports its state, but its embed list is read and dropped.
 `enabled` names the one channel whose chat roster is read; the roster lives in
 memory only.
 
-Try it without the room at all:
+Try it without the station at all:
 
 ```
 npx tsx scripts/dgg-watch-probe.ts kick destiny
@@ -112,7 +112,7 @@ had 270 watchers and `destiny` was dark. The switch at the top of `/admin#obs` t
 chat socket off again; the live socket stays up either way, which is also how a
 fresh deployment arrives.
 
-### The archive is part of the room now
+### The archive is part of the station now
 
 The QueUp years are no longer a separate list to look at. A track can be saved
 to a playlist or requested out of the archive; because the archive holds a
@@ -120,12 +120,12 @@ provider id rather than a `media` row, the first person to reach for one pays
 for the provider lookup the import skipped, and the answer carries the media id
 back so the row stops being unresolved.
 
-`/history` is two tabs — the room's own and QueUp's — with one search box that
+`/history` is two tabs — the station's own and QueUp's — with one search box that
 queries both, numbered pages rather than a cursor, and the tab, search, genre
 filter and page all in the address bar so a view can be sent to somebody.
 
 `/stats` has tabs, a year-and-month filter over every table, and the QueUp years
-beside the room's own wherever the two can honestly be counted apart. Every
+beside the station's own wherever the two can honestly be counted apart. Every
 track and every channel has a page: when it played in either history, who asked
 for it, what it is, and what else is like it.
 
@@ -176,7 +176,7 @@ known about it without fetching a byte of anyone's data dump.
 
 Each file is read once. `seed_state` (migration `0018`) holds a digest of the
 bytes that were applied, because without it every restart offered 68,000 rows to
-PostgreSQL to be told each one was already there — 3.7 seconds before the room
+PostgreSQL to be told each one was already there — 3.7 seconds before the station
 could serve, spent to change nothing. Regenerating a file changes its digest and
 it applies again by itself. The log says which happened, so the skip is visible
 rather than merely claimed.
@@ -189,10 +189,10 @@ the gaps filled.
 
 ### New tracks look themselves up
 
-`src/server/enrichment.ts` runs the first time the room stores a track: identity
+`src/server/enrichment.ts` runs the first time the station stores a track: identity
 from the video's own YouTube Music card, falling back to splitting the upload
 title, then MusicBrainz and Discogs, both stored. It is queued, bounded, and
-never on the request path — a request is accepted, the room plays, and the genre
+never on the request path — a request is accepted, the station plays, and the genre
 appears a poll or two later.
 
 `/admin#server` has a button that brings across whatever QueUp has played since
@@ -214,12 +214,12 @@ that volume; `ALTER SYSTEM RESET` and another restart undoes it. Worth the two
 minutes before guessing at any query again — it named the query immediately, and
 both standing theories about that query were wrong.
 
-### A slow request says so, and only the deployed room says it
+### A slow request says so, and only the deployed station says it
 
 `src/server/app.ts` times `/api/*` and writes `api_request_slow` when a request
 takes more than a second, and writes nothing otherwise. That is the whole design:
 a healthy server is silent, which is what makes it free to sit in front of
-`/api/room` at a poll every fifteen seconds per open room. In PostHog, insight
+`/api/station` at a poll every fifteen seconds per open station. In PostHog, insight
 `qz51WBuF` counts the event hourly and an alert fires on any value above zero.
 
 It measures the time the server spent producing a response, not the time anyone
@@ -274,7 +274,7 @@ with everything else. `watch_socket_down` now fires once when the live socket ha
 been down five minutes, which covers destiny.gg going away or a wedged socket,
 and `/health` carries `liveSocket` for something outside the host to poll, which
 is the half that would have caught this one. **Nothing polls it yet.** That is an
-uptime check somebody has to set up, and until it exists the room can still go
+uptime check somebody has to set up, and until it exists the station can still go
 blind quietly.
 
 ## Waiting on a person
@@ -286,7 +286,7 @@ blind quietly.
    stream, at a real size, is one operator's opinion so far. The four destiny.gg
    socket clients likewise have had one reviewer.
 3. **Nothing polls `/health` from outside.** `watch_socket_down` covers a socket
-   the room can still report on; the `liveSocket` field on `/health` covers the
+   the station can still report on; the `liveSocket` field on `/health` covers the
    case where the host cannot reach PostHog at all, which is what happened. It
    is only useful once something checks it. Any uptime monitor that can assert
    on a JSON field will do, alerting when `liveSocket.connected` is false or
@@ -325,7 +325,7 @@ blind quietly.
   survives a restart, and was within 0.2% of both.
 - **Storing Discogs API answers is a decision, not an oversight.** Their terms
   forbid keeping API content durably, which is why the durable table was built
-  from the CC0 dump. The room's operator has confirmed permission, so the live
+  from the CC0 dump. The station's operator has confirmed permission, so the live
   lookup now writes what it finds like any other source.
 - **Both destiny.gg sockets answer 403 to a foreign `Origin`.** They accept a
   request carrying none at all, which is why the tracker is server-side: a
@@ -409,7 +409,7 @@ blind quietly.
 - **Session replay is gated by an `$exception` trigger configured in PostHog,
   not in the repo.** The recorder holds each session in memory and uploads only
   the ones where an exception was captured.
-- **The room's player is a cross-origin iframe**, so the video is a blank
+- **The station's player is a cross-origin iframe**, so the video is a blank
   rectangle in every recording. Understood and accepted.
 - **`CF-Connecting-IP` is believed only because the API publishes no port and
   answers nothing but the tunnel.** If a port is ever published, this stops
@@ -421,29 +421,29 @@ blind quietly.
   timeout would make the server record a delivery nobody received — which it
   would, but nothing here comes close enough for it to happen.
 - **`exportCsv` builds the whole CSV as one string in memory.** 11.66 MB for the
-  archive today, and it grows with the room. Memory is what will bite first,
+  archive today, and it grows with the station. Memory is what will bite first,
   well before anything Cloudflare enforces.
-- **`/api/room` is deliberately exempt from rate limiting.** Every open room
+- **`/api/station` is deliberately exempt from rate limiting.** Every open station
   polls it every 15 seconds.
 - **A dead session can be recovered from its own transcript.** Codex writes
   `~/.codex/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, one JSON object per
   event; reading back the `response_item` messages gives the whole conversation.
 
-## A local symptom that looks like a room bug
+## A local symptom that looks like a station bug
 
 An island that fails to hydrate leaves its prerendered shell on screen, and the
-shell has no data. On `/player` that reads as **"The room is quiet. Add the
+shell has no data. On `/player` that reads as **"The station is quiet. Add the
 first track."** with "Reconnecting" in the header, while `/embed/player` carries
-on playing correctly. Nothing has fetched `/api/room` on that page at all.
+on playing correctly. Nothing has fetched `/api/station` on that page at all.
 
 ```
-[astro-island] Error hydrating /src/components/RadioRoom.tsx
-TypeError: Failed to fetch dynamically imported module: .../RadioRoom.tsx
+[astro-island] Error hydrating /src/components/RadioStation.tsx
+TypeError: Failed to fetch dynamically imported module: .../RadioStation.tsx
 ```
 
 It is a stale Vite module graph, only ever in development, after files have been
 added, moved or renamed while `astro dev` was running. The quickest way to tell
-is that `curl /api/room` shows the track the page claims does not exist. Restart
+is that `curl /api/station` shows the track the page claims does not exist. Restart
 the dev server, clearing `node_modules/.vite` if it recurs.
 
 ## Mistakes worth not repeating
@@ -451,7 +451,7 @@ the dev server, clearing `node_modules/.vite` if it recurs.
 - **A number measured on the most played tracks is not the number.** The
   MusicBrainz URL join looked like 18% against a sample of the hundred most
   played and turned out to be 6.6% across the archive. The head of a play-count
-  distribution is the best known music in the room.
+  distribution is the best known music in the station.
 - **A conclusion drawn from one half of a thing is not a conclusion.** That 18%
   was used to write a backlog item saying a MusicBrainz dump would not pay for
   itself. It pays for itself easily — the URL join was simply never the part
@@ -553,7 +553,7 @@ the dev server, clearing `node_modules/.vite` if it recurs.
   spent reasoning about CSS that a single screenshot disproved. It cannot show
   motion — see the hidden-tab note above — but computed styles read from the
   live page settle CSS arguments outright.
-- **`dataviz`** before drawing anything. The room has no charts since the
+- **`dataviz`** before drawing anything. The station has no charts since the
   embed history went, and d3 went with it.
 - **`unslop`** on anything written for a person to read, this file included.
 - **Not `/handoff` from the user's global skills.** There are two, and they say
@@ -572,7 +572,7 @@ changes nothing an operator would notice, because the half of it that would have
 caught the September outage is the `liveSocket` field, and nothing looks at that
 field yet. An uptime check that alerts when
 `liveSocket.connected` is false, or `downSince` is more than a few minutes old,
-is the smallest thing that closes the loop. Until it exists the room can still
+is the smallest thing that closes the loop. Until it exists the station can still
 go dark quietly, which is the actual lesson from that week rather than the
 socket bug.
 
@@ -605,7 +605,7 @@ dumps are newer, not when the archive is.
 **Last.fm is researched and parked**, decided 2026-09-06. Not planned, not
 queued, nobody waiting on it. `docs/research/lastfm-api-capabilities.md` has the
 measurements, and the short version is that Last.fm has no playlist API at all,
-that its track-level tags answer 3.3% of what the room cannot already label, and
+that its track-level tags answer 3.3% of what the station cannot already label, and
 that its artist-level tags answer 91.0% for eighty minutes of requests. A
 username-only importer of loved and top tracks resolved 95.0% of 80 real tracks
 to playable videos. `LASTFM_API_KEY` and `LASTFM_API_SECRET` are in `.env` and

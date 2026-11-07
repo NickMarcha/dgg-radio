@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ApiErrorBody, LegacySaveResult, PlaylistLibrary } from '../shared/contracts';
 
 /**
- * What a save is pointed at. Nearly everything the room shows is a row in
+ * What a save is pointed at. Nearly everything the station shows is a row in
  * `media` and can be saved by its id. A play in the QueUp archive is a provider
  * id and nothing else until somebody wants it, so it is saved by the archive's
  * own id and the server resolves the track then.

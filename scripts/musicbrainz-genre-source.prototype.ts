@@ -1,6 +1,6 @@
 /**
  * PROTOTYPE: find where genre actually lives in MusicBrainz for the tracks the
- * room plays, and how often a Discogs link is available as a second source.
+ * station plays, and how often a Discogs link is available as a second source.
  *
  * The enrichment comparison collected `genres` from search results, which
  * always answer an empty array: the search endpoint does not return genres at

@@ -9,7 +9,7 @@
  * tables. None of that belongs anywhere near the deployment host, and none of
  * it needs to be: the whole exchange is two small files.
  *
- *   1. `tracks` writes the room's YouTube tracks — a provider id and the upload
+ *   1. `tracks` writes the station's YouTube tracks — a provider id and the upload
  *      title, which is all the matching has to work with. About 3 MB.
  *   2. `musicbrainz-dump-import.ts --tracks tracks.json --out genres.json` runs
  *      wherever the dumps are, and touches no database at all.
@@ -19,7 +19,7 @@
  *
  * `export` is the shortcut past all of it: a machine that has already done the
  * work hands over what it found, and the other end applies it. Nothing has to
- * be recomputed to move genre from a workstation to the room.
+ * be recomputed to move genre from a workstation to the station.
  *
  * Only DATABASE_URL is needed, from the environment or `.env`, and only for the
  * two ends.

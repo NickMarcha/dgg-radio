@@ -1,5 +1,5 @@
 /**
- * Writes what the room ships with, out of the database it was worked out in.
+ * Writes what the station ships with, out of the database it was worked out in.
  *
  *   npx tsx scripts/seed-export.ts
  *

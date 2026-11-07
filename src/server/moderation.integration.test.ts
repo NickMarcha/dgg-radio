@@ -14,7 +14,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
 const { getModerationLog } = await import('./moderation');
 const schema = await import('./db/schema');
-const { MAIN_ROOM_ID } = await import('./rooms');
+const { MAIN_STATION_ID } = await import('./stations');
 const { media, moderationActions, queueItems, users } = schema;
 
 const connectionString = testConnectionString();
@@ -63,7 +63,7 @@ describe.skipIf(!connectionString)('the moderation log', () => {
 
     const [item] = await db
       .insert(queueItems)
-      .values({ roomId: MAIN_ROOM_ID, mediaId: track.id, requestedByUserId: listener.id, status: 'played' })
+      .values({ stationId: MAIN_STATION_ID, mediaId: track.id, requestedByUserId: listener.id, status: 'played' })
       .returning({ id: queueItems.id });
     if (!item) throw new Error('Could not seed the moderation log test');
 

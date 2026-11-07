@@ -1,5 +1,5 @@
 ---
-import RadioRoom from './RadioRoom';
+import RadioStation from './RadioStation';
 import BaseLayout from '../layouts/BaseLayout.astro';
 
 const apiUrl = import.meta.env.PUBLIC_API_URL;
@@ -10,7 +10,7 @@ const posthogHost = import.meta.env.PUBLIC_POSTHOG_HOST;
 
 <BaseLayout
   title="DGG Radio"
-  description="One shared, community-run music room for Destiny.gg."
+  description="One shared, community-run music station for Destiny.gg."
 >
-  <RadioRoom client:load apiUrl={apiUrl} posthogKey={posthogKey} posthogHost={posthogHost} />
+  <RadioStation client:load apiUrl={apiUrl} posthogKey={posthogKey} posthogHost={posthogHost} />
 </BaseLayout>

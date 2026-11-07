@@ -42,7 +42,7 @@ function metadata(overrides: Partial<MediaMetadata> = {}): MediaMetadata {
   };
 }
 
-/** The provider answered and the room can play it. */
+/** The provider answered and the station can play it. */
 function playable(overrides: Partial<MediaMetadata> = {}) {
   return { metadata: metadata(overrides), playbackIssue: null, regionRestriction: null };
 }

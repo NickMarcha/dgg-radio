@@ -1,5 +1,5 @@
 /**
- * Labels the room's tracks with genre from MusicBrainz.
+ * Labels the station's tracks with genre from MusicBrainz.
  *
  *   npx tsx scripts/enrich-genres.ts                 # 200 tracks, most played first
  *   npx tsx scripts/enrich-genres.ts --limit 2000

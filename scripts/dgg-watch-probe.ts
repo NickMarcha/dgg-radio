@@ -1,12 +1,12 @@
 /**
- * What the room would see if it were watching a destiny.gg embed right now.
+ * What the station would see if it were watching a destiny.gg embed right now.
  *
  *   npx tsx scripts/dgg-watch-probe.ts kick destiny
  *
  * It opens the same two sockets the API opens, with the same modules, and
  * prints what they say every ten seconds. Nothing is written to the database
  * and no settings are read from it, so this answers "is the tracker working"
- * without involving the room at all.
+ * without involving the station at all.
  *
  * The two counts are meant to differ: the site counts embeds open, the chat
  * roster counts people in chat with that embed selected. A channel nobody is

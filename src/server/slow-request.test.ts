@@ -33,7 +33,7 @@ const app = createApp({
   listenerCount: () => 0,
   eligibleVoterCount: () => 0,
   operationsSnapshot: () => ({}) as never,
-  onRoomChanged: () => {},
+  onStationChanged: () => {},
 });
 
 describe('slow request reporting', () => {

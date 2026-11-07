@@ -2,7 +2,7 @@
  * Integration tests truncate tables between cases, so they must never point at
  * a database anyone cares about. Requiring the name to end in `_test` is the
  * cheap guard: aiming them at the development database once was enough to wipe
- * a live room's users and history.
+ * a live station's users and history.
  */
 export function testConnectionString(): string | undefined {
   const url = process.env.TEST_DATABASE_URL;

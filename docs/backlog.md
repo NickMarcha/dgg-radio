@@ -44,7 +44,7 @@ judge them by.
 
 Worth revisiting once a few weeks of server events exist. The questions are
 whether the properties are the right ones, whether any event should stop being
-sent, and what is missing -- the room's own machinery is the likely gap, since
+sent, and what is missing -- the station's own machinery is the likely gap, since
 a track failing its playback check, a provider lookup timing out, and a socket
 closing abnormally are the things a diagnosis actually starts from.
 
@@ -58,7 +58,7 @@ experiments and surveys have no use here yet.
 
 The API now limits itself per caller, in `src/server/rate-limit.ts`. That covers
 what an account can spend but not what a flood of anonymous requests costs, and
-the room only has one rule to spend on the second problem.
+the station only has one rule to spend on the second problem.
 
 The API is published through a named tunnel, so it sits behind Cloudflare's WAF
 already and a rule needs no new infrastructure. The Free plan allows exactly one
@@ -69,12 +69,12 @@ longer one, so the rule has to be blunt on purpose:
 - Count by IP, 100 requests per 10 seconds, then block for a minute.
 
 That is far above real use and still stops a script. The only chatty endpoint is
-`/api/room`, which each open room polls every 15 seconds and refetches whenever
-the room changes; a household or a VPN exit sharing one address stays well under
+`/api/station`, which each open station polls every 15 seconds and refetches whenever
+the station changes; a household or a VPN exit sharing one address stays well under
 100 in ten seconds, and it is deliberately not limited per address inside the API
 for the same reason.
 
-Worth revisiting if the room ever outgrows the Free plan: a longer period and
+Worth revisiting if the station ever outgrows the Free plan: a longer period and
 counting by cookie would let the rule follow a person instead of an address.
 
 ## Session replay records every exception, including other people's
@@ -85,7 +85,7 @@ the in-memory lead-up. There is no sampling and no minimum duration, because at
 eleven exceptions in three days there is nothing to sample.
 
 `capture_exceptions` catches whatever reaches the window, which includes browser
-extensions and third-party scripts the room did not load. None of that is worth
+extensions and third-party scripts the station did not load. None of that is worth
 a recording, and each one spends a session on somebody else's bug.
 
 Leave it alone until there is enough history to say what the noise actually is.
@@ -95,7 +95,7 @@ add a minimum duration so a page that broke instantly and was closed is dropped;
 or sample. Sampling is last because it discards real errors at the same rate as
 noise.
 
-The room's own player is a cross-origin iframe, so the video is a blank
+The station's own player is a cross-origin iframe, so the video is a blank
 rectangle in every recording. That is understood and accepted -- the controls,
 the queue and the console around it are the parts worth watching.
 
@@ -107,14 +107,14 @@ URL, so `metadata.git.remote_url` on every release holds a live credential that
 anyone with project access can read. Here it was a GitHub App installation
 token, good for an hour, rewritten on every deploy.
 
-This room is not affected any more: the Netlify build command strips any
+This station is not affected any more: the Netlify build command strips any
 `user:password@` from the remote before the build runs, and the release recorded
 for `19277448` is clean. The rest is somebody else's bug.
 
 Reporting it upstream is **not planned**. It is a real issue for anyone whose CI
 clones with a token, and stripping the userinfo at the point of capture would
 fix it for every provider at once, but chasing another project's fix is not this
-room's work. Anyone who wants to raise it can: PostHog take reports through the
+station's work. Anyone who wants to raise it can: PostHog take reports through the
 `agent-feedback` channel in their CLI, and there is a drafted version of this in
 the session that found it.
 

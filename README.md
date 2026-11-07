@@ -1,14 +1,14 @@
 # DGG Radio
 
-DGG Radio is one shared music room for the Destiny.gg community. Listeners sign in through Destiny, queue YouTube or SoundCloud tracks, and take turns: everyone in the DJ rotation plays one track before anyone plays a second. Mods handle tracks in the room, while admins manage the room from `/admin`.
+DGG Radio is one shared music station for the Destiny.gg community. Listeners sign in through Destiny, queue YouTube or SoundCloud tracks, and take turns: everyone in the DJ rotation plays one track before anyone plays a second. Mods handle tracks in the station, while admins manage the station from `/admin`.
 
 The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSockets, queue state, playback timing, and Postgres writes. Netlify cannot run the persistent WebSocket server, so that process needs an always-on Node host.
 
 ## What works
 
 - Destiny's custom OAuth flow with one-use, five-minute login state, returning to a frontend callback
-- Database-backed admins and per-room owners and mods, with root admins named in the environment who cannot be demoted
-- A DJ rotation over unlimited per-person queues, reorderable by the room's mods; listeners reorder their own queue and can take a track back out before it plays
+- Database-backed admins and per-station owners and mods, with root admins named in the environment who cannot be demoted
+- A DJ rotation over unlimited per-person queues, reorderable by the station's mods; listeners reorder their own queue and can take a track back out before it plays
 - Synchronized YouTube and SoundCloud playback from the server clock
 - Region, embeddability, age restriction, live status, processing state, and duration checks, cached per track
 - A playback region chosen from YouTube's own list of the countries it recognises
@@ -21,7 +21,7 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
 - Usernames coloured by Destiny flair, the same way they appear in chat
 - Optionally hiding requesters until a track ends, so votes are cast on the track
 - Volume and play state remembered per browser
-- The room's QueUp years imported and readable in their own history tab, with a
+- The station's QueUp years imported and readable in their own history tab, with a
   search across both histories, numbered pages, and a self-service import for
   anyone bringing their own QueUp playlists across
 - A history page whose tab, search and page number live in the address bar, so
@@ -30,7 +30,7 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
   words and labelled with what it actually describes, clickable to narrow either
   history to it
 - A genre breakdown on `/stats`, and top tracks and top jammers for the QueUp
-  years beside the room's own, all of it narrowable to a year or a month
+  years beside the station's own, all of it narrowable to a year or a month
 - A page for every track and every channel, with when it played, who asked for
   it, and what else is like it
 - Blocklists an admin can add to by link or by search, before anyone plays the
@@ -39,7 +39,7 @@ The Astro frontend deploys to Netlify. A small Hono server owns OAuth, WebSocket
   the stats
 
 - Any played track saved to a playlist or requested again, from either history
-- Responsive desktop and mobile room layouts
+- Responsive desktop and mobile station layouts
 
 ## Local setup
 
@@ -71,7 +71,7 @@ Requirements: Node 22.12 or newer and Docker.
 
 The API applies pending migrations as it starts, so there is no separate migrate step. `npm run db:migrate` is still there for applying a migration to a running database without restarting.
 
-The room opens at `http://localhost:4321`. The API and WebSocket server use `http://localhost:8787`.
+The station opens at `http://localhost:4321`. The API and WebSocket server use `http://localhost:8787`.
 
 ### Test environment
 
@@ -97,9 +97,9 @@ One thing to know before doing that: Docker publishes its ports through WSL's mi
 
 ### Signing in locally
 
-destiny.gg allows one application per account and has no test applications, so there is no second client to point a local room at, and the one that exists has the deployed site as its registered redirect. `npm run stack:test` starts a stand-in for Destiny's OAuth endpoints instead, `dev/dgg-oauth`, and the room signs in against that.
+destiny.gg allows one application per account and has no test applications, so there is no second client to point a local station at, and the one that exists has the deployed site as its registered redirect. `npm run stack:test` starts a stand-in for Destiny's OAuth endpoints instead, `dev/dgg-oauth`, and the station signs in against that.
 
-It is a replacement, not a bypass. The room's own OAuth code runs unchanged, and the stand-in verifies the secret-bound code challenge the way the archived PHP does, so a login that works here has been through every step but Destiny's own account check. **Sign in with Destiny** lands on a form asking for a username, an optional Destiny user id, the features that decide flair colour and team, and the roles to store on the account.
+It is a replacement, not a bypass. The station's own OAuth code runs unchanged, and the stand-in verifies the secret-bound code challenge the way the archived PHP does, so a login that works here has been through every step but Destiny's own account check. **Sign in with Destiny** lands on a form asking for a username, an optional Destiny user id, the features that decide flair colour and team, and the roles to store on the account.
 
 A username in `ADMIN_DGG_USERNAMES` signs in as an admin, the same as on the real site. The user id is what identifies the account: leaving it blank derives a stable one from the username and creates a fresh listener, and pasting an existing `dgg_user_id` signs in as a row that is already there.
 
@@ -119,11 +119,11 @@ The callback is a frontend route, not an API route. Destiny redirects the browse
 
 Destiny's flow is not standard PKCE. The backend implements the secret-bound challenge described in the project's [OAuth research](docs/research/dgg-oauth-netlify.md). Keep the client secret on the API host.
 
-Admins make people admins, main room mods, or room creators on `/admin`. The only role sign-in grants is admin, to a username in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
+Admins make people admins, main station mods, or station creators on `/admin`. The only role sign-in grants is admin, to a username in `ADMIN_DGG_USERNAMES`. These are root admins and the API refuses to demote them.
 
 A blocklist rule can be added to from `/admin` without waiting for somebody to play the thing: paste a link, or search, and choose whether to block the one track or everything by whoever published it. On YouTube that is the channel; on SoundCloud it is the account that uploaded the track. Blocking an artist also drops anything already waiting in the queue that it now covers.
 
-There is no channel search. The library the room searches YouTube with reads videos and playlists only, and YouTube's own channel search costs a hundred quota units a query for something any video by that channel already answers for nothing — so a channel is blocked from one of its videos.
+There is no channel search. The library the station searches YouTube with reads videos and playlists only, and YouTube's own channel search costs a hundred quota units a query for something any video by that channel already answers for nothing — so a channel is blocked from one of its videos.
 
 Destiny's own `ADMIN` and `MODERATOR` roles are deliberately not read. The mapping existed but no login has ever arrived carrying either, so it was never confirmed against a real response and is switched off until it can be; see the [backlog](docs/backlog.md). The identity's `roles` array is still stored, so the first sign-in by a real Destiny moderator will show what it actually contains.
 
@@ -131,7 +131,7 @@ Signing in never overwrites a role granted on the admin page.
 
 ### YouTube
 
-Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. Restrict the key to that API. The backend rejects a video when the room's playback region is blocked, an explicit country allow-list omits it, embedding is disabled, the video is age-restricted or live, processing is incomplete, or its duration exceeds the room setting.
+Enable YouTube Data API v3 in a Google Cloud project and set `YOUTUBE_API_KEY`. Restrict the key to that API. The backend rejects a video when the station's playback region is blocked, an explicit country allow-list omits it, embedding is disabled, the video is age-restricted or live, processing is incomplete, or its duration exceeds the station setting.
 
 That playback region is picked on `/admin` from YouTube's own `i18nRegions` list, which is the set of countries its availability checks recognise, rather than typed as a bare ISO code. The list is cached in `playback_regions` and refreshed after 30 days.
 
@@ -206,10 +206,10 @@ npx tsx scripts/genre-transfer.ts export --out data/genres.json
 
 Then commit `data/genres.json`. The seed only fills gaps — a track the database
 already has an answer for is left alone — so anything worked out against a
-running room survives every later deploy, and re-running the importers there is
+running station survives every later deploy, and re-running the importers there is
 always safe.
 
-A machine that has the dumps but not the room can still do the work —
+A machine that has the dumps but not the station can still do the work —
 `genre-transfer.ts tracks --out tracks.json` writes the 3 MB of track ids and
 titles the matching needs, and both importers take `--tracks` and `--out` so
 they run against files and no database at all.
@@ -225,14 +225,14 @@ artist genre, never as a description of the track: every Boards of Canada track
 carries the same artist genres whichever one played.
 
 Every genre on a history row narrows that history to it, and `/stats` counts
-plays by genre with the two histories kept apart — the room has a few hundred
+plays by genre with the two histories kept apart — the station has a few hundred
 plays against the archive's tens of thousands, so adding them together would be
 a chart of QueUp with a rounding error on the end. The stats leave artist-level
 genres out, because they describe a catalogue rather than what played; the
 filter includes them, because a reader clicking a tag marked `artist` is asking
 for exactly what it says.
 
-Every track title goes to the room's own page for it rather than out to the
+Every track title goes to the station's own page for it rather than out to the
 provider; the two-letter badge beside it is the way out. Those pages are keyed
 by the provider's id rather than by a row in `media`, so a track that only ever
 played on QueUp has one too. An artist page needs a `media` row to exist at all,
@@ -265,7 +265,7 @@ One consequence worth knowing: the check just before playback only reaches YouTu
 ## Commands
 
 ```text
-npm run dev              start Astro and the room server
+npm run dev              start Astro and the station server
 npm run check            run Astro and TypeScript diagnostics
 npm test                 run unit and database tests
 npm run build            build the Netlify site and Node server
@@ -289,11 +289,11 @@ npx tsx scripts/genre-transfer.ts tracks --out ...        carry genre between ma
 ```
 
 `scripts/clear-beta-history.sql` deletes every queue item, every vote, and the
-moderation log describing them, so testing done before the room opens is not the
+moderation log describing them, so testing done before the station opens is not the
 first thing real listeners see. It keeps personal playlists, the track
 catalogue, accounts and rules. It refuses to run
 without `-v confirm=yes`, and it is only for the beta stage described in
-`AGENTS.md`: once the badge leaves the room header the stored history belongs to
+`AGENTS.md`: once the badge leaves the station header the stored history belongs to
 the community, and this stops being a thing to run.
 
 ```shell
@@ -305,16 +305,16 @@ not testing done in this one.
 
 ## Moving in from QueUp
 
-The room ran on [QueUp](https://queup.net/join/dgg-radio) before this one
-existed, so there are two things worth bringing across: what the room played,
+The station ran on [QueUp](https://queup.net/join/dgg-radio) before this one
+existed, so there are two things worth bringing across: what the station played,
 and what people saved. QueUp's own data export is gone, but its web client's API
-answers well enough for both, in two different ways — room data is public, and
+answers well enough for both, in two different ways — station data is public, and
 personal playlists are not.
 
-### The room's history
+### The station's history
 
-`scripts/queup-export-room.ts` reads everything the room's own pages read. It
-needs no login and works against any public room:
+`scripts/queup-export-room.ts` reads everything the station's own pages read. It
+needs no login and works against any public station:
 
 ```shell
 npx tsx scripts/queup-export-room.ts dgg-radio          # writes queup-dgg-radio.json
@@ -322,9 +322,9 @@ npx tsx scripts/queup-export-room.ts dgg-radio --pages 5 --out sample.json
 ```
 
 The file holds every play (who requested it, when it played, its votes, whether
-it was skipped), everyone the room has a record of, and the moderation log with
+it was skipped), everyone the station has a record of, and the moderation log with
 the ban and staff lists folded into it. For dggJams that is 47,982 plays across
-34,114 distinct tracks by 1,050 people, back to the room's first day in October
+34,114 distinct tracks by 1,050 people, back to the station's first day in October
 2024, in about 26 MB.
 
 `scripts/queup-import-room.ts` loads the plays into `legacy_plays`:
@@ -336,10 +336,10 @@ npx tsx scripts/queup-import-room.ts queup-dgg-radio.json
 It writes that one table and nothing else. No accounts are created, no `media`
 rows are added, and no provider is asked anything, so a full import takes
 seconds. Rows are keyed by QueUp's own id for the play, so running it again
-brings across whatever is new and rewrites nothing — which is how a room still
+brings across whatever is new and rewrites nothing — which is how a station still
 running on QueUp gets topped up later.
 
-The archive is the second tab on `/history`, beside the room's own. It is
+The archive is the second tab on `/history`, beside the station's own. It is
 another service's records: the requesters are QueUp names with no Destiny
 account behind them, and the votes were cast somewhere else, so stats, profiles,
 the DJ rotation and the repeat cooldown all ignore it on purpose.
@@ -351,11 +351,11 @@ provider lookup the import deliberately skipped. A request out of the archive is
 an ordinary request: the rules, the length limit, the repeat cooldown and the DJ
 rotation all apply to it.
 
-Bans, roles and the moderation log are exported but not imported. This room has
+Bans, roles and the moderation log are exported but not imported. This station has
 no concept of a banned user, and a QueUp name is not a Destiny identity, so
 importing them would mean inventing both a feature and a mapping. QueUp has no
-song blocklist at all — the room's disallowed-song list only ever existed as
-prose in the room description — so nothing there maps onto rules either.
+song blocklist at all — the station's disallowed-song list only ever existed as
+prose in the station description — so nothing there maps onto rules either.
 
 ### Personal playlists
 
@@ -413,25 +413,25 @@ $env:TEST_DATABASE_URL = 'postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_
 
 | Path | |
 | --- | --- |
-| `/` and `/player` | the room: player, room queue, your own queue, request form |
-| `/admin` | room settings, rules with their order and blocklists, moderators, roles and the room creator whitelist, clearing queues, CSV exports |
-| `/admin?room=:slug` | the same for one room, for its owner: settings, rules, moderators, and OBS sources |
-| `/rooms` | every room, and creating one for someone a site admin has allowed |
-| `/stats` | room totals, teams, most played tracks, and top jammers |
+| `/` and `/player` | the station: player, station queue, your own queue, request form |
+| `/admin` | station settings, rules with their order and blocklists, moderators, roles and the station creator whitelist, clearing queues, CSV exports |
+| `/admin?station=:slug` | the same for one station, for its owner: settings, rules, moderators, and OBS sources |
+| `/stations` | every station, and creating one for someone a site admin has allowed |
+| `/stats` | station totals, teams, most played tracks, and top jammers |
 | `/history` | completed and skipped tracks, then the archive imported from QueUp |
 | `/playlists` | your own playlists: create, reorder, and queue saved tracks |
 | `/profile/:username` | one listener's stats and play history |
 | `/track/:provider/:id` | one track: when it played in either history, its genre, and what else is like it |
 | `/artist/:provider/:id` | one channel or account: its tracks, and how often each has played |
-| `/r/:slug` | a room other than the main one |
+| `/s/:slug` | a station other than the main one |
 | `/embed/player` | control-free synchronized video and audio for an OBS Browser Source |
 | `/embed/playing` | transparent current-track details for OBS |
-| `/embed/queue` | transparent upcoming room queue for OBS |
+| `/embed/queue` | transparent upcoming station queue for OBS |
 | `/auth/callback` | where Destiny returns after sign-in |
 
 ### OBS browser sources
 
-Each embed, the watcher overlay included, shows the main room unless its URL names another, as `?room=late-night`.
+Each embed, the watcher overlay included, shows the main station unless its URL names another, as `?station=late-night`.
 
 Use `/embed/player` at a 16:9 size such as 1920 by 1080 or 1280 by 720. Turn on `Control audio via OBS` and `Shutdown source when not visible`. Leave `Refresh browser source when scene becomes active` off. YouTube fills the source with its control-free video player. SoundCloud has no video, so its official visual audio player fills the source instead.
 
@@ -486,4 +486,4 @@ Three values must agree, and two of them are only knowable after the first deplo
 
 - Team comes from counting yee and pepe messages through `polecat.me`, a third-party API with no uptime guarantee and a sixty-a-minute limit. A check is eleven requests, so they are queued one at a time and run behind sign-in rather than blocking it. A failed check changes nothing. Team never grants permissions.
 - The YouTube Data API check cannot promise playback. A rights holder can add a domain restriction or change availability after validation. The player reports runtime failures so a moderator can skip.
-- There is one room by design. The backend serializes its transitions with a Postgres advisory lock. One backend instance is enough; Redis is not part of this version.
+- There is one station by design. The backend serializes its transitions with a Postgres advisory lock. One backend instance is enough; Redis is not part of this version.

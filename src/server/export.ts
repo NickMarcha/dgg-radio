@@ -3,9 +3,9 @@ import { getDatabase, type Database } from './db/client';
 import { genreStatsQuery } from './genre';
 
 /**
- * Taking the room's data out of it, as CSV.
+ * Taking the station's data out of it, as CSV.
  *
- * This exists because everything the room knows is either in a database nobody
+ * This exists because everything the station knows is either in a database nobody
  * can reach without a shell on the deployment host, or in a temporary file that
  * Windows will delete. An admin should be able to keep a copy of the archive,
  * of what has played, and of what the providers said, without either.
@@ -41,8 +41,8 @@ export interface ExportDefinition {
 export const EXPORTS: ExportDefinition[] = [
   {
     id: 'history',
-    label: 'Room history',
-    description: 'Every track this room has played or skipped, with who requested it and its votes.',
+    label: 'Station history',
+    description: 'Every track this station has played or skipped, with who requested it and its votes.',
   },
   {
     id: 'archive',
@@ -52,7 +52,7 @@ export const EXPORTS: ExportDefinition[] = [
   {
     id: 'tracks',
     label: 'Track catalogue',
-    description: 'Every track the room has a row for, with what each source says it is.',
+    description: 'Every track the station has a row for, with what each source says it is.',
   },
   {
     id: 'lookups',
@@ -72,7 +72,7 @@ export const EXPORTS: ExportDefinition[] = [
   {
     id: 'stats-genres',
     label: 'Stats: genres',
-    description: 'Every genre by plays, this room and the QueUp archive counted apart.',
+    description: 'Every genre by plays, this station and the QueUp archive counted apart.',
   },
 ];
 
@@ -217,7 +217,7 @@ function query(id: ExportId): SQL {
   }
 
   return sql`
-    select genre, room_plays, archive_plays, array_to_string(sources, ', ') as sources
+    select genre, station_plays, archive_plays, array_to_string(sources, ', ') as sources
     from (${genreStatsQuery(null)}) as counted`;
 }
 

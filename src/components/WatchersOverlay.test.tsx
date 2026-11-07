@@ -142,7 +142,7 @@ describe('chooseWatchers', () => {
     expect(chooseWatchers(people, options({ show: 'all' }), NOW)).toHaveLength(4);
   });
 
-  it('draws only people with an account in the room when asked', () => {
+  it('draws only people with an account in the station when asked', () => {
     expect(chooseWatchers(people, options({ show: 'members' }), NOW).map((one) => one.nick)).toEqual(
       ['Member'],
     );

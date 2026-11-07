@@ -7,13 +7,13 @@ import { defineMiddleware } from 'astro:middleware';
  *
  * Each of these is one prerendered page serving every id under it, because the
  * ids are not knowable at build time: a listener's name, a provider's id for a
- * track, a channel, a room. Keep this list and `public/_redirects` in step.
+ * track, a channel, a station. Keep this list and `public/_redirects` in step.
  */
 const SHELLS = [
   { path: /^\/profile\/[^/]+\/?$/, shell: '/profile/' },
   { path: /^\/track\/[^/]+\/[^/]+\/?$/, shell: '/track/' },
   { path: /^\/artist\/[^/]+\/[^/]+\/?$/, shell: '/artist/' },
-  { path: /^\/r\/[^/]+\/?$/, shell: '/r/' },
+  { path: /^\/s\/[^/]+\/?$/, shell: '/s/' },
 ];
 
 export const onRequest = defineMiddleware((context, next) => {

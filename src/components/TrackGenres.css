@@ -1,7 +1,7 @@
 /*
  * What a track is, one tag per source. Quieter than the title and the artist,
  * because it is a claim somebody else made about the track rather than
- * something the room knows.
+ * something the station knows.
  */
 .track-genres {
   display: inline;

@@ -17,7 +17,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
 const { cachedLookup, playbackIssues } = vi.hoisted(() => ({
   cachedLookup: vi.fn(),
-  /** URLs the room cannot play. Their metadata still resolves, as it does live. */
+  /** URLs the station cannot play. Their metadata still resolves, as it does live. */
   playbackIssues: new Map<string, Error>(),
 }));
 
@@ -72,23 +72,23 @@ const {
   dismissQueueNotice,
   enqueueProviderPlaylist,
   reorderMyQueue,
-  reorderRoomQueue,
+  reorderStationQueue,
   blockMediaByUrl,
   blockQueueItemMedia,
   enqueueMedia,
-  ensureRoomExists,
-  getRoomSnapshot,
+  ensureStationExists,
+  getStationSnapshot,
   moveQueue,
   planQueueMove,
-  RoomError,
+  StationError,
   skipCurrentTrack,
   voteOnCurrentTrack,
   withdrawQueuedTrack,
-} = await import('./room');
+} = await import('./station');
 const { createRule, findBlockingRules } = await import('./rules');
 const schema = await import('./db/schema');
-const { MAIN_ROOM_ID } = await import('./rooms');
-const { media, moderationActions, queueItems, roomSettings, roomState, users } = schema;
+const { MAIN_STATION_ID } = await import('./stations');
+const { media, moderationActions, queueItems, stationSettings, stationState, users } = schema;
 
 const connectionString = testConnectionString();
 
@@ -105,7 +105,7 @@ function track(id: string, durationSeconds = 120): MediaMetadata {
   };
 }
 
-describe.skipIf(!connectionString)('room transitions against Postgres', () => {
+describe.skipIf(!connectionString)('station transitions against Postgres', () => {
   const pool = new Pool({ connectionString });
   const db = drizzle(pool, { schema });
 
@@ -119,25 +119,25 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
   afterEach(async () => {
     await db.execute(
-      sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.ruleEntries}, ${schema.rules}, ${roomState}, ${schema.roomSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${schema.userChatCounts}, ${users} restart identity cascade`,
+      sql`truncate table ${moderationActions}, ${schema.votes}, ${schema.ruleEntries}, ${schema.rules}, ${stationState}, ${schema.stationSettings}, ${queueItems}, ${media}, ${schema.sessions}, ${schema.userChatCounts}, ${users} restart identity cascade`,
     );
-    await db.delete(schema.rooms).where(sql`${schema.rooms.id} <> ${MAIN_ROOM_ID}`);
+    await db.delete(schema.stations).where(sql`${schema.stations.id} <> ${MAIN_STATION_ID}`);
     cachedLookup.mockReset();
     playbackIssues.clear();
   });
 
-  /** A room besides the main one, with its settings and state in place. */
-  async function createRoom(slug: string): Promise<string> {
-    const [room] = await db
-      .insert(schema.rooms)
+  /** A station besides the main one, with its settings and state in place. */
+  async function createStation(slug: string): Promise<string> {
+    const [station] = await db
+      .insert(schema.stations)
       .values({ slug, name: slug })
-      .returning({ id: schema.rooms.id });
-    if (!room) throw new Error('Could not create the test room');
-    await ensureRoomExists(room.id, db);
-    return room.id;
+      .returning({ id: schema.stations.id });
+    if (!station) throw new Error('Could not create the test station');
+    await ensureStationExists(station.id, db);
+    return station.id;
   }
 
-  /** `mod` makes them one of the main room's moderators, which is a room role. */
+  /** `mod` makes them one of the main station's moderators, which is a station role. */
   async function createUser(
     username: string,
     role: UserRole | 'mod' = 'listener',
@@ -165,8 +165,8 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     if (!row) throw new Error('Could not create the test user');
     if (role === 'mod') {
       await db
-        .insert(schema.roomMembers)
-        .values({ roomId: MAIN_ROOM_ID, userId: row.id, role: 'mod' });
+        .insert(schema.stationMembers)
+        .values({ stationId: MAIN_STATION_ID, userId: row.id, role: 'mod' });
     }
     return row;
   }
@@ -181,31 +181,31 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
   }
 
   it('exposes a 90-minute track repeat cooldown by default', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
 
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
 
     expect(snapshot.settings.repeatCooldownSeconds).toBe(5_400);
   });
 
   it('starts the first request immediately and queues the rest', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const first = track('aaaaaaaaaaa');
     const second = track('bbbbbbbbbbb');
     resolveTracks(first, second);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, first.canonicalUrl, nathan, db);
-    const queued = await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, nathan, db);
+    const started = await enqueueMedia(MAIN_STATION_ID, first.canonicalUrl, nathan, db);
+    const queued = await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, nathan, db);
 
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db);
     expect(snapshot.current?.id).toBe(started.id);
     expect(snapshot.current?.media.providerMediaId).toBe('aaaaaaaaaaa');
     expect(snapshot.queue.map((item) => item.id)).toEqual([queued.id]);
   });
 
   it('gives a waiting requester the next turn before a second request from the same user', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const [playing, nathanSecond, swagyFirst] = [
@@ -215,60 +215,60 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     ];
     resolveTracks(playing, nathanSecond, swagyFirst);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const nathanQueued = await enqueueMedia(MAIN_ROOM_ID, nathanSecond.canonicalUrl, nathan, db);
-    const swagyQueued = await enqueueMedia(MAIN_ROOM_ID, swagyFirst.canonicalUrl, swagy, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const nathanQueued = await enqueueMedia(MAIN_STATION_ID, nathanSecond.canonicalUrl, nathan, db);
+    const swagyQueued = await enqueueMedia(MAIN_STATION_ID, swagyFirst.canonicalUrl, swagy, db);
 
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
     expect(snapshot.queue.map((item) => item.id)).toEqual([swagyQueued.id, nathanQueued.id]);
   });
 
   it('counts votes on the playing track and clears them on a zero vote', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const admin = await createUser('mod', 'admin');
     const playing = track('aaaaaaaaaaa');
     resolveTracks(playing);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
     await voteOnCurrentTrack(started.id, 1, swagy, 10, db);
     await voteOnCurrentTrack(started.id, -1, admin, 10, db);
 
-    const withBothVotes = await getRoomSnapshot(MAIN_ROOM_ID, swagy, 2, db);
+    const withBothVotes = await getStationSnapshot(MAIN_STATION_ID, swagy, 2, db);
     expect(withBothVotes.current).toMatchObject({ upvotes: 1, downvotes: 1, myVote: 1 });
 
     await voteOnCurrentTrack(started.id, 0, swagy, 10, db);
-    const afterClearing = await getRoomSnapshot(MAIN_ROOM_ID, swagy, 2, db);
+    const afterClearing = await getStationSnapshot(MAIN_STATION_ID, swagy, 2, db);
     expect(afterClearing.current).toMatchObject({ upvotes: 0, downvotes: 1, myVote: 0 });
   });
 
   it('rejects a vote once the track is no longer playing', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const admin = await createUser('mod', 'admin');
     const playing = track('aaaaaaaaaaa');
     resolveTracks(playing);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    await skipCurrentTrack(MAIN_ROOM_ID, 'Meme song', admin, db);
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    await skipCurrentTrack(MAIN_STATION_ID, 'Meme song', admin, db);
 
-    await expect(voteOnCurrentTrack(started.id, 1, admin, 10, db)).rejects.toThrow(RoomError);
+    await expect(voteOnCurrentTrack(started.id, 1, admin, 10, db)).rejects.toThrow(StationError);
   });
 
   it('skips the current track, records the action, and starts the next one', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const moderator = await createUser('mod', 'mod');
     const playing = track('aaaaaaaaaaa');
     const next = track('bbbbbbbbbbb');
     resolveTracks(playing, next);
 
-    const skipped = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const promoted = await enqueueMedia(MAIN_ROOM_ID, next.canonicalUrl, nathan, db);
-    await skipCurrentTrack(MAIN_ROOM_ID, 'Rule 1: no memes', moderator, db);
+    const skipped = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const promoted = await enqueueMedia(MAIN_STATION_ID, next.canonicalUrl, nathan, db);
+    await skipCurrentTrack(MAIN_STATION_ID, 'Rule 1: no memes', moderator, db);
 
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
     expect(snapshot.current?.id).toBe(promoted.id);
     expect(snapshot.queue).toEqual([]);
 
@@ -283,7 +283,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
   });
 
   it('blocks a track so it drops out of the queue and cannot be requested again', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const admin = await createUser('admin', 'admin');
@@ -292,25 +292,25 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     const banned = track('bbbbbbbbbbb');
     resolveTracks(playing, banned);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const queued = await enqueueMedia(MAIN_ROOM_ID, banned.canonicalUrl, swagy, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const queued = await enqueueMedia(MAIN_STATION_ID, banned.canonicalUrl, swagy, db);
     const ruleId = await createRule(
-      MAIN_ROOM_ID,
+      MAIN_STATION_ID,
       { name: 'No meme songs', description: '', enforcement: 'blocklist' },
       admin,
       db,
     );
     await blockQueueItemMedia(queued.id, { ruleIds: [ruleId], entryType: 'track' }, moderator, db);
 
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
     expect(snapshot.queue).toEqual([]);
-    await expect(enqueueMedia(MAIN_ROOM_ID, banned.canonicalUrl, swagy, db)).rejects.toMatchObject({
+    await expect(enqueueMedia(MAIN_STATION_ID, banned.canonicalUrl, swagy, db)).rejects.toMatchObject({
       code: 'MEDIA_BLOCKED',
     });
   });
 
   it('blocks a link nobody has requested, and takes out what it already covers', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const swagy = await createUser('swagy_swagerson');
     const admin = await createUser('admin', 'admin');
     const playing = track('aaaaaaaaaaa');
@@ -319,31 +319,31 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     const never = track('ccccccccccc');
     resolveTracks(playing, queued, never);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, swagy, db);
-    await enqueueMedia(MAIN_ROOM_ID, queued.canonicalUrl, admin, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, swagy, db);
+    await enqueueMedia(MAIN_STATION_ID, queued.canonicalUrl, admin, db);
     const ruleId = await createRule(
-      MAIN_ROOM_ID,
+      MAIN_STATION_ID,
       { name: 'No meme songs', description: '', enforcement: 'blocklist' },
       admin,
       db,
     );
 
-    // A track the room has never seen, blocked before anyone asks for it.
+    // A track the station has never seen, blocked before anyone asks for it.
     const blocked = await blockMediaByUrl(
-      MAIN_ROOM_ID,
+      MAIN_STATION_ID,
       never.canonicalUrl,
       { ruleIds: [ruleId], entryType: 'track' },
       admin,
       db,
     );
     expect(blocked).toEqual({ label: 'Track ccccccccccc', removed: 0 });
-    await expect(enqueueMedia(MAIN_ROOM_ID, never.canonicalUrl, swagy, db)).rejects.toMatchObject({
+    await expect(enqueueMedia(MAIN_STATION_ID, never.canonicalUrl, swagy, db)).rejects.toMatchObject({
       code: 'MEDIA_BLOCKED',
     });
 
     // Blocking the channel takes the waiting request out with it.
     const channel = await blockMediaByUrl(
-      MAIN_ROOM_ID,
+      MAIN_STATION_ID,
       playing.canonicalUrl,
       { ruleIds: [ruleId], entryType: 'artist' },
       admin,
@@ -351,41 +351,41 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     );
     expect(channel.label).toBe('Test Artist');
     expect(channel.removed).toBe(1);
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db)).queue).toEqual([]);
+    expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).queue).toEqual([]);
   });
 
   it('rejects a track that is already queued', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const playing = track('aaaaaaaaaaa');
     resolveTracks(playing);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    await expect(enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, swagy, db)).rejects.toMatchObject({
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    await expect(enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, swagy, db)).rejects.toMatchObject({
       code: 'ALREADY_QUEUED',
     });
   });
 
   it('rejects a track that started inside the repeat cooldown', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const moderator = await createUser('mod', 'mod');
     const recent = track('aaaaaaaaaaa');
     resolveTracks(recent);
 
-    await enqueueMedia(MAIN_ROOM_ID, recent.canonicalUrl, nathan, db);
-    await skipCurrentTrack(MAIN_ROOM_ID, 'Testing the repeat cooldown', moderator, db);
+    await enqueueMedia(MAIN_STATION_ID, recent.canonicalUrl, nathan, db);
+    await skipCurrentTrack(MAIN_STATION_ID, 'Testing the repeat cooldown', moderator, db);
 
-    await expect(enqueueMedia(MAIN_ROOM_ID, recent.canonicalUrl, swagy, db)).rejects.toMatchObject({
+    await expect(enqueueMedia(MAIN_STATION_ID, recent.canonicalUrl, swagy, db)).rejects.toMatchObject({
       code: 'TRACK_RECENTLY_PLAYED',
       message: 'That track played less than a minute ago. Try again in 90 minutes.',
     });
   });
 
   it('tells the requester why a pending track was dropped at playback time', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const moderator = await createUser('mod', 'mod');
@@ -395,24 +395,24 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
     // Under a short cooldown the second request is accepted, which is the only
     // way to have one waiting when an admin raises the setting over it.
-    await db.update(roomSettings).set({ repeatCooldownSeconds: 300 }).where(eq(roomSettings.roomId, MAIN_ROOM_ID));
-    const first = await enqueueMedia(MAIN_ROOM_ID, repeated.canonicalUrl, nathan, db);
-    await skipCurrentTrack(MAIN_ROOM_ID, 'Making room for the filler', moderator, db);
+    await db.update(stationSettings).set({ repeatCooldownSeconds: 300 }).where(eq(stationSettings.stationId, MAIN_STATION_ID));
+    const first = await enqueueMedia(MAIN_STATION_ID, repeated.canonicalUrl, nathan, db);
+    await skipCurrentTrack(MAIN_STATION_ID, 'Making room for the filler', moderator, db);
     await db
       .update(queueItems)
       .set({ startedAt: new Date(Date.now() - 600_000) })
       .where(eq(queueItems.id, first.id));
 
-    await enqueueMedia(MAIN_ROOM_ID, filler.canonicalUrl, nathan, db);
-    const pending = await enqueueMedia(MAIN_ROOM_ID, repeated.canonicalUrl, swagy, db);
+    await enqueueMedia(MAIN_STATION_ID, filler.canonicalUrl, nathan, db);
+    const pending = await enqueueMedia(MAIN_STATION_ID, repeated.canonicalUrl, swagy, db);
     await db
-      .update(roomSettings)
+      .update(stationSettings)
       .set({ repeatCooldownSeconds: 5_400 })
-      .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
+      .where(eq(stationSettings.stationId, MAIN_STATION_ID));
 
-    await skipCurrentTrack(MAIN_ROOM_ID, 'Reaching the pending request', moderator, db);
+    await skipCurrentTrack(MAIN_STATION_ID, 'Reaching the pending request', moderator, db);
 
-    const dropped = await getRoomSnapshot(MAIN_ROOM_ID, swagy, 1, db);
+    const dropped = await getStationSnapshot(MAIN_STATION_ID, swagy, 1, db);
     expect(dropped.myQueue).toEqual([]);
     expect(dropped.myNotices).toMatchObject([
       {
@@ -430,20 +430,20 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
       .where(eq(queueItems.id, pending.id));
     expect(row).toMatchObject({ status: 'removed' });
     expect(row?.reason).toContain('Automatic playback check:');
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db)).myNotices).toEqual([]);
+    expect((await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db)).myNotices).toEqual([]);
 
     await dismissQueueNotice(pending.id, swagy, db);
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, swagy, 1, db)).myNotices).toEqual([]);
+    expect((await getStationSnapshot(MAIN_STATION_ID, swagy, 1, db)).myNotices).toEqual([]);
   });
 
   it('refuses to dismiss a notice that belongs to somebody else', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const queued = track('aaaaaaaaaaa');
     resolveTracks(queued);
 
-    const mine = await enqueueMedia(MAIN_ROOM_ID, queued.canonicalUrl, nathan, db);
+    const mine = await enqueueMedia(MAIN_STATION_ID, queued.canonicalUrl, nathan, db);
     await db
       .update(queueItems)
       .set({ status: 'removed', listenerNotice: 'That track played moments ago.' })
@@ -452,75 +452,75 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     await expect(dismissQueueNotice(mine.id, swagy, db)).rejects.toMatchObject({
       code: 'NOTICE_NOT_FOUND',
     });
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db)).myNotices).toHaveLength(1);
+    expect((await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db)).myNotices).toHaveLength(1);
   });
 
   it('advances only after the playing track has run its duration', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const playing = track('aaaaaaaaaaa', 120);
     const next = track('bbbbbbbbbbb', 120);
     resolveTracks(playing, next);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const promoted = await enqueueMedia(MAIN_ROOM_ID, next.canonicalUrl, nathan, db);
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const promoted = await enqueueMedia(MAIN_STATION_ID, next.canonicalUrl, nathan, db);
 
-    expect(await advanceIfExpired(MAIN_ROOM_ID, db)).toBe(false);
+    expect(await advanceIfExpired(MAIN_STATION_ID, db)).toBe(false);
 
     await db
       .update(queueItems)
       .set({ startedAt: new Date(Date.now() - 121_000) })
       .where(eq(queueItems.id, started.id));
 
-    expect(await advanceIfExpired(MAIN_ROOM_ID, db)).toBe(true);
+    expect(await advanceIfExpired(MAIN_STATION_ID, db)).toBe(true);
     const [state] = await db
-      .select({ currentQueueItemId: roomState.currentQueueItemId })
-      .from(roomState)
-      .where(eq(roomState.roomId, MAIN_ROOM_ID));
+      .select({ currentQueueItemId: stationState.currentQueueItemId })
+      .from(stationState)
+      .where(eq(stationState.stationId, MAIN_STATION_ID));
     expect(state?.currentQueueItemId).toBe(promoted.id);
   });
 
   it('alternates turns between two people who both have tracks waiting', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const [a1, a2, b1] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb'), track('ccccccccccc')];
     resolveTracks(a1, a2, b1);
 
-    const first = await enqueueMedia(MAIN_ROOM_ID, a1.canonicalUrl, nathan, db);
-    const nathanSecond = await enqueueMedia(MAIN_ROOM_ID, a2.canonicalUrl, nathan, db);
-    const swagyFirst = await enqueueMedia(MAIN_ROOM_ID, b1.canonicalUrl, swagy, db);
+    const first = await enqueueMedia(MAIN_STATION_ID, a1.canonicalUrl, nathan, db);
+    const nathanSecond = await enqueueMedia(MAIN_STATION_ID, a2.canonicalUrl, nathan, db);
+    const swagyFirst = await enqueueMedia(MAIN_STATION_ID, b1.canonicalUrl, swagy, db);
 
     // Nathan holds his seat while playing, so Swagy is genuinely next.
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db)).queue.map((i) => i.id)).toEqual([
+    expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).queue.map((i) => i.id)).toEqual([
       swagyFirst.id,
       nathanSecond.id,
     ]);
 
-    await advanceCurrentTrack(MAIN_ROOM_ID, 'played', null, first.id, db);
-    const afterFirst = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
+    await advanceCurrentTrack(MAIN_STATION_ID, 'played', null, first.id, db);
+    const afterFirst = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
     expect(afterFirst.current?.id).toBe(swagyFirst.id);
     expect(afterFirst.queue.map((i) => i.id)).toEqual([nathanSecond.id]);
 
-    await advanceCurrentTrack(MAIN_ROOM_ID, 'played', null, swagyFirst.id, db);
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db)).current?.id).toBe(nathanSecond.id);
+    await advanceCurrentTrack(MAIN_STATION_ID, 'played', null, swagyFirst.id, db);
+    expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current?.id).toBe(nathanSecond.id);
   });
 
   it('drops someone out of the rotation when their queue empties', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const playing = track('aaaaaaaaaaa');
     resolveTracks(playing);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    await advanceCurrentTrack(MAIN_ROOM_ID, 'played', null, started.id, db);
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    await advanceCurrentTrack(MAIN_STATION_ID, 'played', null, started.id, db);
 
-    const seats = await db.select().from(schema.roomSeats).where(eq(schema.roomSeats.userId, nathan.id));
+    const seats = await db.select().from(schema.stationSeats).where(eq(schema.stationSeats.userId, nathan.id));
     expect(seats).toEqual([]);
   });
 
   it('keeps a personal queue in the order the owner sets', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const [playing, second, third] = [
       track('aaaaaaaaaaa'),
@@ -529,40 +529,40 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     ];
     resolveTracks(playing, second, third);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const b = await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, nathan, db);
-    const c = await enqueueMedia(MAIN_ROOM_ID, third.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const b = await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, nathan, db);
+    const c = await enqueueMedia(MAIN_STATION_ID, third.canonicalUrl, nathan, db);
 
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db)).myQueue.map((i) => i.id)).toEqual([b.id, c.id]);
+    expect((await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db)).myQueue.map((i) => i.id)).toEqual([b.id, c.id]);
 
     await reorderMyQueue([c.id, b.id], nathan, db);
-    const reordered = await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db);
+    const reordered = await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db);
     expect(reordered.myQueue.map((i) => i.id)).toEqual([c.id, b.id]);
-    // The room queue shows only their next one, which is now the reordered first.
+    // The station queue shows only their next one, which is now the reordered first.
     expect(reordered.queue.map((i) => i.id)).toEqual([c.id]);
   });
 
   it('lets someone take their own waiting track back out', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, second);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const waiting = await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const waiting = await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, nathan, db);
 
     await withdrawQueuedTrack(waiting.id, nathan, db);
 
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db)).myQueue.map(({ id }) => id)).toEqual([]);
+    expect((await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db)).myQueue.map(({ id }) => id)).toEqual([]);
   });
 
   it('records nothing in the moderation log when someone withdraws their own track', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, second);
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const waiting = await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const waiting = await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, nathan, db);
 
     await withdrawQueuedTrack(waiting.id, nathan, db);
 
@@ -570,43 +570,43 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
   });
 
   it('drops someone out of the rotation once they withdraw their last track', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const [playing, only] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, only);
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const waiting = await enqueueMedia(MAIN_ROOM_ID, only.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const waiting = await enqueueMedia(MAIN_STATION_ID, only.canonicalUrl, nathan, db);
 
     await withdrawQueuedTrack(waiting.id, nathan, db);
 
-    const seats = await db.select().from(schema.roomSeats).where(eq(schema.roomSeats.userId, nathan.id));
+    const seats = await db.select().from(schema.stationSeats).where(eq(schema.stationSeats.userId, nathan.id));
     expect(seats).toEqual([]);
   });
 
   it('refuses to withdraw a track belonging to someone else', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, second);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const theirs = await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const theirs = await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, nathan, db);
 
     await expect(withdrawQueuedTrack(theirs.id, swagy, db)).rejects.toMatchObject({
       code: 'NOT_YOUR_QUEUED_TRACK',
     });
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db)).myQueue.map(({ id }) => id)).toEqual([theirs.id]);
+    expect((await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db)).myQueue.map(({ id }) => id)).toEqual([theirs.id]);
   });
 
   it('refuses to withdraw the track that is already playing', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const [playing] = [track('aaaaaaaaaaa')];
     resolveTracks(playing);
-    // The first track enqueued into an idle room starts playing straight away.
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db)).current?.id).toBe(started.id);
+    // The first track enqueued into an idle station starts playing straight away.
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    expect((await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db)).current?.id).toBe(started.id);
 
     await expect(withdrawQueuedTrack(started.id, nathan, db)).rejects.toMatchObject({
       code: 'NOT_YOUR_QUEUED_TRACK',
@@ -614,22 +614,22 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
   });
 
   it('refuses to reorder a track belonging to someone else', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, second);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const theirs = await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const theirs = await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, nathan, db);
 
     await expect(reorderMyQueue([theirs.id], swagy, db)).rejects.toMatchObject({
       code: 'NOT_YOUR_TRACK',
     });
   });
 
-  it('lets a moderator reorder the room rotation but keeps the current DJ last', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+  it('lets a moderator reorder the station rotation but keeps the current DJ last', async () => {
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const peezy = await createUser('peezy');
@@ -642,39 +642,39 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     ];
     resolveTracks(playing, nathanNext, swagyNext, peezyNext);
 
-    const current = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const swagyItem = await enqueueMedia(MAIN_ROOM_ID, swagyNext.canonicalUrl, swagy, db);
-    const peezyItem = await enqueueMedia(MAIN_ROOM_ID, peezyNext.canonicalUrl, peezy, db);
-    const nathanItem = await enqueueMedia(MAIN_ROOM_ID, nathanNext.canonicalUrl, nathan, db);
+    const current = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const swagyItem = await enqueueMedia(MAIN_STATION_ID, swagyNext.canonicalUrl, swagy, db);
+    const peezyItem = await enqueueMedia(MAIN_STATION_ID, peezyNext.canonicalUrl, peezy, db);
+    const nathanItem = await enqueueMedia(MAIN_STATION_ID, nathanNext.canonicalUrl, nathan, db);
 
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, moderator, 4, db)).queue.map(({ id }) => id)).toEqual([
+    expect((await getStationSnapshot(MAIN_STATION_ID, moderator, 4, db)).queue.map(({ id }) => id)).toEqual([
       swagyItem.id,
       peezyItem.id,
       nathanItem.id,
     ]);
 
-    await reorderRoomQueue(MAIN_ROOM_ID, [peezyItem.id, swagyItem.id, nathanItem.id], moderator, db);
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, moderator, 4, db)).queue.map(({ id }) => id)).toEqual([
+    await reorderStationQueue(MAIN_STATION_ID, [peezyItem.id, swagyItem.id, nathanItem.id], moderator, db);
+    expect((await getStationSnapshot(MAIN_STATION_ID, moderator, 4, db)).queue.map(({ id }) => id)).toEqual([
       peezyItem.id,
       swagyItem.id,
       nathanItem.id,
     ]);
 
     await expect(
-      reorderRoomQueue(MAIN_ROOM_ID, [nathanItem.id, peezyItem.id, swagyItem.id], moderator, db),
+      reorderStationQueue(MAIN_STATION_ID, [nathanItem.id, peezyItem.id, swagyItem.id], moderator, db),
     ).rejects.toMatchObject({ code: 'CURRENT_DJ_LOCKED' });
 
-    await advanceCurrentTrack(MAIN_ROOM_ID, 'played', null, current.id, db);
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db)).current?.id).toBe(peezyItem.id);
+    await advanceCurrentTrack(MAIN_STATION_ID, 'played', null, current.id, db);
+    expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current?.id).toBe(peezyItem.id);
     const actions = await db
       .select({ action: moderationActions.action })
       .from(moderationActions)
       .where(eq(moderationActions.actorUserId, moderator.id));
-    expect(actions.map(({ action }) => action)).toEqual(['reorder_room_queue']);
+    expect(actions.map(({ action }) => action)).toEqual(['reorder_station_queue']);
   });
 
   it('lets an admin clear a whole personal queue', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const admin = await createUser('mod', 'admin');
     const [playing, second, third] = [
@@ -684,12 +684,12 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     ];
     resolveTracks(playing, second, third);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, nathan, db);
-    await enqueueMedia(MAIN_ROOM_ID, third.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, third.canonicalUrl, nathan, db);
 
     expect(await clearUserQueue(nathan.id, 'Queue full of memes', admin, db)).toBe(2);
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db);
     expect(snapshot.myQueue).toEqual([]);
     expect(snapshot.queue).toEqual([]);
     // The track already playing is left alone.
@@ -697,7 +697,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
   });
 
   it('imports a playlist, reporting what it could not take', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const good = track('aaaaaaaaaaa');
     const alsoGood = track('bbbbbbbbbbb');
@@ -711,7 +711,7 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     resolveTracks(good, alsoGood, tooLong);
 
     const imported = await enqueueProviderPlaylist(
-      MAIN_ROOM_ID,
+      MAIN_STATION_ID,
       'https://www.youtube.com/playlist?list=PL123',
       nathan,
       db,
@@ -721,13 +721,13 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     expect(imported.skipped).toHaveLength(1);
     expect(imported.skipped[0]?.reason).toMatch(/minutes or shorter/);
 
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, nathan, 1, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, nathan, 1, db);
     expect(snapshot.current?.media.providerMediaId).toBe('aaaaaaaaaaa');
     expect(snapshot.myQueue.map((i) => i.media.providerMediaId)).toEqual(['bbbbbbbbbbb']);
   });
 
   it('refuses a track the playback host cannot reach', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const blocked = track('aaaaaaaaaaa');
     resolveTracks(blocked);
@@ -739,94 +739,94 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
       ),
     );
 
-    await expect(enqueueMedia(MAIN_ROOM_ID, blocked.canonicalUrl, nathan, db)).rejects.toMatchObject({
+    await expect(enqueueMedia(MAIN_STATION_ID, blocked.canonicalUrl, nathan, db)).rejects.toMatchObject({
       code: 'YOUTUBE_REGION_BLOCKED',
     });
   });
 
   it('refuses a playlist with nothing playable in it', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     vi.mocked(listPlaylistTrackUrls).mockResolvedValue([]);
 
     await expect(
-      enqueueProviderPlaylist(MAIN_ROOM_ID, 'https://www.youtube.com/playlist?list=PL123', nathan, db),
+      enqueueProviderPlaylist(MAIN_STATION_ID, 'https://www.youtube.com/playlist?list=PL123', nathan, db),
     ).rejects.toMatchObject({ code: 'PLAYLIST_EMPTY' });
   });
 
   it('refuses a vote on your own request', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const playing = track('aaaaaaaaaaa');
     resolveTracks(playing);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
     await expect(voteOnCurrentTrack(started.id, 1, nathan, 10, db)).rejects.toMatchObject({
       code: 'OWN_TRACK',
     });
   });
 
-  it('skips a track once enough of the room votes it down', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+  it('skips a track once enough of the station votes it down', async () => {
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const [playing, next] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, next);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    const promoted = await enqueueMedia(MAIN_ROOM_ID, next.canonicalUrl, nathan, db);
-    await db.update(roomSettings).set({ skipDownvotes: 2 }).where(eq(roomSettings.roomId, MAIN_ROOM_ID));
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    const promoted = await enqueueMedia(MAIN_STATION_ID, next.canonicalUrl, nathan, db);
+    await db.update(stationSettings).set({ skipDownvotes: 2 }).where(eq(stationSettings.stationId, MAIN_STATION_ID));
 
     const voters = [await createUser('one'), await createUser('two')];
     await voteOnCurrentTrack(started.id, -1, voters[0]!, 10, db);
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db)).current?.id).toBe(started.id);
+    expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current?.id).toBe(started.id);
 
     await voteOnCurrentTrack(started.id, -1, voters[1]!, 10, db);
-    const afterSkip = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
+    const afterSkip = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
     expect(afterSkip.current?.id).toBe(promoted.id);
   });
 
-  it('uses eligible signed-in room listeners for ratio skips', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+  it('uses eligible signed-in station listeners for ratio skips', async () => {
+    await ensureStationExists(MAIN_STATION_ID, db);
     const requester = await createUser('requester');
     const voter = await createUser('voter');
     const [playing, next] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, next);
 
-    const started = await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, requester, db);
-    const promoted = await enqueueMedia(MAIN_ROOM_ID, next.canonicalUrl, requester, db);
+    const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, requester, db);
+    const promoted = await enqueueMedia(MAIN_STATION_ID, next.canonicalUrl, requester, db);
     await db
-      .update(roomSettings)
+      .update(stationSettings)
       .set({ skipMode: 'ratio', skipRatioPercent: 50 })
-      .where(eq(roomSettings.roomId, MAIN_ROOM_ID));
+      .where(eq(stationSettings.stationId, MAIN_STATION_ID));
 
     await voteOnCurrentTrack(started.id, -1, voter, 2, db);
 
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db)).current?.id).toBe(promoted.id);
+    expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current?.id).toBe(promoted.id);
   });
 
-  it('hides requesters while the room is blind, except from mods and admins', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+  it('hides requesters while the station is blind, except from mods and admins', async () => {
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const moderator = await createUser('mod', 'mod');
     const [playing, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
     resolveTracks(playing, second);
 
-    await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-    await enqueueMedia(MAIN_ROOM_ID, second.canonicalUrl, swagy, db);
-    await db.update(roomSettings).set({ revealRequester: false }).where(eq(roomSettings.roomId, MAIN_ROOM_ID));
+    await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+    await enqueueMedia(MAIN_STATION_ID, second.canonicalUrl, swagy, db);
+    await db.update(stationSettings).set({ revealRequester: false }).where(eq(stationSettings.stationId, MAIN_STATION_ID));
 
-    const listener = await getRoomSnapshot(MAIN_ROOM_ID, swagy, 2, db);
+    const listener = await getStationSnapshot(MAIN_STATION_ID, swagy, 2, db);
     expect(listener.current?.requestedBy).toBeNull();
     // Your own track stays yours, since hiding it from you would be pointless.
     expect(listener.myQueue[0]?.requestedBy?.username).toBe('swagy_swagerson');
 
-    const moderatorView = await getRoomSnapshot(MAIN_ROOM_ID, moderator, 2, db);
+    const moderatorView = await getStationSnapshot(MAIN_STATION_ID, moderator, 2, db);
     expect(moderatorView.current?.requestedBy?.username).toBe('picklesnathan');
   });
 
   it('ranks selectors by the score their played tracks earned', async () => {
-    await ensureRoomExists(MAIN_ROOM_ID, db);
+    await ensureStationExists(MAIN_STATION_ID, db);
     const nathan = await createUser('picklesnathan');
     const swagy = await createUser('swagy_swagerson');
     const admin = await createUser('mod', 'admin');
@@ -834,109 +834,109 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
     const disliked = track('bbbbbbbbbbb');
     resolveTracks(liked, disliked);
 
-    const first = await enqueueMedia(MAIN_ROOM_ID, liked.canonicalUrl, nathan, db);
-    const second = await enqueueMedia(MAIN_ROOM_ID, disliked.canonicalUrl, swagy, db);
+    const first = await enqueueMedia(MAIN_STATION_ID, liked.canonicalUrl, nathan, db);
+    const second = await enqueueMedia(MAIN_STATION_ID, disliked.canonicalUrl, swagy, db);
     await voteOnCurrentTrack(first.id, 1, swagy, 10, db);
     await voteOnCurrentTrack(first.id, 1, admin, 10, db);
-    await skipCurrentTrack(MAIN_ROOM_ID, 'Next', admin, db);
+    await skipCurrentTrack(MAIN_STATION_ID, 'Next', admin, db);
     await voteOnCurrentTrack(second.id, -1, nathan, 10, db);
 
-    const snapshot = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
+    const snapshot = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
     expect(snapshot.selectorStats.map((entry) => [entry.user.username, entry.score])).toEqual([
       ['picklesnathan', 2],
       ['swagy_swagerson', -1],
     ]);
   });
 
-  describe('with more than one room', () => {
-    it('plays each room from its own queue at the same time', async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+  describe('with more than one station', () => {
+    it('plays each station from its own queue at the same time', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const nathan = await createUser('picklesnathan');
       const swagy = await createUser('swagy_swagerson');
       const [mainTrack, otherTrack] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
       resolveTracks(mainTrack, otherTrack);
 
-      const inMain = await enqueueMedia(MAIN_ROOM_ID, mainTrack.canonicalUrl, nathan, db);
+      const inMain = await enqueueMedia(MAIN_STATION_ID, mainTrack.canonicalUrl, nathan, db);
       const inOther = await enqueueMedia(other, otherTrack.canonicalUrl, swagy, db);
 
-      const main = await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db);
-      const elsewhere = await getRoomSnapshot(other, null, 0, db);
+      const main = await getStationSnapshot(MAIN_STATION_ID, null, 0, db);
+      const elsewhere = await getStationSnapshot(other, null, 0, db);
       expect(main.current?.id).toBe(inMain.id);
       expect(elsewhere.current?.id).toBe(inOther.id);
       expect(main.queue).toEqual([]);
       expect(elsewhere.queue).toEqual([]);
     });
 
-    it('lets a listener queue in one room at a time', async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+    it('lets a listener queue in one station at a time', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const nathan = await createUser('picklesnathan');
       const [first, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
       resolveTracks(first, second);
 
-      const playing = await enqueueMedia(MAIN_ROOM_ID, first.canonicalUrl, nathan, db);
+      const playing = await enqueueMedia(MAIN_STATION_ID, first.canonicalUrl, nathan, db);
       await expect(enqueueMedia(other, second.canonicalUrl, nathan, db)).rejects.toMatchObject({
         code: 'QUEUED_ELSEWHERE',
       });
 
-      // Once the last track has played the seat is given up, and any room will do.
-      await advanceCurrentTrack(MAIN_ROOM_ID, 'played', null, playing.id, db);
+      // Once the last track has played the seat is given up, and any station will do.
+      await advanceCurrentTrack(MAIN_STATION_ID, 'played', null, playing.id, db);
       const moved = await enqueueMedia(other, second.canonicalUrl, nathan, db);
-      expect((await getRoomSnapshot(other, null, 0, db)).current?.id).toBe(moved.id);
+      expect((await getStationSnapshot(other, null, 0, db)).current?.id).toBe(moved.id);
     });
 
-    it('keeps the repeat cooldown to the room the track played in', async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+    it('keeps the repeat cooldown to the station the track played in', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const nathan = await createUser('picklesnathan');
       const swagy = await createUser('swagy_swagerson');
       const moderator = await createUser('mod', 'mod');
       const repeated = track('aaaaaaaaaaa');
       resolveTracks(repeated);
 
-      await enqueueMedia(MAIN_ROOM_ID, repeated.canonicalUrl, nathan, db);
-      await skipCurrentTrack(MAIN_ROOM_ID, 'Done with it', moderator, db);
+      await enqueueMedia(MAIN_STATION_ID, repeated.canonicalUrl, nathan, db);
+      await skipCurrentTrack(MAIN_STATION_ID, 'Done with it', moderator, db);
 
       await expect(
-        enqueueMedia(MAIN_ROOM_ID, repeated.canonicalUrl, swagy, db),
+        enqueueMedia(MAIN_STATION_ID, repeated.canonicalUrl, swagy, db),
       ).rejects.toMatchObject({ code: 'TRACK_RECENTLY_PLAYED' });
       await expect(enqueueMedia(other, repeated.canonicalUrl, swagy, db)).resolves.toBeDefined();
     });
 
-    it('enforces a rule only in the room that keeps it', async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+    it('enforces a rule only in the station that keeps it', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const nathan = await createUser('picklesnathan');
       const swagy = await createUser('swagy_swagerson');
       const moderator = await createUser('mod', 'mod');
       const [playing, blocked] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
       resolveTracks(playing, blocked);
       const ruleId = await createRule(
-        MAIN_ROOM_ID,
+        MAIN_STATION_ID,
         { name: 'Not here', description: '', enforcement: 'blocklist' },
         moderator,
         db,
       );
 
-      await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, nathan, db);
-      const waiting = await enqueueMedia(MAIN_ROOM_ID, blocked.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+      const waiting = await enqueueMedia(MAIN_STATION_ID, blocked.canonicalUrl, nathan, db);
       await blockQueueItemMedia(waiting.id, { ruleIds: [ruleId], entryType: 'track' }, moderator, db);
 
       await expect(
-        enqueueMedia(MAIN_ROOM_ID, blocked.canonicalUrl, swagy, db),
+        enqueueMedia(MAIN_STATION_ID, blocked.canonicalUrl, swagy, db),
       ).rejects.toMatchObject({ code: 'MEDIA_BLOCKED' });
       await expect(enqueueMedia(other, blocked.canonicalUrl, swagy, db)).resolves.toBeDefined();
     });
 
-    it("refuses to block under another room's rule", async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+    it("refuses to block under another station's rule", async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const moderator = await createUser('mod', 'mod');
       const blocked = track('aaaaaaaaaaa');
       resolveTracks(blocked);
       const ruleId = await createRule(
-        MAIN_ROOM_ID,
+        MAIN_STATION_ID,
         { name: 'Main only', description: '', enforcement: 'blocklist' },
         moderator,
         db,
@@ -951,12 +951,12 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
           db,
         ),
       ).rejects.toMatchObject({ code: 'RULE_NOT_FOUND' });
-      expect(await findBlockingRules(MAIN_ROOM_ID, blocked, db)).toEqual([]);
+      expect(await findBlockingRules(MAIN_STATION_ID, blocked, db)).toEqual([]);
     });
 
-    it('moves a waiting queue to another room in order, leaving behind what that room refuses', async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+    it('moves a waiting queue to another station in order, leaving behind what that station refuses', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const nathan = await createUser('picklesnathan');
       const swagy = await createUser('swagy_swagerson');
       const owner = await createUser('owner', 'admin');
@@ -967,17 +967,17 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
         track('ddddddddddd'),
       ];
       resolveTracks(playing, first, refused, last);
-      // The other room only takes five minutes, so the long track stays behind.
+      // The other station only takes five minutes, so the long track stays behind.
       await db
-        .update(roomSettings)
+        .update(stationSettings)
         .set({ maxDurationSeconds: 300 })
-        .where(eq(roomSettings.roomId, other));
+        .where(eq(stationSettings.stationId, other));
 
       // Somebody else is playing, so all of nathan's tracks are waiting.
-      await enqueueMedia(MAIN_ROOM_ID, playing.canonicalUrl, swagy, db);
-      await enqueueMedia(MAIN_ROOM_ID, first.canonicalUrl, nathan, db);
-      await enqueueMedia(MAIN_ROOM_ID, refused.canonicalUrl, nathan, db);
-      await enqueueMedia(MAIN_ROOM_ID, last.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, swagy, db);
+      await enqueueMedia(MAIN_STATION_ID, first.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_STATION_ID, refused.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_STATION_ID, last.canonicalUrl, nathan, db);
 
       const plan = await planQueueMove(other, nathan, db);
       expect(plan.from).toEqual({ slug: 'main', name: 'DGG Radio' });
@@ -989,39 +989,39 @@ describe.skipIf(!connectionString)('room transitions against Postgres', () => {
 
       await moveQueue(other, nathan, db);
 
-      const there = await getRoomSnapshot(other, nathan, 1, db);
+      const there = await getStationSnapshot(other, nathan, 1, db);
       // Nothing was playing there, so the first moved track starts at once.
       expect(there.current?.media.title).toBe('Track bbbbbbbbbbb');
       expect(there.myQueue.map((item) => item.media.title)).toEqual(['Track ddddddddddd']);
       expect(there.myNotices.map((notice) => notice.title)).toEqual(['Track ccccccccccc']);
-      const back = await getRoomSnapshot(MAIN_ROOM_ID, owner, 1, db);
+      const back = await getStationSnapshot(MAIN_STATION_ID, owner, 1, db);
       expect(back.queue).toEqual([]);
       expect(back.current?.media.title).toBe('Track aaaaaaaaaaa');
     });
 
     it('has nothing to move for somebody queued nowhere else', async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const nathan = await createUser('picklesnathan');
 
       expect(await planQueueMove(other, nathan, db)).toEqual({ from: null, tracks: [] });
     });
 
-    it('skips only the room whose track was skipped', async () => {
-      await ensureRoomExists(MAIN_ROOM_ID, db);
-      const other = await createRoom('other');
+    it('skips only the station whose track was skipped', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
       const nathan = await createUser('picklesnathan');
       const swagy = await createUser('swagy_swagerson');
       const moderator = await createUser('mod', 'mod');
       const [mainTrack, otherTrack] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
       resolveTracks(mainTrack, otherTrack);
 
-      await enqueueMedia(MAIN_ROOM_ID, mainTrack.canonicalUrl, nathan, db);
+      await enqueueMedia(MAIN_STATION_ID, mainTrack.canonicalUrl, nathan, db);
       const inOther = await enqueueMedia(other, otherTrack.canonicalUrl, swagy, db);
-      await skipCurrentTrack(MAIN_ROOM_ID, 'Not this one', moderator, db);
+      await skipCurrentTrack(MAIN_STATION_ID, 'Not this one', moderator, db);
 
-      expect((await getRoomSnapshot(MAIN_ROOM_ID, null, 0, db)).current).toBeNull();
-      expect((await getRoomSnapshot(other, null, 0, db)).current?.id).toBe(inOther.id);
+      expect((await getStationSnapshot(MAIN_STATION_ID, null, 0, db)).current).toBeNull();
+      expect((await getStationSnapshot(other, null, 0, db)).current?.id).toBe(inOther.id);
     });
   });
 });

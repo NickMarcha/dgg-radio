@@ -14,7 +14,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
 const { getCommunityStats, getUserProfile, listHistory } = await import('./community');
 const schema = await import('./db/schema');
-const { MAIN_ROOM_ID } = await import('./rooms');
+const { MAIN_STATION_ID } = await import('./stations');
 const { media, queueItems, users, votes, userChatCounts } = schema;
 const connectionString = testConnectionString();
 
@@ -74,7 +74,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     const [item] = await db
       .insert(queueItems)
       .values({
-        roomId: MAIN_ROOM_ID,
+        stationId: MAIN_STATION_ID,
         mediaId: track.id,
         requestedByUserId: requesterId,
         status,
@@ -94,7 +94,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
       .where(eq(media.providerMediaId, providerMediaId));
     if (!track) throw new Error('Could not find media');
     await db.insert(queueItems).values({
-      roomId: MAIN_ROOM_ID,
+      stationId: MAIN_STATION_ID,
       mediaId: track.id,
       requestedByUserId: requesterId,
       status: 'played',
@@ -160,7 +160,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     ]);
   });
 
-  it('orders completed room history newest first and excludes queued requests', async () => {
+  it('orders completed station history newest first and excludes queued requests', async () => {
     const { alicePlayed, aliceSkipped, bobPlayed } = await seedCommunity();
 
     const page = await listHistory({}, db);
@@ -186,7 +186,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     expect(past.entries).toEqual([]);
   });
 
-  it('searches the room history by track and by who requested it', async () => {
+  it('searches the station history by track and by who requested it', async () => {
     const { alicePlayed, aliceSkipped } = await seedCommunity();
 
     const byTitle = await listHistory({ search: 'bbbbbbbbbbb' }, db);

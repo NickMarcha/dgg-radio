@@ -12,14 +12,14 @@ import { getDatabase, type Database } from './db/client';
 import { legacyPlays, media } from './db/schema';
 import { listGenres, matchesGenre, trackKey } from './genre';
 import { MediaLookupError, soundCloudPermalink } from './media';
-import { enqueueMedia, resolveMediaForLibrary } from './room';
+import { enqueueMedia, resolveMediaForLibrary } from './station';
 import { ALL_TIME, withinPeriod } from './period';
 import { likePattern } from './search';
 
 /**
- * Reading the room's QueUp history, which is an archive rather than part of the
- * room. `scripts/queup-import-room.ts` is the only thing that writes it, and
- * nothing in the live room reads it: the stats, profiles, rotation and repeat
+ * Reading the station's QueUp history, which is an archive rather than part of the
+ * station. `scripts/queup-import-room.ts` is the only thing that writes it, and
+ * nothing in the live station reads it: the stats, profiles, rotation and repeat
  * cooldown all stay about what has happened here.
  */
 
@@ -73,7 +73,7 @@ function resolveSoundCloudLinks(entries: LegacyPlay[], db: Database): void {
 }
 
 /**
- * The link the room can act on, for anything QueUp recorded. QueUp stored
+ * The link the station can act on, for anything QueUp recorded. QueUp stored
  * YouTube tracks by video id, which makes a URL on its own, and SoundCloud
  * tracks by numeric id, which does not: SoundCloud has to name the permalink
  * first. Both the archive and the personal playlist import go through here.
@@ -84,7 +84,7 @@ export async function queupTrackUrl(
 ): Promise<string> {
   if (provider === 'youtube') return `https://www.youtube.com/watch?v=${providerMediaId}`;
   if (provider === 'soundcloud') return soundCloudPermalink(providerMediaId);
-  throw new MediaLookupError('UNSUPPORTED_PROVIDER', `This room cannot play ${provider} tracks.`);
+  throw new MediaLookupError('UNSUPPORTED_PROVIDER', `This station cannot play ${provider} tracks.`);
 }
 
 /** One archived play, or nothing when the id names none. */
@@ -104,13 +104,13 @@ async function findLegacyPlay(
 }
 
 /**
- * Requests a track out of the archive. Everything the room normally decides
+ * Requests a track out of the archive. Everything the station normally decides
  * about a request still decides it -- the rules, the repeat cooldown, the DJ
  * rotation, the length limit -- because this only turns an archived play into
- * a link and then asks the room for it in the ordinary way.
+ * a link and then asks the station for it in the ordinary way.
  */
 export async function enqueueLegacyPlay(
-  roomId: string,
+  stationId: string,
   sourceId: string,
   user: AuthenticatedUser,
   db: Database = getDatabase(),
@@ -119,13 +119,13 @@ export async function enqueueLegacyPlay(
   if (!play) {
     throw new MediaLookupError('LEGACY_PLAY_NOT_FOUND', 'That archived track is not there.');
   }
-  return enqueueMedia(roomId, await queupTrackUrl(play.provider, play.providerMediaId), user, db);
+  return enqueueMedia(stationId, await queupTrackUrl(play.provider, play.providerMediaId), user, db);
 }
 
 /**
  * What the archive says about tracks and about who requested them.
  *
- * It cannot go through the room's own stats: there is no `media` row and no
+ * It cannot go through the station's own stats: there is no `media` row and no
  * account behind any of this, and QueUp stored votes as a total on each play
  * rather than as one row per person. So the numbers are summed from the plays,
  * and everything is keyed by what QueUp knew — a provider id and a name.
@@ -232,7 +232,7 @@ export async function listLegacyHistory(
       .select({ play: legacyPlays, mediaId: media.id, mediaUrl: media.canonicalUrl })
       .from(legacyPlays)
       // The archive stores a provider and an id, not a media row. Most of those
-      // ids name nothing here, but a track the room has since played has a row
+      // ids name nothing here, but a track the station has since played has a row
       // already, and this finds it for the price of an indexed join rather than
       // a provider lookup. It is what lets an archived track be saved to a
       // playlist and show whether it is in one.
@@ -266,7 +266,7 @@ export async function listLegacyHistory(
     provider: play.provider,
     providerMediaId: play.providerMediaId,
     title: play.title,
-    // The room's own row knows the real address, which for a SoundCloud track
+    // The station's own row knows the real address, which for a SoundCloud track
     // is the only way there is to know it.
     canonicalUrl: mediaUrl ?? canonicalUrl(play.provider, play.providerMediaId),
     durationSeconds: play.durationSeconds,

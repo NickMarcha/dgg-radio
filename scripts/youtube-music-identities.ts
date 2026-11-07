@@ -1,5 +1,5 @@
 /**
- * Works out what the room's tracks are actually called, for the dump importers.
+ * Works out what the station's tracks are actually called, for the dump importers.
  *
  *   npx tsx scripts/youtube-music-identities.ts --out tracks.json
  *   npx tsx scripts/youtube-music-identities.ts --out tracks.json --limit 200
@@ -13,7 +13,7 @@
  *
  * YouTube already knows the answer for most of them. Its watch pages carry a
  * Music card naming the recording and the artist a catalogue would recognise,
- * on about 78% of the room's videos, and reading it costs one page load and no
+ * on about 78% of the station's videos, and reading it costs one page load and no
  * API quota. So this fetches those cards and writes a track list whose titles
  * are `Artist - Title` exactly as the importers want to read them.
  *
@@ -128,7 +128,7 @@ ${LOCK} if it is gone.`,
 type Answer = { artist: string; title: string } | null;
 
 /**
- * The spacing lives in `findMusicCard` now, so that the room is protected by it
+ * The spacing lives in `findMusicCard` now, so that the station is protected by it
  * too rather than only this script. What is left here is the extra wait after a
  * refusal, which is this script's business: it is the only caller that makes
  * enough requests in a row to be refused.

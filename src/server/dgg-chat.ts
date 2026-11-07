@@ -53,8 +53,8 @@ type ChatUser = z.infer<typeof chatUserSchema>;
 
 /**
  * What chat alone can say about a watcher. Whether they also have an account in
- * the room, and the emote that goes with it, is the tracker's to add: chat has
- * never heard of this room.
+ * the station, and the emote that goes with it, is the tracker's to add: chat has
+ * never heard of this station.
  */
 export type ChatWatcher = Omit<Watcher, 'member' | 'emote'>;
 
@@ -224,7 +224,7 @@ export function channelKey(channel: WatchedChannel): string {
 }
 
 /**
- * The chat socket and a roster for every channel a room follows.
+ * The chat socket and a roster for every channel a station follows.
  *
  * Every chat event names what its user is watching, so one connection answers
  * for any number of channels: each frame is offered to every roster and each

@@ -12,16 +12,16 @@ import { legacyPlays, media, queueItems } from './db/schema';
 import { listGenres, trackKey } from './genre';
 
 /**
- * What the room knows about one track, or about whoever published it.
+ * What the station knows about one track, or about whoever published it.
  *
  * Both are keyed by the provider's own id rather than by a `media` row, for the
- * same reason genre is: most of what the room knows about is the QueUp archive,
- * and none of that has a row here. A track nobody has played in this room still
+ * same reason genre is: most of what the station knows about is the QueUp archive,
+ * and none of that has a row here. A track nobody has played in this station still
  * has a page, built from what the archive remembers.
  *
  * The two histories stay apart all the way through. QueUp's requesters are
  * names with no account behind them and its votes were cast on another site, so
- * they are shown as a second list rather than folded into the room's own.
+ * they are shown as a second list rather than folded into the station's own.
  */
 
 export class CatalogueError extends Error {
@@ -162,10 +162,10 @@ export async function getTrackDetail(
     );
 
   if (!known && (archive?.plays ?? 0) === 0) {
-    throw new CatalogueError('TRACK_NOT_FOUND', 'This room has no record of that track.');
+    throw new CatalogueError('TRACK_NOT_FOUND', 'This station has no record of that track.');
   }
 
-  const [roomPlays, archivePlays, genres, [roomTotals]] = await Promise.all([
+  const [stationPlays, archivePlays, genres, [stationTotals]] = await Promise.all([
     db.execute<PlayRow>(sql`
       select
         users.id as requester_id,
@@ -274,7 +274,7 @@ export async function getTrackDetail(
     : { rows: [] as SummaryRow[] };
 
   const archivePlayCount = archive?.plays ?? 0;
-  const roomPlayCount = roomTotals?.plays ?? 0;
+  const stationPlayCount = stationTotals?.plays ?? 0;
 
   return {
     provider,
@@ -290,14 +290,14 @@ export async function getTrackDetail(
     mediaId: known?.id ?? null,
     genres: summary,
     totals: {
-      roomPlays: roomPlayCount,
+      stationPlays: stationPlayCount,
       archivePlays: archivePlayCount,
-      upvotes: (roomTotals?.upvotes ?? 0) + (archive?.upvotes ?? 0),
-      downvotes: (roomTotals?.downvotes ?? 0) + (archive?.downvotes ?? 0),
-      firstPlayed: earliest(roomTotals?.first ?? null, archive?.first ?? null),
-      lastPlayed: latest(roomTotals?.last ?? null, archive?.last ?? null),
+      upvotes: (stationTotals?.upvotes ?? 0) + (archive?.upvotes ?? 0),
+      downvotes: (stationTotals?.downvotes ?? 0) + (archive?.downvotes ?? 0),
+      firstPlayed: earliest(stationTotals?.first ?? null, archive?.first ?? null),
+      lastPlayed: latest(stationTotals?.last ?? null, archive?.last ?? null),
     },
-    roomPlays: roomPlays.rows.map(toPlay),
+    stationPlays: stationPlays.rows.map(toPlay),
     archivePlays: archivePlays.rows.map(toPlay),
     related: {
       byArtist: byArtist.rows.map(toSummary),
@@ -319,12 +319,12 @@ function latest(left: Date | null, right: Date | null): string | null {
 }
 
 /**
- * Everything the room has by one channel or account.
+ * Everything the station has by one channel or account.
  *
  * Only tracks with a `media` row can be attributed: the archive stores who
  * requested a play and never who made the track, so a track that only ever
  * played on QueUp belongs to nobody here. Its archive plays still count, once
- * the room has a row saying whose it is.
+ * the station has a row saying whose it is.
  */
 export async function getArtistDetail(
   provider: MediaProvider,
@@ -338,12 +338,12 @@ export async function getArtistDetail(
     .orderBy(desc(media.createdAt))
     .limit(1);
   if (!known) {
-    throw new CatalogueError('ARTIST_NOT_FOUND', 'This room has no tracks by that artist.');
+    throw new CatalogueError('ARTIST_NOT_FOUND', 'This station has no tracks by that artist.');
   }
 
   // The counts are wrapped rather than ordered by directly: Postgres allows a
   // bare output alias in `order by` but not an expression over two of them.
-  const tracks = await db.execute<SummaryRow & { room_plays: number; archive_plays: number }>(sql`
+  const tracks = await db.execute<SummaryRow & { station_plays: number; archive_plays: number }>(sql`
     select * from (
       select
         media.provider,
@@ -353,7 +353,7 @@ export async function getArtistDetail(
         (
           select count(*) from queue_items
           where queue_items.media_id = media.id and queue_items.started_at is not null
-        )::int as room_plays,
+        )::int as station_plays,
         (
           select count(*) from legacy_plays
           where legacy_plays.provider = media.provider
@@ -362,7 +362,7 @@ export async function getArtistDetail(
       from media
       where media.provider = ${provider} and media.provider_artist_id = ${providerArtistId}
     ) as tracks
-    order by tracks.room_plays + tracks.archive_plays desc, tracks.title
+    order by tracks.station_plays + tracks.archive_plays desc, tracks.title
   `);
 
   const genres = await listGenres(
@@ -389,15 +389,15 @@ export async function getArtistDetail(
     name: known.artist,
     totals: {
       tracks: tracks.rows.length,
-      roomPlays: tracks.rows.reduce((total, row) => total + row.room_plays, 0),
+      stationPlays: tracks.rows.reduce((total, row) => total + row.station_plays, 0),
       archivePlays: tracks.rows.reduce((total, row) => total + row.archive_plays, 0),
     },
     genres: [...counted.values()]
       .sort((left, right) => right.tracks - left.tracks || left.name.localeCompare(right.name))
       .slice(0, 8),
     tracks: tracks.rows.map((row) => ({
-      ...toSummary({ ...row, plays: row.room_plays + row.archive_plays }),
-      roomPlays: row.room_plays,
+      ...toSummary({ ...row, plays: row.station_plays + row.archive_plays }),
+      stationPlays: row.station_plays,
       archivePlays: row.archive_plays,
     })),
   };

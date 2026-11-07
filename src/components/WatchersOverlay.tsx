@@ -21,8 +21,8 @@ import { spawnBody, stepBumpers, type BumperBody } from './bumperMotion';
 import { useWatcherEmbedSettings } from './useWatcherEmbedSettings';
 import { loopRepeatingAnimations } from './loopRepeating';
 import { useWatchers } from './useWatchers';
-import { roomSlugFromSearch } from '../client/room';
-import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
+import { stationSlugFromSearch } from '../client/station';
+import { MAIN_STATION_SLUG } from '../shared/stationConnection';
 import '../styles/flairs.css';
 import './WatchersOverlay.css';
 
@@ -181,7 +181,7 @@ function pace(milliseconds: number, speed: number): string {
 
 /**
  * The band a layout may place somebody in: `inset` percent is kept clear at
- * every edge, and the trailing allowance is the room a watcher's own box takes
+ * every edge, and the trailing allowance is the station a watcher's own box takes
  * up to the right of, or below, wherever their corner is put.
  */
 function band(inset: number, allowance: number): { from: number; size: number } {
@@ -394,11 +394,11 @@ function Emote({ prefix }: { prefix: string }) {
 }
 
 export default function WatchersOverlay({ apiUrl }: { apiUrl: string }) {
-  // The room is read once on load; an OBS source does not move between rooms.
-  const [roomSlug] = useState(() =>
-    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromSearch(window.location.search),
+  // The station is read once on load; an OBS source does not move between stations.
+  const [stationSlug] = useState(() =>
+    typeof window === 'undefined' ? MAIN_STATION_SLUG : stationSlugFromSearch(window.location.search),
   );
-  const snapshot = useWatchers(apiUrl, roomSlug);
+  const snapshot = useWatchers(apiUrl, stationSlug);
   // A prerender has no query string. Apply it only after hydration so the
   // server and browser produce the same first frame.
   const [fixedOptions, setFixedOptions] = useState<WatcherEmbedOptions>(

@@ -5,15 +5,15 @@ import type {
   HistoryEntry,
   LegacyHistoryPage,
   PlaylistLibrary,
-  RoomMedia,
-  RoomUser,
+  StationMedia,
+  StationUser,
   UserProfile,
 } from '../shared/contracts';
 import CommunityPage from './CommunityPage';
 
 const API = 'http://api.test';
 
-const listener: RoomUser = {
+const listener: StationUser = {
   id: '11111111-1111-4111-8111-111111111111',
   username: 'Alice',
   avatarUrl: null,
@@ -23,7 +23,7 @@ const listener: RoomUser = {
   topEmote: null,
 };
 
-const track: RoomMedia = {
+const track: StationMedia = {
   id: '22222222-2222-4222-8222-222222222222',
   provider: 'youtube',
   providerMediaId: 'profile1',
@@ -83,9 +83,9 @@ const library: PlaylistLibrary = {
 let playlistStatus = 200;
 /** The media row an archived track resolves to the first time it is saved. */
 const resolvedMediaId = '66666666-6666-4666-8666-666666666666';
-/** What `/api/history/legacy` answers. Empty by default, as an un-imported room is. */
+/** What `/api/history/legacy` answers. Empty by default, as an un-imported station is. */
 let legacyPage: LegacyHistoryPage = { entries: [], total: 0 };
-const roomHistory: HistoryEntry[] = [
+const stationHistory: HistoryEntry[] = [
   { ...profile.history[0]!, id: '55555555-5555-4555-8555-555555555555' },
 ];
 
@@ -103,7 +103,7 @@ beforeEach(() => {
         : url.includes('/api/history/legacy')
           ? legacyPage
           : url.includes('/api/history')
-            ? { entries: roomHistory, total: roomHistory.length }
+            ? { entries: stationHistory, total: stationHistory.length }
             : url.includes('/legacy/')
               ? { mediaId: resolvedMediaId, saved: true }
               : playlistRequest
@@ -173,7 +173,7 @@ describe('the QueUp archive on the history page', () => {
     fireEvent.click(await screen.findByRole('tab', { name: /QueUp/ }));
   }
 
-  it('starts on the room own history and keeps the archive in a second tab', async () => {
+  it('starts on the station own history and keeps the archive in a second tab', async () => {
     legacyPage = { entries: [play('archived001', 'An Archived Track')], total: 47_982 };
 
     render(<CommunityPage apiUrl={API} view="history" />);
@@ -280,7 +280,7 @@ describe('the QueUp archive on the history page', () => {
     expect(screen.getByRole('tab', { name: /QueUp/ }).textContent).toContain('3');
   });
 
-  it('requests a track from either history through the room own queue', async () => {
+  it('requests a track from either history through the station own queue', async () => {
     legacyPage = { entries: [play('archived001', 'An Archived Track')], total: 1 };
 
     render(<CommunityPage apiUrl={API} view="history" />);
@@ -299,8 +299,8 @@ describe('the QueUp archive on the history page', () => {
       .mock.calls.filter(([, init]) => init?.method === 'POST')
       .map(([input, init]) => [String(input), init?.body]);
     expect(queued).toEqual([
-      [`${API}/api/rooms/main/queue`, JSON.stringify({ url: track.canonicalUrl })],
-      [`${API}/api/rooms/main/queue/legacy/archived001`, undefined],
+      [`${API}/api/stations/main/queue`, JSON.stringify({ url: track.canonicalUrl })],
+      [`${API}/api/stations/main/queue/legacy/archived001`, undefined],
     ]);
   });
 

@@ -78,7 +78,7 @@ function refuse(context: Context, retryAfter: number) {
     {
       error: {
         code: 'RATE_LIMITED',
-        message: 'That is more requests than the room allows just now. Try again shortly.',
+        message: 'That is more requests than the station allows just now. Try again shortly.',
       },
     },
     429,

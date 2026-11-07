@@ -1,11 +1,11 @@
 /**
- * Labels the room's tracks with genre from the monthly Discogs masters dump.
+ * Labels the station's tracks with genre from the monthly Discogs masters dump.
  *
  *   npx tsx scripts/discogs-dump-import.ts discogs_20260901_masters.xml.gz
  *
  * Discogs embeds YouTube video ids in its masters -- 5.76 million of them --
  * and joining on that id is exact: no MusicBrainz link, no fuzzy artist and
- * title match, and no Discogs API request. It reaches 30.8% of this room's
+ * title match, and no Discogs API request. It reaches 30.8% of this station's
  * archive, where going through MusicBrainz's Discogs relations reaches 1.4%.
  * The API cannot be queried by video id at all, so the dump is not a cheaper
  * route to this data, it is the only one.
@@ -19,10 +19,10 @@
  * whether or not a track was answered last month, so there is nothing to gain
  * from remembering which ones missed.
  *
- * By default it reads the room's tracks from the database and writes the
+ * By default it reads the station's tracks from the database and writes the
  * answers back to it. With `--tracks` and `--out` it does neither and works
  * entirely from files, so the dump never has to sit on the machine that runs
- * the room. `genre-transfer.ts` makes the one file and applies the other.
+ * the station. `genre-transfer.ts` makes the one file and applies the other.
  *
  * DATABASE_URL is needed unless both of those are given.
  */
@@ -62,7 +62,7 @@ interface Master {
   title: string | null;
 }
 
-/** One track the room knows about, from either history. */
+/** One track the station knows about, from either history. */
 interface Track {
   providerMediaId: string;
   title: string;
@@ -97,7 +97,7 @@ function tagValues(masterXml: string, container: string, item: string): string[]
 }
 
 /**
- * Streams the dump, keeping only masters this room has a use for. Keeping all
+ * Streams the dump, keeping only masters this station has a use for. Keeping all
  * 5.7 million embedded ids exhausts a 4 GB Node heap, and every one of them
  * but these would be discarded anyway.
  *

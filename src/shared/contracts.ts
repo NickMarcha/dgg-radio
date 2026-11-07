@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ConnectionKind } from './roomConnection';
+import type { ConnectionKind } from './stationConnection';
 
 export const mediaProviderSchema = z.enum(['youtube', 'soundcloud']);
 export type MediaProvider = z.infer<typeof mediaProviderSchema>;
@@ -13,7 +13,7 @@ export const voteSchema = z.object({
 });
 
 export const blockMediaSchema = z.object({
-  /** One track can break several rules, and the room shows every reason. */
+  /** One track can break several rules, and the station shows every reason. */
   ruleIds: z.array(z.uuid()).min(1).max(10),
   entryType: z.enum(['track', 'artist']),
   note: z.string().trim().max(240).optional(),
@@ -80,7 +80,7 @@ export const MAX_PLAYLIST_TRACKS = 500;
 
 /**
  * How many tracks one request may put in the queue, whether that is a provider
- * playlist or a saved one. Queueing walks every track through the room's own
+ * playlist or a saved one. Queueing walks every track through the station's own
  * checks, so this is really how long one request may run and how many provider
  * lookups it may spend. Storing a playlist is cheap; playing one is not, and
  * the two limits are separate for that reason.
@@ -183,20 +183,20 @@ export const userRoleSchema = z.object({
   role: z.enum(['listener', 'admin']),
 });
 
-/** Whether someone moderates a room. An owner is not made or unmade this way. */
-export const roomModeratorSchema = z.object({
+/** Whether someone moderates a station. An owner is not made or unmade this way. */
+export const stationModeratorSchema = z.object({
   moderator: z.boolean(),
 });
 
-export const roomCreatorSchema = z.object({
-  canCreateRooms: z.boolean(),
+export const stationCreatorSchema = z.object({
+  canCreateStations: z.boolean(),
 });
 
 export const removeQueueItemSchema = z.object({
   reason: z.string().trim().min(3).max(240),
 });
 
-export const roomSettingsSchema = z.object({
+export const stationSettingsSchema = z.object({
   description: z.string().trim().max(4_000).optional(),
   maxDurationSeconds: z.number().int().min(60).max(1_800).optional(),
   repeatCooldownSeconds: z.number().int().min(300).max(2_592_000).optional(),
@@ -213,14 +213,14 @@ export interface PlaybackRegion {
   name: string;
 }
 
-/** Site-wide. Running a room is a `RoomRole` in that room. */
+/** Site-wide. Running a station is a `StationRole` in that station. */
 export type UserRole = 'listener' | 'admin';
 
-/** What someone is in one room: its owner, one of its moderators, or neither. */
-export type RoomRole = 'owner' | 'mod';
+/** What someone is in one station: its owner, one of its moderators, or neither. */
+export type StationRole = 'owner' | 'mod';
 
-/** A room as the rooms list shows it. */
-export interface RoomListing {
+/** A station as the stations list shows it. */
+export interface StationListing {
   slug: string;
   name: string;
   listenerCount: number;
@@ -228,27 +228,27 @@ export interface RoomListing {
 }
 
 /**
- * What moving a listener's waiting tracks into a room would do. `from` is the
- * room they are queued in, or null when there is nothing to move.
+ * What moving a listener's waiting tracks into a station would do. `from` is the
+ * station they are queued in, or null when there is nothing to move.
  */
 export interface QueueMovePlan {
   from: { slug: string; name: string } | null;
   tracks: { queueItemId: string; title: string; artist: string; refused: string | null }[];
 }
 
-/** A room someone owns, for linking them to it. */
-export interface OwnedRoom {
+/** A station someone owns, for linking them to it. */
+export interface OwnedStation {
   slug: string;
   name: string;
 }
 
-export interface RoomModerator {
+export interface StationModerator {
   id: string;
   username: string;
-  role: RoomRole;
+  role: StationRole;
 }
 
-export const createRoomSchema = z.object({
+export const createStationSchema = z.object({
   name: z.string().trim().min(2).max(40),
   slug: z
     .string()
@@ -260,10 +260,10 @@ export const createRoomSchema = z.object({
 /** Stands in wherever someone has no counted emote of their own. Never counted itself. */
 export const DEFAULT_EMOTE = 'MMMM';
 
-/** Which side of the room someone falls on, or none when their chat is mixed. */
+/** Which side of the station someone falls on, or none when their chat is mixed. */
 export type Team = 'pepe' | 'yee' | null;
 
-export interface RoomUser {
+export interface StationUser {
   id: string;
   username: string;
   avatarUrl: string | null;
@@ -310,7 +310,7 @@ export interface TrackGenres {
   artistLevelOnly: boolean;
 }
 
-export interface RoomMedia {
+export interface StationMedia {
   id: string;
   provider: MediaProvider;
   providerMediaId: string;
@@ -334,7 +334,7 @@ export interface PlaylistSummary {
 }
 
 export interface PlaylistTrack {
-  media: RoomMedia;
+  media: StationMedia;
   position: number;
   addedAt: string;
 }
@@ -380,9 +380,9 @@ export interface PlaylistQueueResult {
 
 export interface QueueItem {
   id: string;
-  media: RoomMedia;
-  /** Null when the room is hiding requesters and the viewer may not see it. */
-  requestedBy: RoomUser | null;
+  media: StationMedia;
+  /** Null when the station is hiding requesters and the viewer may not see it. */
+  requestedBy: StationUser | null;
   status: 'queued' | 'playing' | 'played' | 'skipped' | 'removed';
   requestedAt: string;
   startedAt: string | null;
@@ -392,7 +392,7 @@ export interface QueueItem {
 }
 
 export interface SelectorStats {
-  user: RoomUser;
+  user: StationUser;
   plays: number;
   upvotes: number;
   downvotes: number;
@@ -400,7 +400,7 @@ export interface SelectorStats {
 }
 
 /**
- * One track from the room's QueUp years, imported from an export of that site.
+ * One track from the station's QueUp years, imported from an export of that site.
  * Deliberately not a `HistoryEntry`: there is no media row behind it, no
  * account behind the name, and the votes were cast somewhere else, so nothing
  * here can be queued, saved, or voted on.
@@ -409,7 +409,7 @@ export interface LegacyPlay {
   /** QueUp's own id for the play, which is what the archive is keyed by. */
   id: string;
   provider: MediaProvider;
-  /** The provider's id for the track, which the room's own pages are keyed by. */
+  /** The provider's id for the track, which the station's own pages are keyed by. */
   providerMediaId: string;
   title: string;
   /** The track's own page, when the provider's id makes a link on its own. */
@@ -417,7 +417,7 @@ export interface LegacyPlay {
   durationSeconds: number;
   thumbnailUrl: string | null;
   /**
-   * The room's own row for this track, when one already exists. Null means the
+   * The station's own row for this track, when one already exists. Null means the
    * archive holds a provider and an id and nothing else, so saving the track
    * has to ask the provider before it can go anywhere.
    */
@@ -443,10 +443,10 @@ export interface LegacyHistoryPage {
 
 export interface HistoryEntry {
   id: string;
-  media: RoomMedia;
+  media: StationMedia;
   /** What the track is, where anyone knows. Null is the ordinary answer. */
   genres: TrackGenres | null;
-  requestedBy: RoomUser;
+  requestedBy: StationUser;
   status: 'playing' | 'played' | 'skipped';
   requestedAt: string;
   startedAt: string;
@@ -468,14 +468,14 @@ export interface HistoryQuery {
   genre?: string | null;
 }
 
-/** The room's own history, paged and counted the same way the archive is. */
+/** The station's own history, paged and counted the same way the archive is. */
 export interface HistoryPage {
   entries: HistoryEntry[];
   total: number;
 }
 
 export interface UserProfile {
-  user: RoomUser;
+  user: StationUser;
   joinedAt: string;
   lastSeenAt: string;
   /** True when the signed-in viewer is looking at their own profile. */
@@ -505,9 +505,9 @@ export interface TeamStats {
   score: number;
 }
 
-/** One track and how the room has received it across every play. */
+/** One track and how the station has received it across every play. */
 export interface TrackStats {
-  media: RoomMedia;
+  media: StationMedia;
   plays: number;
   upvotes: number;
   downvotes: number;
@@ -524,7 +524,7 @@ export interface StatsPeriod {
   month: number | null;
 }
 
-/** A year the room has plays in, and which of its months have any. */
+/** A year the station has plays in, and which of its months have any. */
 export interface AvailablePeriod {
   year: number;
   months: number[];
@@ -533,9 +533,9 @@ export interface AvailablePeriod {
 /** One genre, and how much of each history it accounts for. */
 export interface GenreCount {
   genre: string;
-  /** Plays in this room. */
-  roomPlays: number;
-  /** Plays on QueUp, before this room existed. */
+  /** Plays in this station. */
+  stationPlays: number;
+  /** Plays on QueUp, before this station existed. */
   archivePlays: number;
   /**
    * Which vocabularies this name belongs to. Usually one: Discogs' fifteen
@@ -547,7 +547,7 @@ export interface GenreCount {
 
 export interface GenreStats {
   genres: GenreCount[];
-  /** How much of what the room knows about is labelled at all. */
+  /** How much of what the station knows about is labelled at all. */
   coverage: {
     labelledTracks: number;
     tracks: number;
@@ -580,7 +580,7 @@ export interface LegacyJammerStats {
   score: number;
 }
 
-/** What the archive says, kept apart from what this room says. */
+/** What the archive says, kept apart from what this station says. */
 export interface LegacyStats {
   tracks: LegacyTrackStats[];
   jammers: LegacyJammerStats[];
@@ -605,7 +605,7 @@ export interface ArchiveRefresh {
 /** One play of a track, in either history. */
 export interface TrackPlay {
   /** The account that requested it, or null for an archived QueUp name. */
-  requester: RoomUser | null;
+  requester: StationUser | null;
   requesterName: string;
   playedAt: string;
   upvotes: number;
@@ -623,7 +623,7 @@ export interface TrackSummary {
   plays: number;
 }
 
-/** Everything the room knows about one track. */
+/** Everything the station knows about one track. */
 export interface TrackDetail {
   provider: MediaProvider;
   providerMediaId: string;
@@ -634,11 +634,11 @@ export interface TrackDetail {
   canonicalUrl: string | null;
   thumbnailUrl: string | null;
   durationSeconds: number | null;
-  /** The room's own row, when it has played here. */
+  /** The station's own row, when it has played here. */
   mediaId: string | null;
   genres: TrackGenres | null;
   totals: {
-    roomPlays: number;
+    stationPlays: number;
     archivePlays: number;
     upvotes: number;
     downvotes: number;
@@ -646,7 +646,7 @@ export interface TrackDetail {
     lastPlayed: string | null;
   };
   /** The most recent plays of it, newest first, each history on its own. */
-  roomPlays: TrackPlay[];
+  stationPlays: TrackPlay[];
   archivePlays: TrackPlay[];
   related: {
     /** Others from the same channel or account. Empty without a media row. */
@@ -657,18 +657,18 @@ export interface TrackDetail {
 }
 
 export interface ArtistTrack extends TrackSummary {
-  roomPlays: number;
+  stationPlays: number;
   archivePlays: number;
 }
 
-/** Everything the room has by one channel or account. */
+/** Everything the station has by one channel or account. */
 export interface ArtistDetail {
   provider: MediaProvider;
   providerArtistId: string;
   name: string;
   totals: {
     tracks: number;
-    roomPlays: number;
+    stationPlays: number;
     archivePlays: number;
   };
   /** What their tracks are, by how many of them carry each name. */
@@ -730,15 +730,15 @@ export interface RuleEntrySummary {
   createdAt: string;
 }
 
-export interface RoomMember {
+export interface StationMember {
   id: string;
   username: string;
   avatarUrl: string | null;
   role: UserRole;
-  /** Their role in the main room, which is what the admin page manages. */
-  mainRoomRole: RoomRole | null;
-  /** Whitelisted to create a room of their own. */
-  canCreateRooms: boolean;
+  /** Their role in the main station, which is what the admin page manages. */
+  mainStationRole: StationRole | null;
+  /** Whitelisted to create a station of their own. */
+  canCreateStations: boolean;
   team: Team;
   /** Named in the environment, so always an admin and not removable here. */
   isRoot: boolean;
@@ -783,7 +783,7 @@ export interface StorageSnapshot {
 }
 
 /**
- * One thing a mod or admin did, as the room recorded it at the time. Every
+ * One thing a mod or admin did, as the station recorded it at the time. Every
  * action names an actor; the rest depends on what was done, so a track, a
  * target and a reason are each there only when that action carried one.
  */
@@ -824,19 +824,19 @@ export interface OperationsSnapshot extends ProcessSnapshot {
 
 /**
  * What a page header needs: who is signed in, and how many people are
- * listening. Every page shows this, and only the room itself needs the whole
+ * listening. Every page shows this, and only the station itself needs the whole
  * snapshot behind it.
  */
 export interface SessionSnapshot {
-  me: RoomUser | null;
+  me: StationUser | null;
   listenerCount: number;
-  /** The rooms the signed-in user owns, and whether they may create one now. */
-  rooms: { owned: OwnedRoom[]; canCreate: boolean };
+  /** The stations the signed-in user owns, and whether they may create one now. */
+  stations: { owned: OwnedStation[]; canCreate: boolean };
 }
 
 /**
- * Something the room did to one person's request while they were not watching.
- * The room writes the text itself, so a moderator's private note never reaches
+ * Something the station did to one person's request while they were not watching.
+ * The station writes the text itself, so a moderator's private note never reaches
  * the person it is about.
  */
 export interface QueueNotice {
@@ -847,9 +847,9 @@ export interface QueueNotice {
   removedAt: string;
 }
 
-export interface RoomSnapshot {
-  /** Which room this is: its name in a URL, and what it is called. */
-  room: { slug: string; name: string };
+export interface StationSnapshot {
+  /** Which station this is: its name in a URL, and what it is called. */
+  station: { slug: string; name: string };
   serverTime: string;
   revision: number;
   listenerCount: number;
@@ -863,16 +863,16 @@ export interface RoomSnapshot {
     skipRatioPercent: number;
     revealRequester: boolean;
   };
-  me: RoomUser | null;
-  /** The signed-in user's role in this room, or null for none. Site admins act as owners. */
-  myRoomRole: RoomRole | null;
+  me: StationUser | null;
+  /** The signed-in user's role in this station, or null for none. Site admins act as owners. */
+  myStationRole: StationRole | null;
   current: QueueItem | null;
   /**
    * What the track playing now is. Null while nobody knows, which includes the
    * moments after a track starts and before the sources have been asked.
    */
   currentGenres: TrackGenres | null;
-  /** One track per person waiting, in the order the room will reach them. */
+  /** One track per person waiting, in the order the station will reach them. */
   queue: QueueItem[];
   /** Everything the signed-in user has waiting, in their own order. */
   myQueue: QueueItem[];
@@ -997,10 +997,10 @@ export const streamWatchSchema = z.object({
 });
 
 /**
- * Which stream the room follows for its overlay.
+ * Which stream the station follows for its overlay.
  *
  * Every embed the site lists is sampled whatever this says: the live socket is
- * the room's own record of the site and runs on its own. `enabled` names the
+ * the station's own record of the site and runs on its own. `enabled` names the
  * one channel whose chat roster is also read, which is the only part that needs
  * a chat connection and the only part the overlay can draw.
  */
@@ -1030,7 +1030,7 @@ export interface Watcher {
    * than a list of stand-ins.
    */
   lastEmote: string | null;
-  /** Whether this nick has an account in the room. */
+  /** Whether this nick has an account in the station. */
   member: boolean;
   /** A member's counted avatar emote. Null for everyone else, and for a member with none. */
   emote: string | null;

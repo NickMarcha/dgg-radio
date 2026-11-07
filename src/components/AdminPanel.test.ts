@@ -68,7 +68,7 @@ describe('summarising a moderation record', () => {
   });
 
   it('counts a reordered queue', () => {
-    expect(moderationSummary(entry('reorder_room_queue', { orderedIds: ['a', 'b'] }))).toBe(
+    expect(moderationSummary(entry('reorder_station_queue', { orderedIds: ['a', 'b'] }))).toBe(
       '2 tracks put in a new order.',
     );
   });
@@ -86,12 +86,12 @@ describe('the tab in the URL hash', () => {
     expect(tabFromHash('#obs')).toBe('obs');
   });
 
-  it('falls back to the room tab for an empty or unknown hash', () => {
-    expect(tabFromHash('')).toBe('room');
-    expect(tabFromHash('#')).toBe('room');
-    expect(tabFromHash('#storage')).toBe('room');
-    // The embed history tab is gone; an old bookmark opens the room tab.
-    expect(tabFromHash('#embeds')).toBe('room');
+  it('falls back to the station tab for an empty or unknown hash', () => {
+    expect(tabFromHash('')).toBe('station');
+    expect(tabFromHash('#')).toBe('station');
+    expect(tabFromHash('#storage')).toBe('station');
+    // The embed history tab is gone; an old bookmark opens the station tab.
+    expect(tabFromHash('#embeds')).toBe('station');
   });
 });
 
@@ -175,9 +175,9 @@ describe('browser source URLs', () => {
     // The defaults live in the page that reads them, so writing them into the
     // URL would only pin today's value into somebody's OBS scene.
     expect(buildSourcePath('/embed/watchers', watcherOptions, {})).toBe('/embed/watchers');
-    // The main room is what a source shows by default, so only another room is named.
+    // The main station is what a source shows by default, so only another station is named.
     expect(buildSourcePath('/embed/queue', [], {}, 'main')).toBe('/embed/queue');
-    expect(buildSourcePath('/embed/queue', [], {}, 'late-night')).toBe('/embed/queue?room=late-night');
+    expect(buildSourcePath('/embed/queue', [], {}, 'late-night')).toBe('/embed/queue?station=late-night');
     expect(buildSourcePath('/embed/watchers', watcherOptions, { show: 'speakers', max: '24' })).toBe(
       '/embed/watchers',
     );

@@ -19,7 +19,7 @@ import type { GenreLevel } from '../shared/contracts';
  *
  * MusicBrainz allows one request a second per source IP. Everything here goes
  * through one queue that spaces requests wider than that and backs off when
- * asked to, because being rate limited off a free service the room does not pay
+ * asked to, because being rate limited off a free service the station does not pay
  * for is nobody's fault but this code's.
  */
 

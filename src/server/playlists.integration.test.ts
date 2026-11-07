@@ -15,7 +15,7 @@ process.env.YOUTUBE_API_KEY ??= 'test-youtube-key';
 
 const { cachedLookup, playbackIssues } = vi.hoisted(() => ({
   cachedLookup: vi.fn(),
-  /** URLs the room cannot play. Their metadata still resolves, as it does live. */
+  /** URLs the station cannot play. Their metadata still resolves, as it does live. */
   playbackIssues: new Map<string, Error>(),
 }));
 
@@ -64,7 +64,7 @@ vi.mock('./media', async (importOriginal) => ({
 
 const { listPlaylistTrackUrls, MediaLookupError } = await import('./media');
 const schema = await import('./db/schema');
-const { MAIN_ROOM_ID } = await import('./rooms');
+const { MAIN_STATION_ID } = await import('./stations');
 const {
   addLegacyPlayToPlaylist,
   addPlaylistTrack,
@@ -80,7 +80,7 @@ const {
   renamePlaylist,
   reorderPlaylist,
 } = await import('./playlists');
-const { enqueueMedia, getRoomSnapshot } = await import('./room');
+const { enqueueMedia, getStationSnapshot } = await import('./station');
 const {
   legacyPlays,
   media,
@@ -88,8 +88,8 @@ const {
   playlistItems,
   playlists,
   queueItems,
-  roomSettings,
-  roomState,
+  stationSettings,
+  stationState,
   sessions,
   userChatCounts,
   users,
@@ -112,7 +112,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
 
   afterEach(async () => {
     await db.execute(
-      sql`truncate table ${playlistItems}, ${playlists}, ${moderationActions}, ${votes}, ${roomState}, ${roomSettings}, ${queueItems}, ${legacyPlays}, ${media}, ${sessions}, ${userChatCounts}, ${users} restart identity cascade`,
+      sql`truncate table ${playlistItems}, ${playlists}, ${moderationActions}, ${votes}, ${stationState}, ${stationSettings}, ${queueItems}, ${legacyPlays}, ${media}, ${sessions}, ${userChatCounts}, ${users} restart identity cascade`,
     );
     cachedLookup.mockReset();
     playbackIssues.clear();
@@ -280,7 +280,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toEqual([]);
   });
 
-  it('queues a saved track through the room policy without changing the playlist', async () => {
+  it('queues a saved track through the station policy without changing the playlist', async () => {
     const owner = await createUser('owner');
     const saved = await createMedia('aaaaaaaaaaa');
     const playlistId = await createPlaylist('Driving', owner.id, db);
@@ -296,13 +296,13 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       thumbnailUrl: null,
     });
 
-    await queuePlaylistTrack(MAIN_ROOM_ID, playlistId, saved.id, owner, db);
+    await queuePlaylistTrack(MAIN_STATION_ID, playlistId, saved.id, owner, db);
 
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, owner, 1, db)).current?.media.id).toBe(saved.id);
+    expect((await getStationSnapshot(MAIN_STATION_ID, owner, 1, db)).current?.media.id).toBe(saved.id);
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
   });
 
-  it('saves without room checks and applies current policy only when queueing', async () => {
+  it('saves without station checks and applies current policy only when queueing', async () => {
     const owner = await createUser('owner');
     const saved = await createMedia('aaaaaaaaaaa');
     const playlistId = await createPlaylist('Driving', owner.id, db);
@@ -320,13 +320,13 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       durationSeconds: 1_900,
       thumbnailUrl: null,
     });
-    await expect(queuePlaylistTrack(MAIN_ROOM_ID, playlistId, saved.id, owner, db)).rejects.toMatchObject({
+    await expect(queuePlaylistTrack(MAIN_STATION_ID, playlistId, saved.id, owner, db)).rejects.toMatchObject({
       code: 'TRACK_TOO_LONG',
     });
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
   });
 
-  it('saves a pasted link the room would refuse, and refuses it only at the queue', async () => {
+  it('saves a pasted link the station would refuse, and refuses it only at the queue', async () => {
     const owner = await createUser('owner');
     const playlistId = await createPlaylist('Driving', owner.id, db);
     const url = 'https://www.youtube.com/watch?v=ccccccccccc';
@@ -352,7 +352,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
     expect(playlist.tracks[0]!.media.title).toBe('A long one');
     const mediaId = playlist.tracks[0]!.media.id;
 
-    await expect(queuePlaylistTrack(MAIN_ROOM_ID, playlistId, mediaId, owner, db)).rejects.toMatchObject({
+    await expect(queuePlaylistTrack(MAIN_STATION_ID, playlistId, mediaId, owner, db)).rejects.toMatchObject({
       code: 'TRACK_TOO_LONG',
     });
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
@@ -422,7 +422,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       db,
     );
 
-    // Every track is stored even though the room's duration limit would refuse
+    // Every track is stored even though the station's duration limit would refuse
     // all of them: saving is not admission.
     expect(result).toMatchObject({ attempted: 3, saved: 2 });
     expect(result.skipped).toEqual([
@@ -467,7 +467,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
     const playlist = await getPlaylist(playlistId, owner.id, db);
     expect(playlist.tracks[0]!.media.title).toBe('Blocked where the host lives');
     await expect(
-      queuePlaylistTrack(MAIN_ROOM_ID, playlistId, playlist.tracks[0]!.media.id, owner, db),
+      queuePlaylistTrack(MAIN_STATION_ID, playlistId, playlist.tracks[0]!.media.id, owner, db),
     ).rejects.toMatchObject({ code: 'YOUTUBE_REGION_BLOCKED' });
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(1);
   });
@@ -591,19 +591,19 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
       if (!found) throw new Error(`No metadata for ${url}`);
       return found;
     });
-    await enqueueMedia(MAIN_ROOM_ID, metadata.get('https://www.youtube.com/watch?v=aaaaaaaaaaa')!.canonicalUrl, owner, db);
+    await enqueueMedia(MAIN_STATION_ID, metadata.get('https://www.youtube.com/watch?v=aaaaaaaaaaa')!.canonicalUrl, owner, db);
     const playlistId = await createPlaylist('Driving', owner.id, db);
     await addPlaylistTrack(playlistId, duplicate.id, owner.id, db);
     await addPlaylistTrack(playlistId, eligible.id, owner.id, db);
 
-    const result = await queuePlaylist(MAIN_ROOM_ID, playlistId, owner, db);
+    const result = await queuePlaylist(MAIN_STATION_ID, playlistId, owner, db);
 
     expect(result).toMatchObject({
       attempted: 2,
       added: 1,
       skipped: [{ mediaId: duplicate.id, code: 'ALREADY_QUEUED' }],
     });
-    expect((await getRoomSnapshot(MAIN_ROOM_ID, owner, 1, db)).myQueue.map(({ media }) => media.id)).toEqual([
+    expect((await getStationSnapshot(MAIN_STATION_ID, owner, 1, db)).myQueue.map(({ media }) => media.id)).toEqual([
       eligible.id,
     ]);
     expect((await getPlaylist(playlistId, owner.id, db)).tracks).toHaveLength(2);
@@ -726,7 +726,7 @@ describe.skipIf(!connectionString)('personal playlists against Postgres', () => 
 
       expect(result.playlists[0]).toMatchObject({
         saved: 1,
-        skipped: [{ title: 'Something else', reason: 'This room cannot play bandcamp tracks.' }],
+        skipped: [{ title: 'Something else', reason: 'This station cannot play bandcamp tracks.' }],
       });
     });
 

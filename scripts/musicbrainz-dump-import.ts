@@ -1,16 +1,16 @@
 /**
- * Labels the room's tracks with genre from the MusicBrainz database dumps.
+ * Labels the station's tracks with genre from the MusicBrainz database dumps.
  *
  *   npx tsx scripts/musicbrainz-dump-import.ts \
  *     --core mbdump.tar.bz2 --derived mbdump-derived.tar.bz2
  *
- * By default it reads the room's tracks from the database and writes the
+ * By default it reads the station's tracks from the database and writes the
  * answers back to it. With `--tracks` and `--out` it does neither, and works
  * entirely from files — which is how the deployment host gets these genres
  * without ever seeing 7.6 GB of dumps. `genre-transfer.ts` makes the one file
  * and applies the other.
  *
- * This is a backfill, not part of the room. It exists because the per-track
+ * This is a backfill, not part of the station. It exists because the per-track
  * pass in `enrich-genres.ts` spends about four requests a track against a
  * one-a-second limit, which is days of running for an archive this size. The
  * dumps answer the same questions offline, so the whole archive can be labelled
@@ -18,7 +18,7 @@
  * extraction — goes away afterwards.
  *
  * What it does *not* do is join on an embedded YouTube id the way the Discogs
- * import does. That was measured: MusicBrainz links only 18 of the room's 100
+ * import does. That was measured: MusicBrainz links only 18 of the station's 100
  * most played tracks to a recording by URL, against Discogs' 30.8% across the
  * whole archive. Those 18 are still taken, exactly, because they cost nothing
  * once the dump is open; everything else is matched on artist and title read
@@ -247,7 +247,7 @@ async function main(): Promise<void> {
   }
   // A run that is handed its tracks and asked for a file needs no database at
   // all, which is the point: the machine with the dumps on it is not the
-  // machine with the room on it.
+  // machine with the station on it.
   const tracksFile = flag('tracks');
   const outFile = flag('out');
   const databaseUrl = process.env.DATABASE_URL;

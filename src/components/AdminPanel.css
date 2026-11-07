@@ -431,7 +431,7 @@
 }
 
 /*
- * Copies of the room's data. Links rather than buttons, because the browser is
+ * Copies of the station's data. Links rather than buttons, because the browser is
  * doing the saving and a navigation carries the session cookie on its own.
  */
 .admin-export-note {

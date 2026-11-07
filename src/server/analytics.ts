@@ -47,9 +47,9 @@ export function captureServerException(
 
 /**
  * How long an API request may take before it is worth a line in PostHog. Well
- * above anything the room does when it is healthy — the slowest endpoint is the
+ * above anything the station does when it is healthy — the slowest endpoint is the
  * stats page at a quarter of a second — so a healthy server reports nothing at
- * all and the room's fifteen-second poll never writes an event.
+ * all and the station's fifteen-second poll never writes an event.
  *
  * This is the time the server spent producing the response, not the time the
  * listener waited for it. The two differ by the network and, in production, by

@@ -1,10 +1,10 @@
-import type { ConnectionKind } from '../src/shared/roomConnection';
+import type { ConnectionKind } from '../src/shared/stationConnection';
 import type { ConnectionSnapshot } from '../src/shared/contracts';
 
 export interface ConnectionMetadata {
   kind: ConnectionKind;
-  /** The room this socket is watching. */
-  roomId: string;
+  /** The station this socket is watching. */
+  stationId: string;
   userId: string | null;
   username: string | null;
   visitorId: string | null;
@@ -37,18 +37,18 @@ export class ConnectionRegistry<Client> {
     }
   }
 
-  roomOf(client: Client): string | undefined {
-    return this.connections.get(client)?.roomId;
+  stationOf(client: Client): string | undefined {
+    return this.connections.get(client)?.stationId;
   }
 
-  /** Every room somebody has a socket open on. */
-  roomIds(): Set<string> {
-    return new Set([...this.connections.values()].map((connection) => connection.roomId));
+  /** Every station somebody has a socket open on. */
+  stationIds(): Set<string> {
+    return new Set([...this.connections.values()].map((connection) => connection.stationId));
   }
 
-  *clientsInRoom(roomId: string): Generator<Client> {
+  *clientsInStation(stationId: string): Generator<Client> {
     for (const [client, connection] of this.connections) {
-      if (connection.roomId === roomId) yield client;
+      if (connection.stationId === stationId) yield client;
     }
   }
 
@@ -60,13 +60,13 @@ export class ConnectionRegistry<Client> {
     return count;
   }
 
-  /** People in one room, or across every room when none is named. */
-  listenerCount(roomId?: string): number {
+  /** People in one station, or across every station when none is named. */
+  listenerCount(stationId?: string): number {
     const listeners = new Set<Client | string>();
 
     for (const [client, connection] of this.connections) {
-      if (connection.kind !== 'room') continue;
-      if (roomId !== undefined && connection.roomId !== roomId) continue;
+      if (connection.kind !== 'station') continue;
+      if (stationId !== undefined && connection.stationId !== stationId) continue;
       if (connection.userId) {
         listeners.add(`user:${connection.userId}`);
       } else if (connection.visitorId) {
@@ -79,13 +79,13 @@ export class ConnectionRegistry<Client> {
     return listeners.size;
   }
 
-  /** Signed-in people in one room, who are the ones a skip ratio counts, or across every room. */
-  eligibleVoterCount(roomId?: string): number {
+  /** Signed-in people in one station, who are the ones a skip ratio counts, or across every station. */
+  eligibleVoterCount(stationId?: string): number {
     const users = new Set<string>();
 
     for (const connection of this.connections.values()) {
-      if (connection.kind === 'room' &&
-        (roomId === undefined || connection.roomId === roomId) &&
+      if (connection.kind === 'station' &&
+        (stationId === undefined || connection.stationId === stationId) &&
         connection.userId) {
         users.add(connection.userId);
       }

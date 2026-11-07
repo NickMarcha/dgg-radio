@@ -1,16 +1,16 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RoomSnapshot } from '../shared/contracts';
+import type { StationSnapshot } from '../shared/contracts';
 import EmbedView from './EmbedView';
 
-const state = vi.hoisted(() => ({ room: null as RoomSnapshot | null }));
+const state = vi.hoisted(() => ({ station: null as StationSnapshot | null }));
 
-vi.mock('./useRoomSnapshot', () => ({
-  useRoomSnapshot: () => ({ room: state.room, error: null }),
+vi.mock('./useStationSnapshot', () => ({
+  useStationSnapshot: () => ({ station: state.station, error: null }),
 }));
 
-function roomSnapshot(): RoomSnapshot {
+function stationSnapshot(): StationSnapshot {
   const startedAt = new Date('2026-08-28T12:00:00.000Z').toISOString();
   const requester = {
     id: '33333333-3333-4333-8333-333333333333',
@@ -22,7 +22,7 @@ function roomSnapshot(): RoomSnapshot {
     topEmote: null,
   };
   return {
-    room: { slug: 'main', name: 'DGG Radio' },
+    station: { slug: 'main', name: 'DGG Radio' },
     serverTime: new Date('2026-08-28T12:00:30.000Z').toISOString(),
     revision: 1,
     listenerCount: 1,
@@ -37,7 +37,7 @@ function roomSnapshot(): RoomSnapshot {
       revealRequester: true,
     },
     me: null,
-    myRoomRole: null,
+    myStationRole: null,
     current: {
       id: '11111111-1111-4111-8111-111111111111',
       media: {
@@ -92,7 +92,7 @@ function roomSnapshot(): RoomSnapshot {
 
 describe('OBS embeds', () => {
   beforeEach(() => {
-    state.room = roomSnapshot();
+    state.station = stationSnapshot();
   });
 
   it('renders only the provider mount in player mode', () => {
@@ -120,7 +120,7 @@ describe('OBS embeds', () => {
     expect(html).not.toContain('<iframe');
   });
 
-  it('renders the upcoming room queue without controls', () => {
+  it('renders the upcoming station queue without controls', () => {
     const html = renderToStaticMarkup(
       createElement(EmbedView, { apiUrl: 'https://api.example.com', mode: 'queue' }),
     );
@@ -133,8 +133,8 @@ describe('OBS embeds', () => {
     expect(html).not.toContain('<input');
   });
 
-  it('renders an empty transparent overlay when the room is idle', () => {
-    state.room = { ...roomSnapshot(), current: null };
+  it('renders an empty transparent overlay when the station is idle', () => {
+    state.station = { ...stationSnapshot(), current: null };
 
     const html = renderToStaticMarkup(
       createElement(EmbedView, { apiUrl: 'https://api.example.com', mode: 'playing' }),

@@ -1,15 +1,15 @@
 /**
- * A stand-in for the three destiny.gg endpoints the room's sign-in uses, for
+ * A stand-in for the three destiny.gg endpoints the station's sign-in uses, for
  * local development only.
  *
  * destiny.gg allows one application per account and has no test applications,
  * so the production client is the only one that exists, and its single
  * registered redirect points at the deployed site. Signing in locally would
  * mean moving that redirect off production. This serves the same protocol
- * against invented identities instead, so a local room can sign anyone in
+ * against invented identities instead, so a local station can sign anyone in
  * without the real provider knowing.
  *
- * It is a drop-in replacement, not a bypass: the room's own OAuth code runs
+ * It is a drop-in replacement, not a bypass: the station's own OAuth code runs
  * unchanged, and the secret-bound code challenge is verified here exactly as
  * the archived PHP verifies it. A login that works against this shim exercises
  * every step except Destiny's own account check.
@@ -78,7 +78,7 @@ function sendHtml(response, status, html) {
   response.end(html);
 }
 
-/** Named the way the room reads them, since picking one is what this is for. */
+/** Named the way the station reads them, since picking one is what this is for. */
 const FEATURES = [
   ['subscriber', 'Subscriber'],
   ['admin', 'Destiny ADMIN flair'],
@@ -155,8 +155,8 @@ function authorizePage(params, error) {
 <body>
   <main>
     <h1>Local Destiny stand-in</h1>
-    <p class="lede">Not destiny.gg. This is <strong>dev/dgg-oauth</strong>, and it signs the local
-      room in as whoever you describe here.</p>
+    <p class="lede">Not destiny.gg. This is <strong>dev/dgg-oauth</strong>, and it signs you in to
+      the local station as whoever you describe here.</p>
     ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
     <form method="post" action="/oauth/authorize">
       ${hidden}
@@ -182,7 +182,7 @@ function authorizePage(params, error) {
       <label class="field">
         <span>Roles</span>
         <input type="text" name="roles" value="USER" autocomplete="off">
-        <small>Stored on the account and shown on the admin page. The room grants nothing from them.</small>
+        <small>Stored on the account and shown on the admin page. The station grants nothing from them.</small>
       </label>
       <button type="submit">Sign in</button>
     </form>
@@ -200,7 +200,7 @@ function readBody(request) {
   });
 }
 
-/** Destiny accepts only these, and refusing anything else keeps the room honest. */
+/** Destiny accepts only these, and refusing anything else keeps the station honest. */
 function authorizeError(params) {
   if (params.get('client_id') !== CLIENT_ID) return 'Unknown client_id.';
   if (params.get('response_type') !== 'code') return 'response_type must be code.';

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlaylistLibrary, RoomMedia } from '../shared/contracts';
+import type { PlaylistLibrary, StationMedia } from '../shared/contracts';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
 import {
   usePlaylistLibrary,
@@ -11,7 +11,7 @@ import {
 
 const API = 'http://api.test';
 
-const track: RoomMedia = {
+const track: StationMedia = {
   id: '11111111-1111-4111-8111-111111111111',
   provider: 'youtube',
   providerMediaId: 'abc123',
@@ -23,7 +23,7 @@ const track: RoomMedia = {
   thumbnailUrl: null,
 };
 
-const second: RoomMedia = { ...track, id: '22222222-2222-4222-8222-222222222222', title: 'Another' };
+const second: StationMedia = { ...track, id: '22222222-2222-4222-8222-222222222222', title: 'Another' };
 
 const driving = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Driving', trackCount: 3, updatedAt: '2026-08-29T12:00:00.000Z' };
 const memeNight = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Meme night', trackCount: 0, updatedAt: '2026-08-29T12:00:00.000Z' };

@@ -1,7 +1,7 @@
 /*
  * Where the track actually lives. Two letters rather than the provider's name,
  * because this sits on every row of every list beside a title that wants the
- * room, and the colour already says which service it is.
+ * station, and the colour already says which service it is.
  */
 .provider-badge {
   font-weight: 700;

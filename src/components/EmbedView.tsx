@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { QueueItem } from '../shared/contracts';
 import MediaPlayer from './MediaPlayer';
-import { embedConnectionKind } from './roomSocket';
-import { roomSlugFromSearch } from '../client/room';
-import { MAIN_ROOM_SLUG } from '../shared/roomConnection';
-import { useRoomSnapshot } from './useRoomSnapshot';
+import { embedConnectionKind } from './stationSocket';
+import { stationSlugFromSearch } from '../client/station';
+import { MAIN_STATION_SLUG } from '../shared/stationConnection';
+import { useStationSnapshot } from './useStationSnapshot';
 import './EmbedView.css';
 
 interface EmbedViewProps {
@@ -130,19 +130,19 @@ function captionsRequested(): boolean {
 }
 
 export default function EmbedView({ apiUrl, mode }: EmbedViewProps) {
-  // A browser source names its room in its URL, like every other option.
-  const [roomSlug] = useState(() =>
-    typeof window === 'undefined' ? MAIN_ROOM_SLUG : roomSlugFromSearch(window.location.search),
+  // A browser source names its station in its URL, like every other option.
+  const [stationSlug] = useState(() =>
+    typeof window === 'undefined' ? MAIN_STATION_SLUG : stationSlugFromSearch(window.location.search),
   );
-  const { room } = useRoomSnapshot(apiUrl, embedConnectionKind(mode), roomSlug);
-  const current = room?.current ?? null;
+  const { station } = useStationSnapshot(apiUrl, embedConnectionKind(mode), stationSlug);
+  const current = station?.current ?? null;
 
   if (mode === 'player') {
     return (
       <main className="embed-root embed-player-root">
         <MediaPlayer
           current={current}
-          serverTime={room?.serverTime ?? null}
+          serverTime={station?.serverTime ?? null}
           embedded
           captions={captionsRequested()}
         />
@@ -150,7 +150,7 @@ export default function EmbedView({ apiUrl, mode }: EmbedViewProps) {
     );
   }
 
-  if (mode === 'queue') return <QueueEmbed queue={room?.queue ?? []} />;
+  if (mode === 'queue') return <QueueEmbed queue={station?.queue ?? []} />;
 
-  return <PlayingEmbed current={current} serverTime={room?.serverTime ?? null} />;
+  return <PlayingEmbed current={current} serverTime={station?.serverTime ?? null} />;
 }

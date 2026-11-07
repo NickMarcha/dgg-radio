@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, ilike, sql } from 'drizzle-orm';
-import type { RoomMember, UserRole } from '../shared/contracts';
+import type { StationMember, UserRole } from '../shared/contracts';
 import { getDatabase, type Database } from './db/client';
-import { queueItems, roomMembers, users } from './db/schema';
-import { MAIN_ROOM_ID } from './rooms';
+import { queueItems, stationMembers, users } from './db/schema';
+import { MAIN_STATION_ID } from './stations';
 import { getAdminUsernames, getEnv } from './env';
 
 export class AdminError extends Error {
@@ -61,7 +61,7 @@ export async function listAdmins(db: Database = getDatabase()): Promise<AdminSum
 export async function listUsers(
   search: string | undefined,
   db: Database = getDatabase(),
-): Promise<RoomMember[]> {
+): Promise<StationMember[]> {
   const queued = db.$with('queued').as(
     db
       .select({
@@ -80,8 +80,8 @@ export async function listUsers(
       username: users.username,
       avatarUrl: users.avatarUrl,
       role: users.role,
-      mainRoomRole: roomMembers.role,
-      canCreateRooms: users.canCreateRooms,
+      mainStationRole: stationMembers.role,
+      canCreateStations: users.canCreateStations,
       team: users.team,
       flair: users.flair,
       topEmote: users.topEmote,
@@ -91,8 +91,8 @@ export async function listUsers(
     .from(users)
     .leftJoin(queued, eq(queued.userId, users.id))
     .leftJoin(
-      roomMembers,
-      and(eq(roomMembers.userId, users.id), eq(roomMembers.roomId, MAIN_ROOM_ID)),
+      stationMembers,
+      and(eq(stationMembers.userId, users.id), eq(stationMembers.stationId, MAIN_STATION_ID)),
     )
     .where(search ? ilike(users.username, `%${search}%`) : undefined)
     .orderBy(desc(users.lastSeenAt))
@@ -128,15 +128,15 @@ export async function setUserRole(
   await db.update(users).set({ role }).where(eq(users.id, userId));
 }
 
-/** The whitelist of who may create a room. Only a site admin changes it. */
-export async function setRoomCreator(
+/** The whitelist of who may create a station. Only a site admin changes it. */
+export async function setStationCreator(
   userId: string,
-  canCreateRooms: boolean,
+  canCreateStations: boolean,
   db: Database = getDatabase(),
 ): Promise<void> {
   const [updated] = await db
     .update(users)
-    .set({ canCreateRooms })
+    .set({ canCreateStations })
     .where(eq(users.id, userId))
     .returning({ id: users.id });
   if (!updated) throw new AdminError('USER_NOT_FOUND', 'That user does not exist.', 404);

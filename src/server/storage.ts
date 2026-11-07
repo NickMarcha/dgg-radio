@@ -11,9 +11,9 @@ import type { StorageGroup, StorageSnapshot } from '../shared/contracts';
  */
 const GROUPS: { name: string; tables: string[] }[] = [
   { name: 'History and voting', tables: ['queue_items', 'votes'] },
-  // Tens of thousands of rows from a room that ran for two years elsewhere, and
+  // Tens of thousands of rows from a station that ran for two years elsewhere, and
   // by some distance the largest table here. Measured on its own so the total
-  // it accounts for is obvious rather than hidden inside the room's own history.
+  // it accounts for is obvious rather than hidden inside the station's own history.
   { name: 'QueUp archive', tables: ['legacy_plays'] },
   // The second largest, and on its own for the same reason: it labels both
   // histories rather than belonging to either, so filing it under the archive
@@ -32,13 +32,13 @@ const GROUPS: { name: string; tables: string[] }[] = [
   { name: 'Rules and moderation', tables: ['rules', 'rule_entries', 'moderation_actions'] },
   { name: 'Stream overlay', tables: ['stream_watch', 'watcher_embed_settings'] },
   {
-    name: 'Room state and internal tables',
+    name: 'Station state and internal tables',
     tables: [
-      'rooms',
-      'room_members',
-      'room_settings',
-      'room_state',
-      'room_seats',
+      'stations',
+      'station_members',
+      'station_settings',
+      'station_state',
+      'station_seats',
       'seed_state',
       'drizzle.__drizzle_migrations',
     ],

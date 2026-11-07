@@ -6,7 +6,7 @@ import { findGenres, findRecording } from './musicbrainz';
 import { findMusicCard, WatchPageError } from './youtube-music';
 
 /**
- * Working out what a track is, the first time the room sees one.
+ * Working out what a track is, the first time the station sees one.
  *
  * The archive was labelled in bulk from data dumps, which is the only sensible
  * way to do 34,000 tracks. A track somebody queues today is one track, and one
@@ -15,7 +15,7 @@ import { findMusicCard, WatchPageError } from './youtube-music';
  *
  * Everything here is deliberately slow and out of the way. Both services are
  * rate limited, their clients queue requests behind one another, and nothing a
- * listener does waits on any of it: a request is accepted, the room plays, and
+ * listener does waits on any of it: a request is accepted, the station plays, and
  * the genre appears on the next poll or the one after.
  *
  * Identity comes from the video's own YouTube Music card where there is one,
@@ -202,7 +202,7 @@ async function enrich(
  *
  * The queue is in memory and bounded. A restart loses whatever was waiting,
  * and a burst past the limit drops the overflow — in both cases the track is
- * still in the room and the next dump import picks it up, so the cost of
+ * still in the station and the next dump import picks it up, so the cost of
  * losing one is that its genre arrives later rather than never.
  */
 export function enrichTrack(

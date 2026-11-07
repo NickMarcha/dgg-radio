@@ -1,6 +1,6 @@
 import { Headphones, LogIn, LogOut, Shield } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { DEFAULT_EMOTE, type RoomSnapshot, type SessionSnapshot } from '../shared/contracts';
+import { DEFAULT_EMOTE, type StationSnapshot, type SessionSnapshot } from '../shared/contracts';
 import { userClass } from './flair';
 import './SiteHeader.css';
 
@@ -16,7 +16,7 @@ interface SiteHeaderPresenceProps {
 
 export function SiteHeaderPresence({ connected, listenerCount }: SiteHeaderPresenceProps) {
   return (
-    <div className="room-presence">
+    <div className="station-presence">
       {connected !== undefined && (
         <span className={connected ? 'connection-ok' : 'connection-wait'}>
           {connected ? 'Connected' : 'Reconnecting'}
@@ -29,7 +29,7 @@ export function SiteHeaderPresence({ connected, listenerCount }: SiteHeaderPrese
 
 interface SiteHeaderAccountProps {
   apiUrl: string;
-  me: RoomSnapshot['me'];
+  me: StationSnapshot['me'];
   busy?: boolean;
   onLogout: () => void;
 }
@@ -55,7 +55,7 @@ export function SiteHeaderAccount({ apiUrl, me, busy = false, onLogout }: SiteHe
             </a>
           </span>
           {me.role === 'admin' && (
-            <a className="admin-label" href="/admin" title="Room admin">
+            <a className="admin-label" href="/admin" title="Station admin">
               <Shield size={13} /> admin
             </a>
           )}
@@ -69,7 +69,7 @@ export function SiteHeaderAccount({ apiUrl, me, busy = false, onLogout }: SiteHe
           type="button"
           onClick={() => { window.location.href = `${apiUrl}/api/auth/login`; }}
         >
-          <LogIn size={16} /> Sign in with Destiny
+          <LogIn size={16} /> Sign in<span className="login-long"> with Destiny</span>
         </button>
       )}
     </div>

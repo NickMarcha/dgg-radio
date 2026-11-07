@@ -15,7 +15,7 @@ import { ensureEmoteCatalogue, lastEmoteIn, type EmoteCatalogue } from './dgg-em
 
 /**
  * Watching destiny.gg's embeds: how many people the site says are on each, and,
- * for the channel each room follows, which chatters they are.
+ * for the channel each station follows, which chatters they are.
  *
  * The two sockets answer different questions and so are held on different
  * terms. The live socket is held for the life of the process: it is one
@@ -24,7 +24,7 @@ import { ensureEmoteCatalogue, lastEmoteIn, type EmoteCatalogue } from './dgg-em
  * is stored; mitchdev.net/dgg/embeds keeps that history.
  *
  * One chat socket serves every followed channel, because every chat event says
- * what its user is watching. It is held only while some room follows a channel
+ * what its user is watching. It is held only while some station follows a channel
  * and somebody is on one, and dropped again after a grace period. Its stream is small, about 1.6
  * events a second, so that is about not sitting on somebody else's chat
  * connection for nothing rather than about the cost.
@@ -40,8 +40,8 @@ const REFRESH_MS = 15_000;
  *
  * destiny.gg closes clients routinely — 1001 Going Away when Cloudflare cycles
  * a server — and the retry ladder answers those in under a second. Even its cap
- * is a minute. So five minutes down is nothing the room recovers from by
- * itself, and a healthy room reports nothing at all, which is what makes this
+ * is a minute. So five minutes down is nothing the station recovers from by
+ * itself, and a healthy station reports nothing at all, which is what makes this
  * worth putting in front of an alert.
  */
 const SOCKET_DOWN_MS = 5 * 60_000;
@@ -50,7 +50,7 @@ const SOCKET_DOWN_MS = 5 * 60_000;
 const WATCHER_LIMIT = 100;
 
 /**
- * The room's own people, by lowercase username, each with the emote they are
+ * The station's own people, by lowercase username, each with the emote they are
  * drawn as. The table is small and a roster is not, so the whole thing is read
  * once a refresh and intersected in memory rather than queried nick by nick.
  */
@@ -69,17 +69,17 @@ async function loadMembers(db: Database): Promise<Map<string, string | null>> {
 function capWatchers(watchers: Watcher[]): Watcher[] {
   if (watchers.length <= WATCHER_LIMIT) return watchers;
   const members = watchers.filter((watcher) => watcher.member);
-  const room = WATCHER_LIMIT - members.length;
-  const others = watchers.filter((watcher) => !watcher.member).slice(0, Math.max(0, room));
+  const spare = WATCHER_LIMIT - members.length;
+  const others = watchers.filter((watcher) => !watcher.member).slice(0, Math.max(0, spare));
   const keep = new Set([...members, ...others]);
   return watchers.filter((watcher) => keep.has(watcher));
 }
 
 export async function getStreamWatchSettings(
-  roomId: string,
+  stationId: string,
   db: Database = getDatabase(),
 ): Promise<StreamWatchSettings> {
-  await db.insert(streamWatch).values({ roomId }).onConflictDoNothing();
+  await db.insert(streamWatch).values({ stationId }).onConflictDoNothing();
   const [row] = await db
     .select({
       enabled: streamWatch.enabled,
@@ -88,7 +88,7 @@ export async function getStreamWatchSettings(
       updatedAt: streamWatch.updatedAt,
     })
     .from(streamWatch)
-    .where(eq(streamWatch.roomId, roomId));
+    .where(eq(streamWatch.stationId, stationId));
 
   return { ...row, updatedAt: row.updatedAt.toISOString() };
 }
@@ -100,12 +100,12 @@ export interface StreamWatchUpdate {
 }
 
 export async function updateStreamWatchSettings(
-  roomId: string,
+  stationId: string,
   update: StreamWatchUpdate,
   userId: string,
   db: Database = getDatabase(),
 ): Promise<StreamWatchSettings> {
-  await getStreamWatchSettings(roomId, db);
+  await getStreamWatchSettings(stationId, db);
   await db
     .update(streamWatch)
     .set({
@@ -116,18 +116,18 @@ export async function updateStreamWatchSettings(
       updatedAt: new Date(),
       updatedByUserId: userId,
     })
-    .where(eq(streamWatch.roomId, roomId));
+    .where(eq(streamWatch.stationId, stationId));
 
-  return getStreamWatchSettings(roomId, db);
+  return getStreamWatchSettings(stationId, db);
 }
 
-/** The channel each room follows, for the rooms that follow one. */
+/** The channel each station follows, for the stations that follow one. */
 async function loadFollowedChannels(db: Database): Promise<Map<string, WatchedChannel>> {
   const rows = await db
-    .select({ roomId: streamWatch.roomId, platform: streamWatch.platform, channel: streamWatch.channel })
+    .select({ stationId: streamWatch.stationId, platform: streamWatch.platform, channel: streamWatch.channel })
     .from(streamWatch)
     .where(and(eq(streamWatch.enabled, true), ne(streamWatch.channel, '')));
-  return new Map(rows.map((row) => [row.roomId, { platform: row.platform, id: row.channel }]));
+  return new Map(rows.map((row) => [row.stationId, { platform: row.platform, id: row.channel }]));
 }
 
 const NO_SOCKET: WatchSocketState = { connected: false, lastFrameAt: null, downSince: null, attempts: 0 };
@@ -135,11 +135,11 @@ const NO_SOCKET: WatchSocketState = { connected: false, lastFrameAt: null, downS
 class WatchTracker {
   // The first embed list decides whether the chat socket is wanted, and it
   // arrives seconds after the live socket opens. Waiting for the next refresh
-  // to notice would leave the rooms blind for a quarter of a minute each time
+  // to notice would leave the stations blind for a quarter of a minute each time
   // an owner switches this on.
   private readonly embeds = new EmbedsTracker(() => this.applyGate());
   private chat: ChatTracker | null = null;
-  /** Room id to the channel it follows. Two rooms may follow one channel. */
+  /** Station id to the channel it follows. Two stations may follow one channel. */
   private followed = new Map<string, WatchedChannel>();
   private chatWantedAt: number | null = null;
   private timer: NodeJS.Timeout | null = null;
@@ -149,7 +149,7 @@ class WatchTracker {
   /** So one outage is one event, rather than one every fifteen seconds. */
   private liveOutageReported = false;
 
-  /** Reads every room's settings again and brings the chat socket in line with them. */
+  /** Reads every station's settings again and brings the chat socket in line with them. */
   async refresh(db: Database = getDatabase()): Promise<void> {
     this.followed = await loadFollowedChannels(db);
     if (this.followed.size === 0) {
@@ -162,7 +162,7 @@ class WatchTracker {
     this.applyGate();
   }
 
-  /** Every followed channel once, however many rooms follow it. */
+  /** Every followed channel once, however many stations follow it. */
   private channels(): WatchedChannel[] {
     const unique = new Map<string, WatchedChannel>();
     for (const channel of this.followed.values()) unique.set(channelKey(channel), channel);
@@ -222,9 +222,9 @@ class WatchTracker {
     this.stopChat();
   }
 
-  /** Who is watching the channel one room follows. */
-  snapshot(roomId: string): WatchersSnapshot {
-    const channel = this.followed.get(roomId);
+  /** Who is watching the channel one station follows. */
+  snapshot(stationId: string): WatchersSnapshot {
+    const channel = this.followed.get(stationId);
     if (!channel) {
       return { channel: null, live: false, siteCount: null, chatCount: 0, watchers: [] };
     }
@@ -287,11 +287,11 @@ class WatchTracker {
     );
   }
 
-  async status(roomId: string, db: Database = getDatabase()): Promise<StreamWatchStatus> {
+  async status(stationId: string, db: Database = getDatabase()): Promise<StreamWatchStatus> {
     return {
-      settings: await getStreamWatchSettings(roomId, db),
+      settings: await getStreamWatchSettings(stationId, db),
       sockets: { live: this.embeds.state(), chat: this.chat?.state() ?? NO_SOCKET },
-      snapshot: this.snapshot(roomId),
+      snapshot: this.snapshot(stationId),
     };
   }
 
@@ -303,7 +303,7 @@ class WatchTracker {
 }
 
 /**
- * One tracker for the process, the way the room has one clock. Nothing outside
+ * One tracker for the process, the way the station has one clock. Nothing outside
  * this module touches the sockets.
  */
 export const watchTracker = new WatchTracker();

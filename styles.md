@@ -75,12 +75,12 @@ Section spacing drops from 128px to 48px, and internal section gaps drop from 40
 
 ## Direction for DGG Radio
 
-The strongest ideas to carry over are the direct-on-canvas layout, the narrow blue accent vocabulary, and the use of artwork in one deliberate area. Keep the player as the primary visual object. Queue, history, and room controls can sit directly on the base background or use a neutral one-pixel divider instead of each receiving a card.
+The strongest ideas to carry over are the direct-on-canvas layout, the narrow blue accent vocabulary, and the use of artwork in one deliberate area. Keep the player as the primary visual object. Queue, history, and station controls can sit directly on the base background or use a neutral one-pixel divider instead of each receiving a card.
 
 Use `#0090ff` for the main playback action, active navigation, focus states, and short section rules. Do not use it as a general surface color. Keep red and green for actual status or moderation meaning.
 
 Ten to twelve pixels is the established corner range for controls and cards. Full pills make sense for compact statuses only. A blue glow should identify one featured or live object, not every interactive element.
 
-The 128px desktop section spacing works for a marketing homepage but is too loose for a shared radio room. A denser 24px to 48px rhythm will preserve the visual language without making the controls feel disconnected.
+The 128px desktop section spacing works for a marketing homepage but is too loose for a shared radio station. A denser 24px to 48px rhythm will preserve the visual language without making the controls feel disconnected.
 
 The mobile hero shows the risk of placing text over detailed artwork. If DGG Radio uses a similar illustration, keep a predictable dark region behind labels and playback controls. Emotes can add the community character elsewhere without becoming decorative badges on every panel.

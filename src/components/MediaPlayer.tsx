@@ -117,7 +117,7 @@ interface StoredPlayerState {
 }
 
 /**
- * Playback preferences are per listener, not part of the room, so they live in
+ * Playback preferences are per listener, not part of the station, so they live in
  * this browser. Reads and writes are guarded: a private window or blocked site
  * data throws, and the player has to work anyway.
  */
@@ -424,7 +424,7 @@ export default function MediaPlayer({
         style={current?.media.thumbnailUrl ? { backgroundImage: `url(${current.media.thumbnailUrl})` } : undefined}
       >
         <div ref={mountRef} className="player-embed" aria-hidden={!listening} />
-        {!current && <div className="player-empty">The room is quiet. Add the first track.</div>}
+        {!current && <div className="player-empty">The station is quiet. Add the first track.</div>}
         {current && !listening && (
           <button className="listen-button" type="button" onClick={toggleListening}>
             <Play size={20} fill="currentColor" />

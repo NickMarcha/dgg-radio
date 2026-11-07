@@ -1,5 +1,5 @@
 /**
- * PROTOTYPE: measure how much of the room's archive the Discogs monthly masters
+ * PROTOTYPE: measure how much of the station's archive the Discogs monthly masters
  * dump can label with a genre, using the YouTube video ids that Discogs itself
  * embeds in each master's <videos> element.
  *
@@ -109,7 +109,7 @@ async function buildIndex(dumpPath: string, wanted: Set<string>): Promise<Map<st
     videoIdsSeen += ids.length;
 
     // Keeping every master for all 5.7M embedded video ids exhausts the heap,
-    // and all but the room's own tracks would be discarded anyway.
+    // and all but the station's own tracks would be discarded anyway.
     const relevant = ids.filter((id) => wanted.has(id));
     if (relevant.length === 0) continue;
 
@@ -134,7 +134,7 @@ async function buildIndex(dumpPath: string, wanted: Set<string>): Promise<Map<st
   console.log(
     `Indexed ${masters.toLocaleString()} masters, ${mastersWithVideos.toLocaleString()} with videos, ` +
       `${mastersWithGenre.toLocaleString()} with a genre, ${videoIdsSeen.toLocaleString()} embedded video ids, ` +
-      `${index.size.toLocaleString()} of them played in this room`,
+      `${index.size.toLocaleString()} of them played in this station`,
   );
   return index;
 }
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
   const exported = JSON.parse(await readFile(exportPath, 'utf8')) as { plays: Play[] };
 
   // Collapse plays to distinct YouTube tracks, keeping how often each was played
-  // so coverage can be weighted by what the room actually listened to.
+  // so coverage can be weighted by what the station actually listened to.
   const tracks = new Map<string, { title: string; plays: number }>();
   for (const play of exported.plays) {
     if (play.provider !== 'youtube' || !play.providerMediaId) continue;

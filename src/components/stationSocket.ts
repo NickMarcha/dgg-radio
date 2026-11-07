@@ -1,8 +1,8 @@
 import {
   visitorIdSchema,
   type EmbedConnectionKind,
-  type RoomConnectionRequest,
-} from '../shared/roomConnection';
+  type StationConnectionRequest,
+} from '../shared/stationConnection';
 
 const VISITOR_ID_STORAGE_KEY = 'dgg-radio:visitor-id';
 
@@ -11,7 +11,7 @@ interface BrowserStorage {
   setItem(key: string, value: string): void;
 }
 
-export function getRoomVisitorId(
+export function getStationVisitorId(
   storage: BrowserStorage = window.localStorage,
   generateId: () => string = () => crypto.randomUUID(),
 ): string {
@@ -27,14 +27,14 @@ export function getRoomVisitorId(
   }
 }
 
-export function createRoomSocketUrl(apiUrl: string, connection: RoomConnectionRequest): URL {
+export function createStationSocketUrl(apiUrl: string, connection: StationConnectionRequest): URL {
   const socketUrl = new URL(apiUrl);
   socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
   socketUrl.pathname = '/ws';
   socketUrl.search = '';
   socketUrl.searchParams.set('kind', connection.kind);
-  socketUrl.searchParams.set('room', connection.room);
-  if (connection.kind === 'room') socketUrl.searchParams.set('visitorId', connection.visitorId);
+  socketUrl.searchParams.set('station', connection.station);
+  if (connection.kind === 'station') socketUrl.searchParams.set('visitorId', connection.visitorId);
   return socketUrl;
 }
 
