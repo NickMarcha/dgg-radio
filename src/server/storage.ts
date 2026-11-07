@@ -29,7 +29,17 @@ const GROUPS: { name: string; tables: string[] }[] = [
     name: 'Accounts and authentication',
     tables: ['users', 'sessions', 'oauth_login_transactions', 'user_chat_counts'],
   },
-  { name: 'Rules and moderation', tables: ['rules', 'rule_entries', 'moderation_actions'] },
+  {
+    name: 'Rules and moderation',
+    tables: [
+      'rules',
+      'rule_entries',
+      'rule_follows',
+      'rule_editors',
+      'rule_changes',
+      'moderation_actions',
+    ],
+  },
   { name: 'Stream overlay', tables: ['stream_watch', 'watcher_embed_settings'] },
   {
     name: 'Station state and internal tables',

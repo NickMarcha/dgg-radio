@@ -38,7 +38,7 @@ import type {
 import MediaPlayer from './MediaPlayer';
 import { moveItem, type MoveDestination } from './reorder';
 import { createStationSocketUrl, getStationVisitorId } from './stationSocket';
-import { rememberStation, stationSlugFromPath } from '../client/station';
+import { rememberStation, stationPath, stationSlugFromPath } from '../client/station';
 import { MAIN_STATION_SLUG } from '../shared/stationConnection';
 import SaveToPlaylistButton from './SaveToPlaylistButton';
 import SiteHeader, { SiteHeaderAccount, SiteHeaderPresence } from './SiteHeader';
@@ -129,7 +129,7 @@ function BlockDialog({ target, rules, busy, onCancel, onConfirm }: BlockDialogPr
           <legend>Which rules does it break?</legend>
           {blocklists.length === 0 ? (
             <p className="dialog-empty">
-              No blocklist rules are switched on. Add one on the admin page first.
+              No blocklist rule here is one you can edit. Add one on the admin page first.
             </p>
           ) : (
             blocklists.map((rule) => (
@@ -869,7 +869,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
             {blockTarget && (
         <BlockDialog
           target={blockTarget}
-          rules={station?.rules ?? []}
+          rules={(station?.rules ?? []).filter((rule) => station?.editableRuleIds.includes(rule.id))}
           busy={busy}
           onCancel={() => setBlockTarget(null)}
           onConfirm={(choice) => void confirmBlock(choice)}
@@ -946,6 +946,11 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
                   {station.rules.map((rule) => (
                     <li key={rule.id}>
                       <strong>{rule.name}</strong>
+                      {rule.station && (
+                        <span className="rule-source">
+                          from <a href={stationPath(rule.station.slug)}>{rule.station.name}</a>
+                        </span>
+                      )}
                       {rule.description && <p>{rule.description}</p>}
                     </li>
                   ))}

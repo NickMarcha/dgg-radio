@@ -23,6 +23,7 @@ import {
   submitRequestSchema,
   stationCreatorSchema,
   createStationSchema,
+  ruleEditorGrantSchema,
   stationModeratorSchema,
   userRoleSchema,
   voteSchema,
@@ -45,15 +46,27 @@ import {
   SLOW_REQUEST_MS,
 } from './analytics';
 import {
+  canEditRule,
+  copyRule,
   createRule,
   deleteRule,
+  followRule,
+  grantRuleEditor,
+  listRuleChanges,
+  listRuleEditors,
   listRuleEntries,
   listRules,
+  listSharedRules,
   removeRuleEntry,
-  stationOfRule,
-  stationOfRuleEntry,
   reorderRules,
+  revertRuleChange,
+  revokeRuleEditor,
   RuleError,
+  ruleOfChange,
+  ruleOfEditor,
+  ruleOfEntry,
+  stationOfRule,
+  unfollowRule,
   updateRule,
 } from './rules';
 import { ChatLookupError, requestChatCheck } from './chat';
@@ -154,6 +167,7 @@ const callbackSchema = z.object({
 });
 
 const idParamSchema = z.object({ id: z.uuid() });
+const ruleFollowParamSchema = z.object({ slug: z.string().min(1).max(32), id: z.uuid() });
 const stationMemberParamSchema = z.object({
   slug: z.string().min(1).max(32),
   username: z.string().trim().min(1).max(64),
@@ -310,7 +324,28 @@ export function createApp(dependencies: AppDependencies) {
 
   const itemStation = (context: any) => stationOfQueueItem(context.req.valid('param').id);
   const ruleStation = (context: any) => stationOfRule(context.req.valid('param').id);
-  const ruleEntryStation = (context: any) => stationOfRuleEntry(context.req.valid('param').id);
+  const changeStation = async (context: any) =>
+    stationOfRule(await ruleOfChange(context.req.valid('param').id));
+  const editorStation = async (context: any) =>
+    stationOfRule(await ruleOfEditor(context.req.valid('param').id));
+
+  /**
+   * Edit access on one rule's list. That is wider than moderating its home
+   * station: a rule can be granted to a person or to another station, so it is
+   * asked of the rule rather than of a station role. Sets the home station.
+   */
+  const requireRuleEditor =
+    (resolveRule: (context: any) => Promise<string>) =>
+    async (context: any, next: () => Promise<void>) => {
+      const ruleId = await resolveRule(context);
+      if (!(await canEditRule(context.get('user'), ruleId))) {
+        return context.json(errorBody('RULE_EDIT_REQUIRED', 'You cannot edit that rule\'s list.'), 403);
+      }
+      context.set('stationId', await stationOfRule(ruleId));
+      await next();
+    };
+  const ruleParam = async (context: any) => context.req.valid('param').id as string;
+  const entryRule = (context: any) => ruleOfEntry(context.req.valid('param').id);
   const slugStation = async (context: any) => {
     const stationId = await findStationIdBySlug(context.req.param('slug'));
     if (!stationId) throw new StationAccessError('STATION_NOT_FOUND', 'That station does not exist.', 404);
@@ -853,7 +888,6 @@ export function createApp(dependencies: AppDependencies) {
     .post(
       '/api/queue/:id/remove',
       requireUser,
-
       zValidator('param', idParamSchema),
       requireStationRole('owner', itemStation),
       zValidator('json', removeQueueItemSchema),
@@ -869,7 +903,6 @@ export function createApp(dependencies: AppDependencies) {
     .post(
       '/api/queue/:id/block',
       requireUser,
-
       zValidator('param', idParamSchema),
       requireStationRole('mod', itemStation),
       zValidator('json', blockMediaSchema),
@@ -913,9 +946,8 @@ export function createApp(dependencies: AppDependencies) {
     .get(
       '/api/rules/:id/entries',
       requireUser,
-
       zValidator('param', idParamSchema),
-      requireStationRole('mod', ruleStation),
+      requireRuleEditor(ruleParam),
       async (context) =>
         context.json({ entries: await listRuleEntries(context.req.valid('param').id) }),
     )
@@ -924,9 +956,8 @@ export function createApp(dependencies: AppDependencies) {
     .post(
       '/api/rules/:id/entries',
       requireUser,
-
       zValidator('param', idParamSchema),
-      requireStationRole('mod', ruleStation),
+      requireRuleEditor(ruleParam),
       limitPerUser('lookup', 20),
       zValidator('json', blockByUrlSchema),
       async (context) => {
@@ -942,7 +973,8 @@ export function createApp(dependencies: AppDependencies) {
           entry_type: entryType,
           source: 'link',
         });
-        dependencies.onStationChanged(context.get('stationId'));
+        // Every station enforcing the rule may have lost a queued track.
+        dependencies.onStationChanged();
         return context.json(blocked, 201);
       },
     )
@@ -974,38 +1006,135 @@ export function createApp(dependencies: AppDependencies) {
     .patch(
       '/api/rules/:id',
       requireUser,
-
       zValidator('param', idParamSchema),
       requireStationRole('owner', ruleStation),
       zValidator('json', ruleUpdateSchema),
       async (context) => {
         await updateRule(context.req.valid('param').id, context.req.valid('json'));
-        dependencies.onStationChanged(context.get('stationId'));
+        // Followers show the rule too.
+        dependencies.onStationChanged();
         return context.json({ ok: true });
       },
     )
     .delete(
       '/api/rules/:id',
       requireUser,
-
       zValidator('param', idParamSchema),
       requireStationRole('owner', ruleStation),
       async (context) => {
         await deleteRule(context.req.valid('param').id);
-        dependencies.onStationChanged(context.get('stationId'));
+        dependencies.onStationChanged();
         return context.json({ ok: true });
       },
     )
     .delete(
       '/api/rules/entries/:id',
       requireUser,
-
       zValidator('param', idParamSchema),
-      requireStationRole('mod', ruleEntryStation),
+      requireRuleEditor(entryRule),
       async (context) => {
-        await removeRuleEntry(context.req.valid('param').id);
+        await removeRuleEntry(context.req.valid('param').id, context.get('user'));
+        dependencies.onStationChanged();
+        return context.json({ ok: true });
+      },
+    )
+    // The log of a rule's list. Anyone who may edit the list may read it; only
+    // the home station's owner may undo an entry in it.
+    .get(
+      '/api/rules/:id/changes',
+      requireUser,
+      zValidator('param', idParamSchema),
+      requireRuleEditor(ruleParam),
+      async (context) =>
+        context.json({ changes: await listRuleChanges(context.req.valid('param').id) }),
+    )
+    .post(
+      '/api/rules/changes/:id/revert',
+      requireUser,
+      zValidator('param', idParamSchema),
+      requireStationRole('owner', changeStation),
+      async (context) => {
+        await revertRuleChange(context.req.valid('param').id, context.get('user'));
+        captureServerEvent(context.get('user').id, 'rule_change_reverted');
+        dependencies.onStationChanged();
+        return context.json({ ok: true });
+      },
+    )
+    .get(
+      '/api/rules/:id/editors',
+      requireUser,
+      zValidator('param', idParamSchema),
+      requireStationRole('owner', ruleStation),
+      async (context) =>
+        context.json({ editors: await listRuleEditors(context.req.valid('param').id) }),
+    )
+    .post(
+      '/api/rules/:id/editors',
+      requireUser,
+      zValidator('param', idParamSchema),
+      requireStationRole('owner', ruleStation),
+      zValidator('json', ruleEditorGrantSchema),
+      async (context) => {
+        await grantRuleEditor(
+          context.req.valid('param').id,
+          context.req.valid('json'),
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'rule_editor_granted');
+        return context.json({ ok: true }, 201);
+      },
+    )
+    .delete(
+      '/api/rules/editors/:id',
+      requireUser,
+      zValidator('param', idParamSchema),
+      requireStationRole('owner', editorStation),
+      async (context) => {
+        await revokeRuleEditor(context.req.valid('param').id);
+        return context.json({ ok: true });
+      },
+    )
+    // Other stations' rules, for this one to follow or copy.
+    .get('/api/stations/:slug/rules/shared', requireStationOwner, async (context) =>
+      context.json({ rules: await listSharedRules(context.get('stationId')) }),
+    )
+    .put(
+      '/api/stations/:slug/rules/follows/:id',
+      requireUser,
+      zValidator('param', ruleFollowParamSchema),
+      requireStationOwner,
+      async (context) => {
+        await followRule(context.get('stationId'), context.req.valid('param').id);
+        captureServerEvent(context.get('user').id, 'rule_followed');
         dependencies.onStationChanged(context.get('stationId'));
         return context.json({ ok: true });
+      },
+    )
+    .delete(
+      '/api/stations/:slug/rules/follows/:id',
+      requireUser,
+      zValidator('param', ruleFollowParamSchema),
+      requireStationOwner,
+      async (context) => {
+        await unfollowRule(context.get('stationId'), context.req.valid('param').id);
+        dependencies.onStationChanged(context.get('stationId'));
+        return context.json({ ok: true });
+      },
+    )
+    .post(
+      '/api/stations/:slug/rules/copies/:id',
+      requireUser,
+      zValidator('param', ruleFollowParamSchema),
+      requireStationOwner,
+      async (context) => {
+        const id = await copyRule(
+          context.get('stationId'),
+          context.req.valid('param').id,
+          context.get('user'),
+        );
+        captureServerEvent(context.get('user').id, 'rule_copied');
+        dependencies.onStationChanged(context.get('stationId'));
+        return context.json({ id }, 201);
       },
     )
     .post('/api/me/chat-check', requireUser, limitPerUser('chat-check', 5), async (context) => {

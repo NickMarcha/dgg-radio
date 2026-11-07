@@ -973,3 +973,16 @@
 .admin-embed-options input[type='number'] {
   width: 5rem;
 }
+
+/* A rule's editors and its change log, under the rule they belong to. */
+.admin-sharing {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.admin-sharing h3 {
+  margin: 12px 0 6px;
+  font-size: 1.1rem;
+  font-weight: 400;
+}

@@ -1,6 +1,6 @@
 # Stations plan
 
-Status: steps 1 to 6 are built, and from step 7 station creation and moving a queue.
+Status: steps 1 to 6 are built, and from step 7 everything but per-station and site-wide stats.
 
 ## Outcome
 

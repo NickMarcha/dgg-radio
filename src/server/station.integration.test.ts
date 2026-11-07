@@ -85,7 +85,19 @@ const {
   voteOnCurrentTrack,
   withdrawQueuedTrack,
 } = await import('./station');
-const { createRule, findBlockingRules } = await import('./rules');
+const {
+  canEditRule,
+  copyRule,
+  createRule,
+  findBlockingRules,
+  followRule,
+  grantRuleEditor,
+  listActiveRules,
+  listRuleChanges,
+  listRuleEntries,
+  removeRuleEntry,
+  revertRuleChange,
+} = await import('./rules');
 const schema = await import('./db/schema');
 const { MAIN_STATION_ID } = await import('./stations');
 const { media, moderationActions, queueItems, stationSettings, stationState, users } = schema;
@@ -929,10 +941,13 @@ describe.skipIf(!connectionString)('station transitions against Postgres', () =>
       await expect(enqueueMedia(other, blocked.canonicalUrl, swagy, db)).resolves.toBeDefined();
     });
 
-    it("refuses to block under another station's rule", async () => {
+    it("refuses to block under a rule the moderator cannot edit", async () => {
       await ensureStationExists(MAIN_STATION_ID, db);
       const other = await createStation('other');
       const moderator = await createUser('mod', 'mod');
+      // Moderates the other station, and nothing about the main station's rule.
+      const otherMod = await createUser('other_mod');
+      await db.insert(schema.stationMembers).values({ stationId: other, userId: otherMod.id, role: 'mod' });
       const blocked = track('aaaaaaaaaaa');
       resolveTracks(blocked);
       const ruleId = await createRule(
@@ -947,10 +962,10 @@ describe.skipIf(!connectionString)('station transitions against Postgres', () =>
           other,
           blocked.canonicalUrl,
           { ruleIds: [ruleId], entryType: 'track' },
-          moderator,
+          otherMod,
           db,
         ),
-      ).rejects.toMatchObject({ code: 'RULE_NOT_FOUND' });
+      ).rejects.toMatchObject({ code: 'RULE_EDIT_REQUIRED' });
       expect(await findBlockingRules(MAIN_STATION_ID, blocked, db)).toEqual([]);
     });
 
@@ -1005,6 +1020,135 @@ describe.skipIf(!connectionString)('station transitions against Postgres', () =>
       const nathan = await createUser('picklesnathan');
 
       expect(await planQueueMove(other, nathan, db)).toEqual({ from: null, tracks: [] });
+    });
+
+    describe('sharing a rule', () => {
+      async function blocklist(stationId: string, name: string, actor: AuthenticatedUser) {
+        return createRule(stationId, { name, description: '', enforcement: 'blocklist' }, actor, db);
+      }
+
+      it('enforces a followed rule as its home station keeps it, later blocks included', async () => {
+        await ensureStationExists(MAIN_STATION_ID, db);
+        const other = await createStation('other');
+        const moderator = await createUser('mod', 'mod');
+        const nathan = await createUser('picklesnathan');
+        const swagy = await createUser('swagy_swagerson');
+        const [playing, later] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+        resolveTracks(playing, later);
+        const ruleId = await blocklist(MAIN_STATION_ID, 'No memes', moderator);
+
+        await followRule(other, ruleId, db);
+        expect((await listActiveRules(other, db)).map(({ name, station }) => [name, station?.slug])).toEqual([
+          ['No memes', 'main'],
+        ]);
+
+        // Waiting in the follower when the home station blocks it.
+        await enqueueMedia(other, playing.canonicalUrl, nathan, db);
+        const waiting = await enqueueMedia(other, later.canonicalUrl, swagy, db);
+        await blockMediaByUrl(
+          MAIN_STATION_ID,
+          later.canonicalUrl,
+          { ruleIds: [ruleId], entryType: 'track' },
+          moderator,
+          db,
+        );
+
+        const follower = await getStationSnapshot(other, swagy, 1, db);
+        expect(follower.queue.map(({ id }) => id)).not.toContain(waiting.id);
+        expect((await findBlockingRules(other, later, db)).map(({ ruleName }) => ruleName)).toEqual([
+          'No memes',
+        ]);
+      });
+
+      it('lets the home station, and whoever it grants, edit a list, and nobody else', async () => {
+        await ensureStationExists(MAIN_STATION_ID, db);
+        const other = await createStation('other');
+        const moderator = await createUser('mod', 'mod');
+        const outsider = await createUser('outsider');
+        const otherMod = await createUser('other_mod');
+        await db.insert(schema.stationMembers).values({ stationId: other, userId: otherMod.id, role: 'mod' });
+        const ruleId = await blocklist(MAIN_STATION_ID, 'No memes', moderator);
+
+        expect(await canEditRule(moderator, ruleId, db)).toBe(true);
+        expect(await canEditRule(outsider, ruleId, db)).toBe(false);
+        expect(await canEditRule(otherMod, ruleId, db)).toBe(false);
+
+        await grantRuleEditor(ruleId, { username: 'OUTSIDER' }, moderator, db);
+        await grantRuleEditor(ruleId, { station: 'other' }, moderator, db);
+        expect(await canEditRule(outsider, ruleId, db)).toBe(true);
+        expect(await canEditRule(otherMod, ruleId, db)).toBe(true);
+
+        // Following gives a station the rule, not the right to edit it.
+        const follower = await createStation('follower');
+        const followerMod = await createUser('follower_mod');
+        await db
+          .insert(schema.stationMembers)
+          .values({ stationId: follower, userId: followerMod.id, role: 'mod' });
+        await followRule(follower, ruleId, db);
+        expect(await canEditRule(followerMod, ruleId, db)).toBe(false);
+      });
+
+      it('logs every change to a list, and undoes each one once', async () => {
+        await ensureStationExists(MAIN_STATION_ID, db);
+        const moderator = await createUser('mod', 'mod');
+        const blocked = track('aaaaaaaaaaa');
+        resolveTracks(blocked);
+        const ruleId = await blocklist(MAIN_STATION_ID, 'No memes', moderator);
+
+        await blockMediaByUrl(
+          MAIN_STATION_ID,
+          blocked.canonicalUrl,
+          { ruleIds: [ruleId], entryType: 'track' },
+          moderator,
+          db,
+        );
+        const [entry] = await listRuleEntries(ruleId, db);
+        await removeRuleEntry(entry!.id, moderator, db);
+        expect(await listRuleEntries(ruleId, db)).toEqual([]);
+
+        const [removal, addition] = await listRuleChanges(ruleId, db);
+        expect([removal!.action, addition!.action]).toEqual(['remove', 'add']);
+        expect(removal!.actor).toBe('mod');
+
+        await revertRuleChange(removal!.id, moderator, db);
+        expect((await listRuleEntries(ruleId, db)).map(({ label }) => label)).toEqual([blocked.title]);
+        await expect(revertRuleChange(removal!.id, moderator, db)).rejects.toMatchObject({
+          code: 'CHANGE_REVERTED',
+        });
+
+        await revertRuleChange(addition!.id, moderator, db);
+        expect(await listRuleEntries(ruleId, db)).toEqual([]);
+      });
+
+      it('copies a rule into a station as its own, and leaves it alone after', async () => {
+        await ensureStationExists(MAIN_STATION_ID, db);
+        const other = await createStation('other');
+        const moderator = await createUser('mod', 'mod');
+        const [first, second] = [track('aaaaaaaaaaa'), track('bbbbbbbbbbb')];
+        resolveTracks(first, second);
+        const ruleId = await blocklist(MAIN_STATION_ID, 'No memes', moderator);
+        await blockMediaByUrl(
+          MAIN_STATION_ID,
+          first.canonicalUrl,
+          { ruleIds: [ruleId], entryType: 'track' },
+          moderator,
+          db,
+        );
+
+        const copyId = await copyRule(other, ruleId, moderator, db);
+        await blockMediaByUrl(
+          MAIN_STATION_ID,
+          second.canonicalUrl,
+          { ruleIds: [ruleId], entryType: 'track' },
+          moderator,
+          db,
+        );
+
+        expect((await listRuleEntries(copyId, db)).map(({ label }) => label)).toEqual([first.title]);
+        await expect(copyRule(other, ruleId, moderator, db)).rejects.toMatchObject({
+          code: 'RULE_EXISTS',
+        });
+      });
     });
 
     it('skips only the station whose track was skipped', async () => {

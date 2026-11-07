@@ -717,7 +717,46 @@ export interface PublicRule {
   name: string;
   description: string;
   enforcement: RuleEnforcement;
+  /** Where the rule is kept, when this station follows it rather than keeping it. */
+  station: { slug: string; name: string } | null;
 }
+
+/** Another station's rule, offered to follow or copy. */
+export interface SharedRule {
+  id: string;
+  name: string;
+  description: string;
+  enforcement: RuleEnforcement;
+  station: { slug: string; name: string };
+  entryCount: number;
+  /** Whether the station asking already follows it. */
+  followed: boolean;
+}
+
+/** Edit access on a rule for one person, or for a whole station. */
+export interface RuleEditor {
+  id: string;
+  username: string | null;
+  station: { slug: string; name: string } | null;
+}
+
+/** One logged change to a rule's list. */
+export interface RuleChange {
+  id: string;
+  action: 'add' | 'remove';
+  entryType: RuleEntryType;
+  label: string;
+  note: string | null;
+  /** Who made it, or null when that account is gone. */
+  actor: string | null;
+  createdAt: string;
+  revertedAt: string | null;
+}
+
+export const ruleEditorGrantSchema = z.union([
+  z.object({ username: z.string().trim().min(1).max(64) }),
+  z.object({ station: z.string().trim().min(1).max(32) }),
+]);
 
 export interface RuleEntrySummary {
   id: string;
@@ -878,8 +917,10 @@ export interface StationSnapshot {
   myQueue: QueueItem[];
   /** Unread explanations for the signed-in user's own requests, newest first. */
   myNotices: QueueNotice[];
-  /** Active rules, in the order admins arranged them. */
+  /** Active rules, the station's own in the order its owner set and then the ones it follows. */
   rules: PublicRule[];
+  /** The rules here the signed-in user may block under. Empty for anyone who cannot block. */
+  editableRuleIds: string[];
   selectorStats: SelectorStats[];
 }
 

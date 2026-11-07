@@ -450,6 +450,85 @@ export const stationMembers = pgTable(
   ],
 );
 
+/**
+ * A station enforcing a rule another station keeps. The rule stays the home
+ * station's: the follower reads its list as it grows and cannot edit it.
+ */
+export const ruleFollows = pgTable(
+  'rule_follows',
+  {
+    stationId: uuid('station_id')
+      .notNull()
+      .references(() => stations.id, { onDelete: 'cascade' }),
+    ruleId: uuid('rule_id')
+      .notNull()
+      .references(() => rules.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.stationId, table.ruleId] }),
+    index('rule_follows_rule_index').on(table.ruleId),
+  ],
+);
+
+/**
+ * Edit access on one rule for someone outside its home station: either one
+ * person, or a whole station whose owner and mods may then all edit it.
+ */
+export const ruleEditors = pgTable(
+  'rule_editors',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ruleId: uuid('rule_id')
+      .notNull()
+      .references(() => rules.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    stationId: uuid('station_id').references(() => stations.id, { onDelete: 'cascade' }),
+    addedByUserId: uuid('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('rule_editors_one_grantee', sql`num_nonnulls(${table.userId}, ${table.stationId}) = 1`),
+    uniqueIndex('rule_editors_rule_user_unique')
+      .on(table.ruleId, table.userId)
+      .where(sql`${table.userId} is not null`),
+    uniqueIndex('rule_editors_rule_station_unique')
+      .on(table.ruleId, table.stationId)
+      .where(sql`${table.stationId} is not null`),
+  ],
+);
+
+export const ruleChangeAction = pgEnum('rule_change_action', ['add', 'remove']);
+
+/**
+ * Every entry added to or removed from a rule's list, with who did it, so a
+ * change that reaches other stations through a followed rule can be undone.
+ * The entry's own fields are copied here, because undoing a removal has to
+ * put back an entry that no longer exists.
+ */
+export const ruleChanges = pgTable(
+  'rule_changes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    ruleId: uuid('rule_id')
+      .notNull()
+      .references(() => rules.id, { onDelete: 'cascade' }),
+    action: ruleChangeAction('action').notNull(),
+    provider: mediaProvider('provider').notNull(),
+    entryType: ruleEntryType('entry_type').notNull(),
+    providerId: text('provider_id').notNull(),
+    label: text('label').notNull(),
+    note: text('note'),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    revertedAt: timestamp('reverted_at', { withTimezone: true }),
+    revertedByUserId: uuid('reverted_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+  },
+  (table) => [index('rule_changes_rule_created_index').on(table.ruleId, table.createdAt)],
+);
+
 export const stationSettings = pgTable(
   'station_settings',
   {

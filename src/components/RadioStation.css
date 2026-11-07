@@ -1097,3 +1097,11 @@ a.admin-label:hover {
 .rules-content p {
   font-family: var(--font-mono);
 }
+
+/* A followed rule names the station that keeps it. */
+.rule-source {
+  margin-left: 0.5rem;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}

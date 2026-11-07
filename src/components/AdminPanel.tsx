@@ -31,8 +31,11 @@ import type {
   StationMember,
   StationModerator,
   StationSnapshot,
+  RuleChange,
+  RuleEditor,
   RuleEntrySummary,
   RuleSummary,
+  SharedRule,
   PlaybackRegion,
   ModerationEntry,
   ModerationLog,
@@ -358,6 +361,9 @@ export default function AdminPanel({ apiUrl }: AdminPanelProps) {
         <SettingsSection settings={settings} regions={regions} busy={busy} act={act} call={call} station={station} />
       )}
       {openTab === 'station' && <RulesSection rules={rules} busy={busy} act={act} call={call} station={station} />}
+      {openTab === 'station' && (
+        <SharedRulesSection busy={busy} act={act} call={call} station={station} />
+      )}
       {openTab === 'station' && (
         <ModeratorsSection moderators={moderators} busy={busy} act={act} call={call} station={station} />
       )}
@@ -1807,6 +1813,7 @@ function RuleRow({
   onEntryRemoved,
 }: RuleRowProps) {
   const [editing, setEditing] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [name, setName] = useState(rule.name);
   const [description, setDescription] = useState(rule.description);
 
@@ -1940,6 +1947,11 @@ function RuleRow({
               {entries ? 'Hide list' : 'Show list'}
             </button>
           )}
+          {rule.enforcement === 'blocklist' && (
+            <button type="button" onClick={() => setSharing((open) => !open)}>
+              {sharing ? 'Hide sharing' : 'Sharing'}
+            </button>
+          )}
           <button
             type="button"
             className="danger"
@@ -1990,7 +2002,230 @@ function RuleRow({
           ))}
         </ul>
       )}
+
+      {sharing && <RuleSharing ruleId={rule.id} busy={busy} act={act} call={call} station={station} />}
     </li>
+  );
+}
+
+/**
+ * Who else may edit a rule's list, and what has been changed on it. A rule
+ * other stations follow changes their queues too, so every change is logged
+ * here and the owner can undo any of them.
+ */
+function RuleSharing({
+  ruleId,
+  busy,
+  act,
+  call,
+}: SectionProps & { ruleId: string }) {
+  const [editors, setEditors] = useState<RuleEditor[] | null>(null);
+  const [changes, setChanges] = useState<RuleChange[] | null>(null);
+  const [grantee, setGrantee] = useState('');
+  const [kind, setKind] = useState<'username' | 'station'>('username');
+
+  const load = useCallback(async () => {
+    const [editorList, changeList] = await Promise.all([
+      call(`/api/rules/${ruleId}/editors`),
+      call(`/api/rules/${ruleId}/changes`),
+    ]);
+    setEditors(editorList.editors);
+    setChanges(changeList.changes);
+  }, [call, ruleId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  function grant(event: SubmitEvent) {
+    event.preventDefault();
+    const value = grantee.trim();
+    if (!value) return;
+    void act(async () => {
+      await call(`/api/rules/${ruleId}/editors`, 'POST', kind === 'username' ? { username: value } : { station: value });
+      setGrantee('');
+      await load();
+    }, kind === 'username' ? `${value} can edit this list.` : `The ${value} station can edit this list.`);
+  }
+
+  return (
+    <div className="admin-sharing">
+      <h3>Who else can edit this list</h3>
+      <p className="admin-help">
+        This station's owner and mods always can. Other stations can follow this rule without
+        editing it.
+      </p>
+      {editors === null ? (
+        <p className="admin-empty">Loading…</p>
+      ) : (
+        <ul className="admin-entries">
+          {editors.length === 0 && <li className="admin-empty">Nobody else.</li>}
+          {editors.map((editor) => (
+            <li key={editor.id}>
+              <span>
+                {editor.station ? (
+                  <>
+                    <em>station</em> · {editor.station.name}
+                    <span className="admin-meta">its owner and mods</span>
+                  </>
+                ) : (
+                  <>
+                    <em>person</em> · {editor.username}
+                  </>
+                )}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void act(async () => {
+                    await call(`/api/rules/editors/${editor.id}`, 'DELETE');
+                    await load();
+                  }, 'Edit access taken back.')
+                }
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="admin-form admin-form-inline" onSubmit={grant}>
+        <label>
+          Give edit access to
+          <select value={kind} onChange={(event) => setKind(event.currentTarget.value as 'username' | 'station')}>
+            <option value="username">A person</option>
+            <option value="station">A station</option>
+          </select>
+        </label>
+        <label>
+          {kind === 'username' ? 'Username' : 'Station address'}
+          <input
+            type="text"
+            value={grantee}
+            placeholder={kind === 'username' ? 'As they sign in with Destiny' : 'late-night'}
+            onChange={(event) => setGrantee(event.currentTarget.value)}
+          />
+        </label>
+        <button type="submit" disabled={busy || !grantee.trim()}>
+          Give access
+        </button>
+      </form>
+
+      <h3>Changes to the list</h3>
+      {changes === null ? (
+        <p className="admin-empty">Loading…</p>
+      ) : (
+        <ul className="admin-entries">
+          {changes.length === 0 && <li className="admin-empty">Nothing changed yet.</li>}
+          {changes.map((change) => (
+            <li key={change.id}>
+              <span className={change.revertedAt ? 'admin-inactive' : undefined}>
+                <em>{change.action === 'add' ? 'blocked' : 'unblocked'}</em> · {change.label}
+                <span className="admin-meta">
+                  {change.actor ?? 'someone'} · {new Date(change.createdAt).toLocaleString()}
+                </span>
+                {change.revertedAt && <span className="admin-meta">undone</span>}
+              </span>
+              {!change.revertedAt && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void act(async () => {
+                      await call(`/api/rules/changes/${change.id}/revert`, 'POST');
+                      await load();
+                    }, `Undid ${change.action === 'add' ? 'blocking' : 'unblocking'} ${change.label}.`)
+                  }
+                >
+                  Undo
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Rules other stations keep. Following one enforces it here exactly as its
+ * home station keeps it, tracks blocked later included; copying one makes a
+ * rule of this station's own, starting from that list.
+ */
+function SharedRulesSection({ station, busy, act, call }: SectionProps) {
+  const [shared, setShared] = useState<SharedRule[] | null>(null);
+
+  const load = useCallback(async () => {
+    setShared((await call(`/api/stations/${station}/rules/shared`)).rules);
+  }, [call, station]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="admin-card">
+      <h2>
+        <Ban size={18} /> Rules from other stations
+      </h2>
+      <p className="admin-help">
+        Follow a rule to enforce it here as its station keeps it, including what it blocks later.
+        Copy it to start a rule of your own from its list.
+      </p>
+      {shared === null ? (
+        <p className="admin-empty">Loading…</p>
+      ) : (
+        <ul className="admin-list">
+          {shared.length === 0 && <li className="admin-empty">No other station has rules yet.</li>}
+          {shared.map((rule) => (
+            <li key={rule.id}>
+              <div className="admin-row">
+                <div>
+                  <strong>{rule.name}</strong>
+                  <span className="admin-meta">{rule.station.name}</span>
+                  <span className="admin-meta">
+                    {rule.enforcement === 'blocklist' ? `${rule.entryCount} blocked` : 'advisory only'}
+                  </span>
+                  {rule.followed && <span className="admin-meta">followed</span>}
+                  {rule.description && <p className="admin-description">{rule.description}</p>}
+                </div>
+                <div className="admin-row-actions">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(async () => {
+                        await call(
+                          `/api/stations/${station}/rules/follows/${rule.id}`,
+                          rule.followed ? 'DELETE' : 'PUT',
+                        );
+                        await load();
+                      }, rule.followed ? `Stopped following "${rule.name}".` : `Following "${rule.name}".`)
+                    }
+                  >
+                    {rule.followed ? 'Unfollow' : 'Follow'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void act(
+                        () => call(`/api/stations/${station}/rules/copies/${rule.id}`, 'POST'),
+                        `Copied "${rule.name}" into this station.`,
+                      )
+                    }
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

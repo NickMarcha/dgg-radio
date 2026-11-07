@@ -14,6 +14,7 @@ import {
   type MediaProvider,
   type QueueItem,
   type QueueMovePlan,
+  type PublicRule,
   type QueueNotice,
   type StationMedia,
   type StationSnapshot,
@@ -45,10 +46,12 @@ import {
 import { MAIN_STATION_ID, stationRoleOf } from './stations';
 import {
   addRuleEntry,
-  assertRulesInStation,
+  assertCanEditRules,
+  canEditRule,
   describeBlock,
   findBlockingRules,
   listActiveRules,
+  stationsEnforcing,
 } from './rules';
 import {
   listPlaylistTrackUrls,
@@ -1196,8 +1199,10 @@ interface BlockTarget {
 /**
  * The part of blocking that is the same whether a moderator blocked the track
  * playing now or an admin pasted a link: write the entry under every rule
- * named, all of them this station's, drop everything already queued here that the
- * entry now covers, and record what was done. The caller bumps the revision.
+ * named, each one the moderator may edit, drop everything already queued that
+ * the entry now covers in every station enforcing those rules, and record what
+ * was done. Those other stations' revisions are bumped here; the caller bumps
+ * its own.
  */
 async function applyBlock(
   stationId: string,
@@ -1209,7 +1214,8 @@ async function applyBlock(
   if (options.ruleIds.length === 0) {
     throw new StationError('NO_RULE_GIVEN', 'Choose at least one rule to block this under.');
   }
-  await assertRulesInStation(stationId, options.ruleIds, db);
+  await assertCanEditRules(moderator, options.ruleIds, db);
+  const enforcing = await stationsEnforcing(options.ruleIds, db);
 
   const blockingArtist = target.entryType === 'artist';
   for (const ruleId of options.ruleIds) {
@@ -1238,7 +1244,9 @@ async function applyBlock(
     .select({ id: queueItems.id, requestedByUserId: queueItems.requestedByUserId })
     .from(queueItems)
     .innerJoin(media, eq(queueItems.mediaId, media.id))
-    .where(and(eq(queueItems.stationId, stationId), eq(queueItems.status, 'queued'), covered));
+    .where(
+      and(inArray(queueItems.stationId, enforcing), eq(queueItems.status, 'queued'), covered),
+    );
   if (doomed.length > 0) {
     await db
       .update(queueItems)
@@ -1251,6 +1259,9 @@ async function applyBlock(
     for (const userId of new Set(doomed.map((item) => item.requestedByUserId))) {
       await leaveRotationIfEmpty(userId, db);
     }
+  }
+  for (const id of enforcing) {
+    if (id !== stationId) await bumpRevision(id, db);
   }
 
   await db.insert(moderationActions).values({
@@ -1502,6 +1513,7 @@ export async function getStationSnapshot(
     settings,
     me: toStationUser(me),
     myStationRole,
+    editableRuleIds: myStationRole === null ? [] : await editableRules(me, rules, db),
     current: current ? hide(current, secondsLeft <= REVEAL_REQUESTER_WITHIN_SECONDS) : null,
     currentGenres: current
       ? nowPlayingGenres(
@@ -1517,6 +1529,20 @@ export async function getStationSnapshot(
     selectorStats: stats,
     rules,
   };
+}
+
+/** The rules here that someone who moderates this station may block under. */
+async function editableRules(
+  me: AuthenticatedUser | null,
+  rules: PublicRule[],
+  db: Database,
+): Promise<string[]> {
+  if (!me) return [];
+  const editable: string[] = [];
+  for (const rule of rules) {
+    if (rule.enforcement === 'blocklist' && (await canEditRule(me, rule.id, db))) editable.push(rule.id);
+  }
+  return editable;
 }
 
 /** The public view of a signed-in listener: no Destiny tokens, roles, or features. */

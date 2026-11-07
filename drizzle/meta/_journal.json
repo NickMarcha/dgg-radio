@@ -239,6 +239,13 @@
       "when": 1794009940600,
       "tag": "0033_rename_rooms_to_stations",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794010525960,
+      "tag": "0034_rule_sharing",
+      "breakpoints": true
     }
   ]
 }

@@ -81,6 +81,8 @@ A rule belongs to one station and is a named reason that station's mods can bloc
 
 `rule_entries` is unique on rule, provider, entry type, and provider ID, so one track can be listed under several rules and the station names every reason it was rejected. An `artist` entry covers a whole catalogue by provider artist ID; a collaboration released under someone else's channel needs its own `track` entry.
 
+A station can also follow another station's rule (`rule_follows`): the rule is then enforced there exactly as its home station keeps it, tracks blocked later included, and the follower cannot edit it. Copying a rule instead makes an independent rule of the station's own from that list. Who may edit a list is asked of the rule, not of a station role: the home station's owner and mods, anyone granted it by name, and the owner and mods of a station granted it (`rule_editors`). Blocking under a rule drops the covered tracks waiting in every station that enforces it. Every add and remove on a list is logged in `rule_changes` with who made it, and the home station's owner can undo any logged change once.
+
 `rules.position` holds the order admins arrange, and the admin list and the player both read it, so the station can lead with the rule that matters most. A reorder sends the whole list and is refused unless it names every rule, so a rule created or deleted in another tab cannot half-apply an order built from a stale list.
 
 Switching a rule off hides it from listeners and stops it being enforced while keeping its list, so it can be paused and restored.
