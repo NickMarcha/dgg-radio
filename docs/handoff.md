@@ -20,9 +20,10 @@ TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_te
 Steps 1 to 6 and the first two parts of step 7 are committed on `main` locally:
 stations with their own queue, rules, stream and overlays; owners and mods as station
 roles; `/stations` to list and create them; `/admin?station=<slug>` for an owner;
-moving a queue between stations. Pushing deploys migrations `0028` to `0032`,
-which move every existing row to the main station; each was checked against a
-database holding rows from before it. Still to build from step 7: following
+moving a queue between stations. Pushing deploys migrations `0028` to `0033`,
+which move every existing row to the main station and then rename rooms to
+stations in place; each was checked against a database holding rows from
+before it. Still to build from step 7: following
 and snapshotting another station's rule, per-rule edit grants, the revertable rule
 log, and per-station and site-wide stats. Stats still count every station together.
 
