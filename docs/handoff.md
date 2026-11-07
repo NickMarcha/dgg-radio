@@ -16,14 +16,16 @@ run against the local Postgres:
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-**Stations are built and not pushed.** `docs/plans/stations.md` is the plan.
-Steps 1 to 6 and the first two parts of step 7 are committed on `main` locally:
-stations with their own queue, rules, stream and overlays; owners and mods as station
-roles; `/stations` to list and create them; `/admin?station=<slug>` for an owner;
-moving a queue between stations. Pushing deploys migrations `0028` to `0035`,
-which move every existing row to the main station and then rename rooms to
-stations in place; each was checked against a database holding rows from
-before it. All seven steps are built.
+**Stations are deployed**, through `6d2f8fd` on 2026-11-06. `docs/plans/stations.md`
+is the plan, and all seven steps are built: stations with their own queue,
+rules, stream and overlays; owners and mods as station roles; `/stations` to
+list and create them; `/admin?station=<slug>` for an owner; moving a queue
+between stations; following, copying and granting rules with an undo log;
+stats per station or site-wide; and going off air. Migrations `0028` to `0035`
+ran on deploy. Checked after the push: the API answers `/api/stations` and no
+longer `/api/room`, the main station kept its 8 rules, `/health` has the live
+socket connected, and the site loads, connects and logs no errors. Nobody has
+yet created a second station in production or played a track in one.
 
 Before that, everything was on `main` and pushed, through `77294b4` on 2026-10-02: the
 Last.fm research, the silence-watch fix and socket alerting, the seasonal
