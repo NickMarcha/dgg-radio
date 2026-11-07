@@ -253,6 +253,13 @@
       "when": 1794011715325,
       "tag": "0035_station_on_air",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794013647342,
+      "tag": "0036_tuned_station",
+      "breakpoints": true
     }
   ]
 }

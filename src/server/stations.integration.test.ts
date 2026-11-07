@@ -21,6 +21,7 @@ const {
   MAIN_STATION_ID,
   stationAccessOf,
   stationRoleOf,
+  tunedStationOf,
   setStationModerator,
 } = await import('./stations');
 const schema = await import('./db/schema');
@@ -128,6 +129,7 @@ describe.skipIf(!connectionString)('station roles', () => {
       const station = await createOwnedStation({ slug: 'Late-Night', name: ' Late Night ' }, creator, db);
 
       expect(station).toEqual({ slug: 'late-night', name: 'Late Night' });
+      expect((await tunedStationOf(creator, db)).slug).toBe('late-night');
       const stationId = await findStationIdBySlug('late-night', db);
       expect(await stationRoleOf(creator, stationId!, db)).toBe('owner');
       expect(await listStationModerators(stationId!, db)).toEqual([

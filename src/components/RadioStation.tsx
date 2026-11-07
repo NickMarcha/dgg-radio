@@ -428,7 +428,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
     [apiUrl],
   );
 
-  const refreshRoom = useCallback(async () => {
+  const refreshStation = useCallback(async () => {
     try {
       const snapshot = await apiRequest<StationSnapshot>(stationApi);
       setStation(snapshot);
@@ -444,10 +444,10 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
   }, [apiRequest, stationApi]);
 
   useEffect(() => {
-    void refreshRoom();
-    const fallbackPoll = window.setInterval(() => void refreshRoom(), 15_000);
+    void refreshStation();
+    const fallbackPoll = window.setInterval(() => void refreshStation(), 15_000);
     return () => window.clearInterval(fallbackPoll);
-  }, [refreshRoom]);
+  }, [refreshStation]);
 
   useEffect(() => {
     let stopped = false;
@@ -467,7 +467,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
           capturedConnection.current = true;
         }
       };
-      socket.onmessage = () => void refreshRoom();
+      socket.onmessage = () => void refreshStation();
       socket.onerror = () => socket?.close();
       socket.onclose = (event) => {
         setConnected(false);
@@ -484,7 +484,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
       if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
       socket?.close();
     };
-  }, [apiUrl, refreshRoom, stationSlug]);
+  }, [apiUrl, refreshStation, stationSlug]);
 
   /**
    * Someone queued in another station is asked whether to bring their queue here,
@@ -530,7 +530,7 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
         }
         payload = await send();
       }
-      await refreshRoom();
+      await refreshStation();
       return payload;
     } catch (error) {
       if (error instanceof ApiRequestError && error.status >= 500) {
@@ -672,12 +672,35 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
     setBlockTarget({ item: station.current, fromPlayer: true });
   };
 
+  /**
+   * Makes this the station requests go to. With tracks waiting elsewhere that
+   * is a queue move, asked about first; with none it just changes where the
+   * next request from a playlist or the history lands.
+   */
+  const tuneIn = async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const plan = await apiRequest<QueueMovePlan>(`${stationApi}/queue/move`);
+      if (plan.from) {
+        if (!(await offerQueueMove())) return;
+      } else {
+        await apiRequest(`${stationApi}/tune-in`, { method: 'PUT' });
+      }
+      await refreshStation();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not tune in here.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const setOnAir = async (onAir: boolean) => {
     await mutate(`${stationApi}/on-air`, 'PUT', { onAir });
   };
 
   const logout = async () => {
-    if (await mutate('/api/auth/logout', 'POST')) await refreshRoom();
+    if (await mutate('/api/auth/logout', 'POST')) await refreshStation();
   };
 
   // Site admins come back as owners, so this is the station's own answer.
@@ -784,6 +807,17 @@ export default function RadioStation({ apiUrl, posthogKey, posthogHost }: RadioS
 
           <section className="request-section">
             <h2>Request a track</h2>
+            {station?.tunedStation && station.tunedStation.slug !== station.station.slug && (
+              <p className="tuned-elsewhere">
+                <span>
+                  Your requests from playlists and history go to{' '}
+                  <a href={stationPath(station.tunedStation.slug)}>{station.tunedStation.name}</a>.
+                </span>
+                <button type="button" disabled={busy} onClick={() => void tuneIn()}>
+                  <RadioTower size={15} /> Tune in here
+                </button>
+              </p>
+            )}
             {station?.onAir === false && (
               <p className="off-air-note">
                 This station is off air. Requests open again when it is back on air.

@@ -1,4 +1,5 @@
-import { lastStationSlug } from '../client/station';
+import { stationPath } from '../client/station';
+import { useTunedStation } from './useTunedStation';
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -37,6 +38,7 @@ function formatDuration(seconds: number): string {
 }
 
 export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
+  const tuned = useTunedStation(apiUrl);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<PlaylistDetail | null>(null);
   const [name, setName] = useState('');
@@ -243,16 +245,15 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
   function queueTrack(mediaId: string) {
     if (!detail) return;
     void act(async () => {
-      const station = lastStationSlug();
-      await call(`/api/stations/${station}/playlists/${detail.id}/tracks/${mediaId}/queue`, 'POST');
-    }, 'Added the track to your queue.');
+      await call(`/api/stations/${tuned.slug}/playlists/${detail.id}/tracks/${mediaId}/queue`, 'POST');
+    }, `Added the track to your queue on ${tuned.name}.`);
   }
 
   function queueAll() {
     if (!detail) return;
     void act(async () => {
       const result = await call<PlaylistQueueResult>(
-        `/api/stations/${lastStationSlug()}/playlists/${detail.id}/queue`,
+        `/api/stations/${tuned.slug}/playlists/${detail.id}/queue`,
         'POST',
       );
       setQueueResult(result);
@@ -308,6 +309,12 @@ export default function PlaylistsPage({ apiUrl }: PlaylistsPageProps) {
                 </button>
               </form>
             </header>
+
+            <p className="playlists-tuned">
+              Tracks you queue from here go to{' '}
+              <a href={stationPath(tuned.slug)}>{tuned.name}</a>. Tune in to another station from its
+              page to queue there instead.
+            </p>
 
             <section
               className={`playlist-import${dragging ? ' is-dragging' : ''}`}

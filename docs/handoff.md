@@ -9,7 +9,7 @@ Last updated 2026-11-06.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 442 Vitest pass across 44 files,
+`astro check` and `tsc --noEmit` are both clean. 443 Vitest pass across 44 files,
 run against the local Postgres:
 
 ```

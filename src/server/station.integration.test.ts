@@ -100,7 +100,7 @@ const {
   revertRuleChange,
 } = await import('./rules');
 const schema = await import('./db/schema');
-const { MAIN_STATION_ID } = await import('./stations');
+const { MAIN_STATION_ID, tunedStationOf, tuneIn } = await import('./stations');
 const { media, moderationActions, queueItems, stationSettings, stationState, users } = schema;
 
 const connectionString = testConnectionString();
@@ -1055,6 +1055,7 @@ describe.skipIf(!connectionString)('station transitions against Postgres', () =>
       ]);
 
       await moveQueue(other, nathan, db);
+      expect((await tunedStationOf(nathan, db)).slug).toBe('other');
 
       const there = await getStationSnapshot(other, nathan, 1, db);
       // Nothing was playing there, so the first moved track starts at once.
@@ -1072,6 +1073,27 @@ describe.skipIf(!connectionString)('station transitions against Postgres', () =>
       const nathan = await createUser('picklesnathan');
 
       expect(await planQueueMove(other, nathan, db)).toEqual({ from: null, tracks: [] });
+    });
+
+    it('tunes in wherever someone queues, and lets them tune in with nothing waiting', async () => {
+      await ensureStationExists(MAIN_STATION_ID, db);
+      const other = await createStation('other');
+      const nathan = await createUser('picklesnathan');
+      const playing = track('aaaaaaaaaaa');
+      resolveTracks(playing);
+
+      expect((await tunedStationOf(nathan, db)).slug).toBe('main');
+      await tuneIn(other, nathan, db);
+      expect((await tunedStationOf(nathan, db)).slug).toBe('other');
+
+      const started = await enqueueMedia(MAIN_STATION_ID, playing.canonicalUrl, nathan, db);
+      expect((await tunedStationOf(nathan, db)).slug).toBe('main');
+
+      // Tracks still waiting have to move with them, so tuning in alone is refused.
+      await expect(tuneIn(other, nathan, db)).rejects.toMatchObject({ code: 'QUEUED_ELSEWHERE' });
+      await advanceCurrentTrack(MAIN_STATION_ID, 'played', null, started.id, db);
+      await tuneIn(other, nathan, db);
+      expect((await tunedStationOf(nathan, db)).slug).toBe('other');
     });
 
     describe('sharing a rule', () => {

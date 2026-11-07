@@ -876,6 +876,8 @@ export interface SessionSnapshot {
   listenerCount: number;
   /** The stations the signed-in user owns, and whether they may create one now. */
   stations: { owned: OwnedStation[]; canCreate: boolean };
+  /** Where the signed-in user's requests go, or null when nobody is signed in. */
+  tunedStation: OwnedStation | null;
 }
 
 /**
@@ -912,6 +914,8 @@ export interface StationSnapshot {
   me: StationUser | null;
   /** The signed-in user's role in this station, or null for none. Site admins act as owners. */
   myStationRole: StationRole | null;
+  /** Where the signed-in user's requests go, or null when nobody is signed in. */
+  tunedStation: OwnedStation | null;
   current: QueueItem | null;
   /**
    * What the track playing now is. Null while nobody knows, which includes the

@@ -1116,3 +1116,25 @@ a.admin-label:hover {
   font-family: var(--font-mono);
   font-size: 0.85rem;
 }
+
+/* Somewhere else is where this listener's requests go; offer to change that. */
+.tuned-elsewhere {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 12px;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line-strong);
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.tuned-elsewhere button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

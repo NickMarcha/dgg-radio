@@ -290,11 +290,11 @@ describe('the QueUp archive on the history page', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: `Add ${track.title} to your queue` }),
     );
-    await screen.findByText(`Added "${track.title}" to your queue.`);
+    await screen.findByText(`Added "${track.title}" to your queue on DGG Radio.`);
 
     fireEvent.click(screen.getByRole('tab', { name: /QueUp/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Add An Archived Track to your queue' }));
-    await screen.findByText('Added "An Archived Track" to your queue.');
+    await screen.findByText('Added "An Archived Track" to your queue on DGG Radio.');
 
     const queued = vi
       .mocked(fetch)

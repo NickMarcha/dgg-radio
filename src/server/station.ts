@@ -43,7 +43,7 @@ import {
   lookupManyCached,
   lookupMediaCached,
 } from './media-cache';
-import { MAIN_STATION_ID, stationRoleOf } from './stations';
+import { MAIN_STATION_ID, stationRoleOf, tunedStationOf } from './stations';
 import {
   addRuleEntry,
   assertCanEditRules,
@@ -755,6 +755,8 @@ export async function enqueueMedia(
   if (!item) throw new StationError('QUEUE_FAILED', 'The request could not be queued.', 500);
 
   await joinRotation(user.id, stationId, db);
+  // Requesting here is tuning in here, so a playlist queued next lands here too.
+  await db.update(users).set({ tunedStationId: stationId }).where(eq(users.id, user.id));
   await bumpRevision(stationId, db);
   await startNextTrack(stationId, db);
   return {
@@ -855,6 +857,10 @@ export async function moveQueue(
     if (plan.tracks.some((track) => track.refused === null)) {
       await joinRotation(user.id, stationId, transaction);
     }
+    await transaction
+      .update(users)
+      .set({ tunedStationId: stationId })
+      .where(eq(users.id, user.id));
     await bumpRevision(fromStationId, transaction);
     await bumpRevision(stationId, transaction);
   });
@@ -1565,6 +1571,7 @@ export async function getStationSnapshot(
     settings,
     me: toStationUser(me),
     myStationRole,
+    tunedStation: me ? await tunedStationOf(me, db) : null,
     editableRuleIds: myStationRole === null ? [] : await editableRules(me, rules, db),
     current: current ? hide(current, secondsLeft <= REVEAL_REQUESTER_WITHIN_SECONDS) : null,
     currentGenres: current

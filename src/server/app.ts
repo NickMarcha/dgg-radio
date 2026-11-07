@@ -116,6 +116,8 @@ import {
   stationAccessOf,
   stationRoleOf,
   setStationModerator,
+  tunedStationOf,
+  tuneIn,
 } from './stations';
 import {
   addLegacyPlayToPlaylist,
@@ -477,6 +479,7 @@ export function createApp(dependencies: AppDependencies) {
         me: toStationUser(user),
         listenerCount: dependencies.listenerCount(),
         stations: user ? await stationAccessOf(user) : { owned: [], canCreate: false },
+        tunedStation: user ? await tunedStationOf(user) : null,
       });
     })
     .get('/api/stations', async (context) => {
@@ -811,6 +814,12 @@ export function createApp(dependencies: AppDependencies) {
     )
     // Queueing here while queued in another station asks first: this says what
     // moving would bring and leave behind, and the POST does it.
+    // Tuning in with nothing waiting. With tracks waiting elsewhere it is
+    // refused, and the queue move below is how to bring them along.
+    .put('/api/stations/:slug/tune-in', requireUser, inStation, async (context) => {
+      await tuneIn(context.get('stationId'), context.get('user'));
+      return context.json({ ok: true });
+    })
     .get('/api/stations/:slug/queue/move', requireUser, inStation, async (context) =>
       context.json(await planQueueMove(context.get('stationId'), context.get('user'))),
     )

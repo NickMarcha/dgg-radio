@@ -10,6 +10,7 @@ import {
   pgEnum,
   pgSequence,
   pgTable,
+  type AnyPgColumn,
   primaryKey,
   text,
   timestamp,
@@ -90,6 +91,14 @@ export const users = pgTable(
     role: userRole('role').notNull().default('listener'),
     /** Whitelisted by a site admin to create a station of their own. */
     canCreateStations: boolean('can_create_stations').notNull().default(false),
+    /**
+     * The station this listener is tuned to: where requests from a page with
+     * no station of its own go, such as a playlist. Null means the main one.
+     * While they have tracks waiting it is the station those tracks are in.
+     */
+    tunedStationId: uuid('tuned_station_id').references((): AnyPgColumn => stations.id, {
+      onDelete: 'set null',
+    }),
     team: userTeam('team'),
     /** The Destiny flair their username takes its colour from, or null for no colour. */
     flair: text('flair'),

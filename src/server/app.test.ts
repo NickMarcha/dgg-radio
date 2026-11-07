@@ -34,6 +34,7 @@ vi.mock('./stations', async (importOriginal) => ({
   stationRoleOf: vi.fn(),
   stationAccessOf: vi.fn().mockResolvedValue({ owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false }),
   setStationModerator: vi.fn(),
+  tunedStationOf: vi.fn().mockResolvedValue({ slug: 'late-night', name: 'Late Night' }),
   findStationIdBySlug: vi.fn().mockResolvedValue('00000000-0000-4000-8000-000000000001'),
 }));
 
@@ -344,6 +345,7 @@ describe('the header session endpoint', () => {
         team: null,
       },
       stations: { owned: [{ slug: 'late-night', name: 'Late Night' }], canCreate: false },
+      tunedStation: { slug: 'late-night', name: 'Late Night' },
     });
   });
 
@@ -357,6 +359,7 @@ describe('the header session endpoint', () => {
       listenerCount: 1,
       me: null,
       stations: { owned: [], canCreate: false },
+      tunedStation: null,
     });
   });
 });

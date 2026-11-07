@@ -1,4 +1,4 @@
-import { lastStationSlug } from '../client/station';
+import { useTunedStation } from './useTunedStation';
 import { ChevronLeft, ChevronRight, ListMusic, Play, Search, X } from 'lucide-react';
 import { useEffect, useState, type SubmitEvent } from 'react';
 import { DEFAULT_EMOTE } from '../shared/contracts';
@@ -1298,6 +1298,7 @@ function LegacyHistory({
 }
 
 function HistoryView({ apiUrl }: { apiUrl: string }) {
+  const tuned = useTunedStation(apiUrl);
   const [state, setState] = useState<HistoryState>(START);
   // The address bar is only readable once this is running in a browser, and the
   // page is server-rendered before that.
@@ -1393,7 +1394,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
       if (!response.ok) {
         throw new Error((payload as ApiErrorBody | null)?.error.message ?? 'The station refused that track.');
       }
-      setNotice(`Added "${title}" to your queue.`);
+      setNotice(`Added "${title}" to your queue on ${tuned.name}.`);
     } catch (caught) {
       setNotice(caught instanceof Error ? caught.message : 'The station refused that track.');
     } finally {
@@ -1503,7 +1504,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
                 empty={narrowed ? 'No track this station has played matches that.' : undefined}
                 onQueue={(entry) =>
                   void queue(entry.id, entry.media.title, {
-                    path: `/api/stations/${lastStationSlug()}/queue`,
+                    path: `/api/stations/${tuned.slug}/queue`,
                     body: { url: entry.media.canonicalUrl },
                   })
                 }
@@ -1527,7 +1528,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
             empty={narrowed ? 'No archived play matches that.' : 'Nothing has been imported from QueUp.'}
             onQueue={(entry) =>
               void queue(entry.id, entry.title, {
-                path: `/api/stations/${lastStationSlug()}/queue/legacy/${encodeURIComponent(entry.id)}`,
+                path: `/api/stations/${tuned.slug}/queue/legacy/${encodeURIComponent(entry.id)}`,
               })
             }
           />

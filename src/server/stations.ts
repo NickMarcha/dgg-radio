@@ -7,6 +7,7 @@ import {
   queueItems,
   stationMembers,
   stations,
+  stationSeats,
   stationSettings,
   stationState,
   streamWatch,
@@ -91,6 +92,47 @@ export async function findStationIdBySlug(
     .from(stations)
     .where(eq(stations.slug, slug.toLowerCase()));
   return station?.id ?? null;
+}
+
+/** The station someone is tuned to, or the main one when they have never tuned anywhere. */
+export async function tunedStationOf(
+  user: Pick<AuthenticatedUser, 'id'>,
+  db: Database = getDatabase(),
+): Promise<OwnedStation> {
+  const [row] = await db
+    .select({ slug: stations.slug, name: stations.name })
+    .from(users)
+    .innerJoin(
+      stations,
+      eq(stations.id, sql`coalesce(${users.tunedStationId}, ${MAIN_STATION_ID}::uuid)`),
+    )
+    .where(eq(users.id, user.id));
+  return row ?? { slug: 'main', name: 'DGG Radio' };
+}
+
+/**
+ * Tunes someone to a station without moving anything. Refused while they have
+ * tracks waiting somewhere else: those have to move with them, which is the
+ * queue move's job, so they are never tuned to one station and queued in
+ * another.
+ */
+export async function tuneIn(
+  stationId: string,
+  user: Pick<AuthenticatedUser, 'id'>,
+  db: Database = getDatabase(),
+): Promise<void> {
+  const [seat] = await db
+    .select({ stationId: stationSeats.stationId })
+    .from(stationSeats)
+    .where(eq(stationSeats.userId, user.id));
+  if (seat && seat.stationId !== stationId) {
+    throw new StationAccessError(
+      'QUEUED_ELSEWHERE',
+      'You have tracks waiting in another station. Move them to tune in here.',
+      409,
+    );
+  }
+  await db.update(users).set({ tunedStationId: stationId }).where(eq(users.id, user.id));
 }
 
 /**
@@ -205,6 +247,19 @@ export async function createStation(
     await transaction
       .insert(stationMembers)
       .values({ stationId: station.id, userId: owner.id, role: 'owner', addedByUserId: owner.id });
+    // A new owner is tuned in to their station, so a playlist queued straight
+    // after creating it lands there. Not while tracks wait somewhere else:
+    // those would have to move, and that is theirs to choose.
+    const [seat] = await transaction
+      .select({ stationId: stationSeats.stationId })
+      .from(stationSeats)
+      .where(eq(stationSeats.userId, owner.id));
+    if (!seat) {
+      await transaction
+        .update(users)
+        .set({ tunedStationId: station.id })
+        .where(eq(users.id, owner.id));
+    }
     return { slug: station.slug, name: station.name };
   });
 }
