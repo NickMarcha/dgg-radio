@@ -34,6 +34,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     await db.execute(
       sql`truncate table ${userChatCounts}, ${votes}, ${queueItems}, ${media}, ${users} restart identity cascade`,
     );
+    await db.delete(schema.stations).where(sql`${schema.stations.id} <> ${MAIN_STATION_ID}`);
   });
 
   async function createUser(username: string, team: 'pepe' | 'yee' | null = null) {
@@ -56,6 +57,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     status: 'queued' | 'played' | 'skipped',
     startedAt: Date | null,
     finishedAt: Date | null,
+    stationId: string = MAIN_STATION_ID,
   ) {
     const [track] = await db
       .insert(media)
@@ -74,7 +76,7 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
     const [item] = await db
       .insert(queueItems)
       .values({
-        stationId: MAIN_STATION_ID,
+        stationId,
         mediaId: track.id,
         requestedByUserId: requesterId,
         status,
@@ -253,5 +255,43 @@ describe.skipIf(!connectionString)('community profiles, stats, and history', () 
       code: 'PROFILE_NOT_FOUND',
       status: 404,
     });
+  });
+
+  it('counts one station on its own, and every station together', async () => {
+    const [other] = await db
+      .insert(schema.stations)
+      .values({ slug: 'other', name: 'Other' })
+      .returning();
+    const alice = await createUser('Alice', 'pepe');
+    const bob = await createUser('Bob', 'yee');
+    const at = new Date('2026-08-10T12:00:00Z');
+    await createTrack('aaaaaaaaaaa', alice, 'played', at, at);
+    await createTrack('bbbbbbbbbbb', bob, 'played', at, at, other!.id);
+
+    const main = await getCommunityStats(db, undefined, {
+      id: MAIN_STATION_ID,
+      slug: 'main',
+      name: 'DGG Radio',
+    });
+    const elsewhere = await getCommunityStats(db, undefined, {
+      id: other!.id,
+      slug: 'other',
+      name: 'Other',
+    });
+    const site = await getCommunityStats(db);
+
+    expect(main.tracks.map(({ media }) => media.providerMediaId)).toEqual(['aaaaaaaaaaa']);
+    expect(elsewhere.tracks.map(({ media }) => media.providerMediaId)).toEqual(['bbbbbbbbbbb']);
+    expect(elsewhere.jammers.map(({ user }) => user.username)).toEqual(['Bob']);
+    expect(elsewhere.station).toEqual({ slug: 'other', name: 'Other' });
+    // Only Bob has played there, though two people have accounts.
+    expect(elsewhere.totals.members).toBe(1);
+    expect(site.totals.members).toBe(2);
+    expect(site.tracks).toHaveLength(2);
+    expect(site.station).toBeNull();
+
+    const history = await listHistory({ stationId: other!.id }, db);
+    expect(history.entries.map(({ media }) => media.providerMediaId)).toEqual(['bbbbbbbbbbb']);
+    expect((await listHistory({}, db)).total).toBe(2);
   });
 });

@@ -12,6 +12,7 @@ import { getDatabase, type Database } from './db/client';
 import { trackGenres } from './db/schema';
 import { searchGenre } from './discogs';
 import { songTitle } from './musicbrainz';
+import { archiveCountsFor } from './stations';
 import { ALL_TIME, periodRange } from './period';
 
 /**
@@ -272,6 +273,7 @@ export async function getGenreStats(
   db: Database = getDatabase(),
   limit: number | null = TOP_GENRES,
   period: StatsPeriod = ALL_TIME,
+  stationId: string | null = null,
 ): Promise<GenreStats> {
   const [counted, [coverage]] = await Promise.all([
     db.execute<{
@@ -279,7 +281,7 @@ export async function getGenreStats(
       station_plays: number;
       archive_plays: number;
       sources: GenreSource[];
-    }>(genreStatsQuery(limit, period)),
+    }>(genreStatsQuery(limit, period, stationId)),
     // Coverage is about the catalogue rather than about a month: how much of
     // what the station knows carries a genre at all. Narrowing it by period would
     // answer a different and much less useful question.
@@ -327,16 +329,33 @@ export async function getGenreStats(
  * cannot drift apart. `null` means every genre rather than the handful a page
  * can show.
  */
-export function genreStatsQuery(limit: number | null, period: StatsPeriod = ALL_TIME): SQL {
+/**
+ * @param stationId one station's plays, or null for every station's. The QueUp
+ * archive is the main station's, so it counts for that station and for the
+ * whole site, and for no other station.
+ */
+export function genreStatsQuery(
+  limit: number | null,
+  period: StatsPeriod = ALL_TIME,
+  stationId: string | null = null,
+): SQL {
   const range = periodRange(period);
   // Both histories are narrowed by the same window, on whichever column dates
   // a play in each of them.
-  const station = range
-    ? sql`and queue_items.started_at >= ${range.from} and queue_items.started_at < ${range.to}`
-    : sql``;
-  const archive = range
-    ? sql`where played_at >= ${range.from} and played_at < ${range.to}`
-    : sql``;
+  const station = sql.join(
+    [
+      range
+        ? sql`and queue_items.started_at >= ${range.from} and queue_items.started_at < ${range.to}`
+        : sql``,
+      stationId === null ? sql`` : sql`and queue_items.station_id = ${stationId}`,
+    ],
+    sql` `,
+  );
+  const archive = !archiveCountsFor(stationId)
+    ? sql`where false`
+    : range
+      ? sql`where played_at >= ${range.from} and played_at < ${range.to}`
+      : sql``;
 
   return sql`
       with play_counts as (

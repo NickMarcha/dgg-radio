@@ -144,6 +144,8 @@ Jammer score is the sum of received votes across all started requests. The stati
 
 The most played list counts the same started requests, grouped by media rather than by requester, so a track queued by several people accumulates one total. A skipped play still counts: the station heard it and voted on it.
 
+Every stats and history read takes an optional `?station=<slug>`; without one it covers every station together. The QueUp archive is the main station's past (`archiveCountsFor` in `src/server/stations.ts`), so it counts for the main station and for the site, and is empty for any other station. A station's listener count is the people who have had a track play there, since an account belongs to no station; site-wide it is every account. The station page's Top Jammers counts that station alone.
+
 The public read model is exposed separately from the authenticated station snapshot:
 
 - `/api/stats` returns station totals, the jammer leaderboard, PEPE/YEE/unassigned team totals, and the most played tracks.

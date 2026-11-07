@@ -107,6 +107,7 @@ import {
   canManageStation,
   canModerateStation,
   createStation,
+  findStationBySlug,
   findStationIdBySlug,
   listStationModerators,
   listStations,
@@ -195,9 +196,13 @@ const artistParamSchema = z.object({
 });
 
 /** A month on its own means nothing, and is ignored rather than guessed at. */
+/** One station's numbers, by its slug; absent means every station together. */
+const stationFilter = z.string().trim().min(1).max(32).optional();
+
 const statsQuerySchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100).optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
+  station: stationFilter,
 });
 
 const exportParamSchema = z.object({
@@ -222,6 +227,7 @@ const historyQuerySchema = z.object({
   q: z.string().trim().min(1).max(80).optional(),
   /** One genre or style, spelled the way the tag a reader clicked spells it. */
   genre: z.string().trim().min(1).max(60).optional(),
+  station: stationFilter,
 });
 
 function errorBody(code: string, message: string) {
@@ -346,6 +352,13 @@ export function createApp(dependencies: AppDependencies) {
     };
   const ruleParam = async (context: any) => context.req.valid('param').id as string;
   const entryRule = (context: any) => ruleOfEntry(context.req.valid('param').id);
+  /** The station a public read is narrowed to, or null for the whole site. */
+  const stationScope = async (slug: string | undefined) => {
+    if (slug === undefined) return null;
+    const station = await findStationBySlug(slug);
+    if (!station) throw new StationAccessError('STATION_NOT_FOUND', 'That station does not exist.', 404);
+    return station;
+  };
   const slugStation = async (context: any) => {
     const stationId = await findStationIdBySlug(context.req.param('slug'));
     if (!stationId) throw new StationAccessError('STATION_NOT_FOUND', 'That station does not exist.', 404);
@@ -483,8 +496,11 @@ export function createApp(dependencies: AppDependencies) {
       limitPerAddress('history', 60),
       zValidator('query', historyQuerySchema),
       async (context) => {
-        const { limit, page, q, genre } = context.req.valid('query');
-        return context.json(await listHistory({ limit, page, search: q, genre }));
+        const { limit, page, q, genre, station } = context.req.valid('query');
+        const scope = await stationScope(station);
+        return context.json(
+          await listHistory({ limit, page, search: q, genre, stationId: scope?.id ?? null }),
+        );
       },
     )
     // The archive from QueUp. Public like the station's own history, and paged the
@@ -525,9 +541,13 @@ export function createApp(dependencies: AppDependencies) {
       limitPerAddress('stats', 60),
       zValidator('query', statsQuerySchema),
       async (context) => {
-        const { year, month } = context.req.valid('query');
+        const { year, month, station } = context.req.valid('query');
         return context.json(
-          await getCommunityStats(undefined, { year: year ?? null, month: month ?? null }),
+          await getCommunityStats(
+            undefined,
+            { year: year ?? null, month: month ?? null },
+            await stationScope(station),
+          ),
         );
       },
     )

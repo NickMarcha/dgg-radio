@@ -1461,7 +1461,7 @@ export async function getStationSnapshot(
       .then(([row]) => row),
     getSettings(stationId, db),
     activeQueueRows(stationId, db),
-    listJammers(10, undefined, db),
+    listJammers(10, undefined, db, stationId),
     listActiveRules(stationId, db),
     me ? listMyNotices(me.id, db) : [],
     stationRoleOf(me, stationId, db),

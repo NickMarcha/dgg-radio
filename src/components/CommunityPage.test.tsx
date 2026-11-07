@@ -100,6 +100,8 @@ beforeEach(() => {
       const playlistRequest = url.includes('/api/playlists');
       const body = url.endsWith('/api/me')
         ? { me: listener, listenerCount: 1 }
+        : url.endsWith('/api/stations')
+          ? { stations: [] }
         : url.includes('/api/history/legacy')
           ? legacyPage
           : url.includes('/api/history')

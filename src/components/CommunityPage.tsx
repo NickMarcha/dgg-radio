@@ -2,6 +2,7 @@ import { lastStationSlug } from '../client/station';
 import { ChevronLeft, ChevronRight, ListMusic, Play, Search, X } from 'lucide-react';
 import { useEffect, useState, type SubmitEvent } from 'react';
 import { DEFAULT_EMOTE } from '../shared/contracts';
+import { MAIN_STATION_SLUG, stationSlugSchema } from '../shared/stationConnection';
 import { userClass } from './flair';
 import type {
   ApiErrorBody,
@@ -15,6 +16,7 @@ import type {
   LegacyTrackStats,
   StationUser,
   UserProfile,
+  StationListing,
 } from '../shared/contracts';
 import SiteHeader from './SiteHeader';
 import SiteNav from './SiteNav';
@@ -563,9 +565,60 @@ interface StatsState {
   section: StatsSection;
   year: number | null;
   month: number | null;
+  /** One station's slug, or null for every station together. */
+  station: string | null;
 }
 
-const STATS_START: StatsState = { section: 'overview', year: null, month: null };
+const STATS_START: StatsState = { section: 'overview', year: null, month: null, station: null };
+
+/** `?station=` names one station; without it a page covers every station. */
+function readStationParam(params: URLSearchParams): string | null {
+  const slug = params.get('station')?.trim().toLowerCase();
+  return slug && stationSlugSchema.safeParse(slug).success ? slug : null;
+}
+
+/**
+ * Which station a page is about, or all of them. The QueUp archive belongs to
+ * the main station, so it shows for that station and for all of them.
+ */
+function StationPicker({
+  apiUrl,
+  value,
+  onChange,
+}: {
+  apiUrl: string;
+  value: string | null;
+  onChange: (station: string | null) => void;
+}) {
+  const [stations, setStations] = useState<StationListing[]>([]);
+
+  useEffect(() => {
+    void fetch(`${apiUrl}/api/stations`)
+      .then((response) => (response.ok ? response.json() : { stations: [] }))
+      .then((body: { stations?: StationListing[] }) => setStations(body.stations ?? []))
+      .catch(() => setStations([]));
+  }, [apiUrl]);
+
+  // One station is the whole site; a choice between it and itself is no choice.
+  if (stations.length < 2) return null;
+
+  return (
+    <label className="community-station">
+      Station
+      <select
+        value={value ?? ''}
+        onChange={(event) => onChange(event.currentTarget.value || null)}
+      >
+        <option value="">All stations</option>
+        {stations.map((station) => (
+          <option key={station.slug} value={station.slug}>
+            {station.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 const MONTH_NAMES = Array.from({ length: 12 }, (_, index) =>
   new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' }).format(
@@ -585,6 +638,7 @@ function readStatsState(): StatsState {
     year: Number.isInteger(year) && year > 0 ? year : null,
     // A month on its own describes nothing, so it needs a year beside it.
     month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : null,
+    station: readStationParam(params),
   };
 }
 
@@ -593,6 +647,7 @@ function statsQuery(state: StatsState): string {
   if (state.section !== 'overview') params.set('section', state.section);
   if (state.year) params.set('year', String(state.year));
   if (state.year && state.month) params.set('month', String(state.month));
+  if (state.station) params.set('station', state.station);
   const query = params.toString();
   return query ? `?${query}` : window.location.pathname;
 }
@@ -848,7 +903,7 @@ function StatsView({ apiUrl }: { apiUrl: string }) {
     return () => window.removeEventListener('popstate', fromUrl);
   }, []);
 
-  const { year, month } = state;
+  const { year, month, station } = state;
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
@@ -857,6 +912,7 @@ function StatsView({ apiUrl }: { apiUrl: string }) {
         const query = new URLSearchParams();
         if (year) query.set('year', String(year));
         if (year && month) query.set('month', String(month));
+        if (station) query.set('station', station);
         const response = await fetch(`${apiUrl}/api/stats?${query}`, { credentials: 'include' });
         if (!response.ok) throw new Error('The stats could not be read.');
         const answer = (await response.json()) as CommunityStats;
@@ -871,7 +927,7 @@ function StatsView({ apiUrl }: { apiUrl: string }) {
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, ready, year, month]);
+  }, [apiUrl, ready, year, month, station]);
 
   const go = (change: Partial<StatsState>) => {
     setState((current) => {
@@ -885,7 +941,11 @@ function StatsView({ apiUrl }: { apiUrl: string }) {
     <>
       <header className="community-title">
         <h1>Stats</h1>
-        <p>{periodLabel(state)} · votes received on tracks that reached the player.</p>
+        <p>
+          {stats?.station ? `${stats.station.name} · ` : 'Every station · '}
+          {periodLabel(state)} · votes received on tracks that reached the player.
+        </p>
+        <StationPicker apiUrl={apiUrl} value={state.station} onChange={(next) => go({ station: next })} />
       </header>
 
       {stats && (
@@ -947,9 +1007,11 @@ interface HistoryState {
   search: string;
   genre: string;
   page: number;
+  /** One station's slug, or null for every station's plays. */
+  station: string | null;
 }
 
-const START: HistoryState = { tab: 'station', search: '', genre: '', page: 1 };
+const START: HistoryState = { tab: 'station', search: '', genre: '', page: 1, station: null };
 
 function readHistoryState(): HistoryState {
   const params = new URLSearchParams(window.location.search);
@@ -959,6 +1021,7 @@ function readHistoryState(): HistoryState {
     search: params.get('q')?.trim() ?? '',
     genre: params.get('genre')?.trim() ?? '',
     page: Number.isInteger(page) && page > 0 ? page : 1,
+    station: readStationParam(params),
   };
 }
 
@@ -969,6 +1032,7 @@ function historyQuery(state: HistoryState): string {
   if (state.search) params.set('q', state.search);
   if (state.genre) params.set('genre', state.genre);
   if (state.page > 1) params.set('page', String(state.page));
+  if (state.station) params.set('station', state.station);
   const query = params.toString();
   return query ? `?${query}` : window.location.pathname;
 }
@@ -1001,6 +1065,7 @@ function useHistoryFeed<Entry>(
   page: number,
   unreadable: string,
   ready: boolean,
+  station: string | null = null,
 ): HistoryFeed<Entry> {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [total, setTotal] = useState(0);
@@ -1018,6 +1083,7 @@ function useHistoryFeed<Entry>(
         const query = new URLSearchParams({ limit: String(HISTORY_PAGE), page: String(page) });
         if (search) query.set('q', search);
         if (genre) query.set('genre', genre);
+        if (station) query.set('station', station);
         const response = await fetch(`${apiUrl}${path}?${query}`, { credentials: 'include' });
         if (!response.ok) throw new Error(unreadable);
         const answer = (await response.json()) as FeedPage<Entry>;
@@ -1035,7 +1101,7 @@ function useHistoryFeed<Entry>(
     return () => {
       cancelled = true;
     };
-  }, [apiUrl, path, search, genre, page, unreadable, ready]);
+  }, [apiUrl, path, search, genre, page, unreadable, ready, station]);
 
   return { entries, total, loading, error, update: (change) => setEntries(change) };
 }
@@ -1273,6 +1339,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
     state.tab === 'station' ? state.page : 1,
     'The history could not be read.',
     ready,
+    state.station,
   );
   const archive = useHistoryFeed<LegacyPlay>(
     apiUrl,
@@ -1281,7 +1348,8 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
     state.genre,
     state.tab === 'queup' ? state.page : 1,
     'The QueUp archive could not be read.',
-    ready,
+    // The archive is the main station's past, so another station has none.
+    ready && (state.station === null || state.station === MAIN_STATION_SLUG),
   );
 
   // One library across both tabs, so a track saved out of the archive shows as
@@ -1295,7 +1363,8 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
   // tab would be explaining an absence rather than showing anything. A search
   // the archive does not match still leaves the tab there, saying zero.
   const narrowed = Boolean(state.search || state.genre);
-  const hasArchive = archive.total > 0 || narrowed;
+  const archiveHere = state.station === null || state.station === MAIN_STATION_SLUG;
+  const hasArchive = archiveHere && (archive.total > 0 || narrowed);
   const active = hasArchive ? state.tab : 'station';
   const showing = active === 'station' ? station : archive;
   const total = showing.total;
@@ -1346,6 +1415,7 @@ function HistoryView({ apiUrl }: { apiUrl: string }) {
             ? 'The latest completed and skipped tracks, newest first.'
             : 'What the station played on QueUp before this one existed. The names are QueUp names.'}
         </p>
+        <StationPicker apiUrl={apiUrl} value={state.station} onChange={(next) => go({ station: next })} />
       </header>
 
       <form className="history-search" onSubmit={submitSearch}>

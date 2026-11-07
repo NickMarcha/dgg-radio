@@ -466,6 +466,8 @@ export interface HistoryQuery {
   search?: string | null;
   /** One genre or style, exactly as a tag on a row spells it. */
   genre?: string | null;
+  /** One station's history, or every station's when null. */
+  stationId?: string | null;
 }
 
 /** The station's own history, paged and counted the same way the archive is. */
@@ -691,6 +693,8 @@ export interface CommunityStats {
   legacy: LegacyStats;
   /** What was asked for, echoed back so a page can trust what it is showing. */
   period: StatsPeriod;
+  /** The station these numbers are for, or null for every station together. */
+  station: { slug: string; name: string } | null;
   /**
    * Every year and month either history has a play in, newest first. It ignores
    * the current filter: it is what the filter offers to choose from.

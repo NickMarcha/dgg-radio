@@ -19,6 +19,15 @@ import {
  */
 export const MAIN_STATION_ID = '00000000-0000-4000-8000-000000000001';
 
+/**
+ * Whether the QueUp archive counts toward a station's numbers. It is the main
+ * station's own past, so it counts there and for the whole site (null), and
+ * nowhere else.
+ */
+export function archiveCountsFor(stationId: string | null): boolean {
+  return stationId === null || stationId === MAIN_STATION_ID;
+}
+
 /** Either the pool or an open transaction on it. */
 type Executor = Database | Parameters<Parameters<Database['transaction']>[0]>[0];
 
@@ -59,6 +68,18 @@ export function canModerateStation(role: StationRole | null): boolean {
 /** Only an owner changes the station itself, its rules, and who moderates it. */
 export function canManageStation(role: StationRole | null): boolean {
   return role === 'owner';
+}
+
+/** A station by its slug, with what a page needs to name it, or null. */
+export async function findStationBySlug(
+  slug: string,
+  db: Database = getDatabase(),
+): Promise<{ id: string; slug: string; name: string } | null> {
+  const [station] = await db
+    .select({ id: stations.id, slug: stations.slug, name: stations.name })
+    .from(stations)
+    .where(eq(stations.slug, slug.toLowerCase()));
+  return station ?? null;
 }
 
 export async function findStationIdBySlug(

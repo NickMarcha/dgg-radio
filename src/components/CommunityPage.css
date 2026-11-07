@@ -871,3 +871,18 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* Which station a page is about, under its title. */
+.community-station {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.community-station select {
+  padding: 0.35rem 0.5rem;
+}

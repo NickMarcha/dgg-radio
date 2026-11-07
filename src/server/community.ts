@@ -15,6 +15,7 @@ import type {
   HistoryEntry,
   HistoryPage,
   HistoryQuery,
+  LegacyStats,
   StationUser,
   StatsPeriod,
   SelectorStats,
@@ -28,6 +29,7 @@ import { getDatabase, type Database } from './db/client';
 import { media, queueItems, users, votes } from './db/schema';
 import { getGenreStats, listGenres, matchesGenre, TOP_GENRES, trackKey } from './genre';
 import { getLegacyStats } from './legacy';
+import { archiveCountsFor } from './stations';
 import { ALL_TIME, withinPeriod } from './period';
 import { likePattern } from './search';
 
@@ -172,9 +174,10 @@ export async function listHistory(
   query: HistoryQuery = {},
   db: Database = getDatabase(),
 ): Promise<HistoryPage> {
-  const { limit = 50, page = 1, search = null, genre = null } = query;
+  const { limit = 50, page = 1, search = null, genre = null, stationId = null } = query;
   const matching = and(
     inArray(queueItems.status, ['played', 'skipped']),
+    stationId === null ? undefined : eq(queueItems.stationId, stationId),
     search ? historyMatches(search) : undefined,
     genre ? matchesGenre(media.provider, media.providerMediaId, genre) : undefined,
   );
@@ -213,10 +216,16 @@ export async function listHistory(
   return { entries, total: counted?.total ?? 0 };
 }
 
+/** One station's played requests, or every station's when it is null. */
+function inStation(stationId: string | null) {
+  return stationId === null ? undefined : eq(queueItems.stationId, stationId);
+}
+
 export async function listJammers(
   limit = 100,
   period: StatsPeriod = ALL_TIME,
   db: Database = getDatabase(),
+  stationId: string | null = null,
 ): Promise<SelectorStats[]> {
   const scoreExpression = sql<number>`coalesce(sum(${votes.value}), 0)`.mapWith(Number);
   const rows = await db
@@ -236,7 +245,13 @@ export async function listJammers(
     .from(queueItems)
     .innerJoin(users, eq(queueItems.requestedByUserId, users.id))
     .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
-    .where(and(isNotNull(queueItems.startedAt), withinPeriod(queueItems.startedAt, period)))
+    .where(
+      and(
+        isNotNull(queueItems.startedAt),
+        withinPeriod(queueItems.startedAt, period),
+        inStation(stationId),
+      ),
+    )
     .groupBy(users.id, users.username, users.avatarUrl, users.role, users.team, users.flair, users.topEmote)
     .orderBy(desc(scoreExpression), desc(countDistinct(queueItems.id)))
     .limit(limit);
@@ -267,6 +282,7 @@ export async function listTopTracks(
   limit = 100,
   period: StatsPeriod = ALL_TIME,
   db: Database = getDatabase(),
+  stationId: string | null = null,
 ): Promise<TrackStats[]> {
   const playExpression = countDistinct(queueItems.id).mapWith(Number);
   const scoreExpression = sql<number>`coalesce(sum(${votes.value}), 0)`.mapWith(Number);
@@ -289,7 +305,13 @@ export async function listTopTracks(
     .from(queueItems)
     .innerJoin(media, eq(queueItems.mediaId, media.id))
     .leftJoin(votes, eq(queueItems.id, votes.queueItemId))
-    .where(and(isNotNull(queueItems.startedAt), withinPeriod(queueItems.startedAt, period)))
+    .where(
+      and(
+        isNotNull(queueItems.startedAt),
+        withinPeriod(queueItems.startedAt, period),
+        inStation(stationId),
+      ),
+    )
     .groupBy(media.id)
     .orderBy(desc(playExpression), desc(scoreExpression))
     .limit(limit);
@@ -303,12 +325,22 @@ export async function listTopTracks(
   }));
 }
 
-async function teamStats(db: Database, period: StatsPeriod): Promise<TeamStats[]> {
+async function teamStats(
+  db: Database,
+  period: StatsPeriod,
+  stationId: string | null,
+): Promise<TeamStats[]> {
   const scoreExpression = sql<number>`coalesce(sum(${votes.value}), 0)`.mapWith(Number);
   const rows = await db
     .select({
       team: users.team,
-      members: countDistinct(users.id).mapWith(Number),
+      // Site-wide, everyone with an account is a member. For one station it is
+      // whoever has had a track play there, since an account belongs to no
+      // station of its own.
+      members: (stationId === null
+        ? countDistinct(users.id)
+        : countDistinct(queueItems.requestedByUserId)
+      ).mapWith(Number),
       plays: countDistinct(queueItems.id).mapWith(Number),
       upvotes: sql<number>`count(*) filter (where ${votes.value} = 1)`.mapWith(Number),
       downvotes: sql<number>`count(*) filter (where ${votes.value} = -1)`.mapWith(Number),
@@ -321,6 +353,7 @@ async function teamStats(db: Database, period: StatsPeriod): Promise<TeamStats[]
         eq(queueItems.requestedByUserId, users.id),
         isNotNull(queueItems.startedAt),
         withinPeriod(queueItems.startedAt, period),
+        inStation(stationId),
       ),
     )
     .leftJoin(votes, eq(votes.queueItemId, queueItems.id))
@@ -344,15 +377,20 @@ async function teamStats(db: Database, period: StatsPeriod): Promise<TeamStats[]
  * Every year and month either history has a play in. It is what the filter
  * offers, so it deliberately ignores whatever the filter is currently set to.
  */
-async function availablePeriods(db: Database): Promise<AvailablePeriod[]> {
+async function availablePeriods(
+  db: Database,
+  stationId: string | null,
+): Promise<AvailablePeriod[]> {
+  const station = stationId === null ? sql`` : sql`and station_id = ${stationId}`;
+  const archive = archiveCountsFor(stationId) ? sql`` : sql`where false`;
   const rows = await db.execute<{ year: number; month: number }>(sql`
     select distinct
       extract(year from played)::int as year,
       extract(month from played)::int as month
     from (
-      select started_at as played from queue_items where started_at is not null
+      select started_at as played from queue_items where started_at is not null ${station}
       union all
-      select played_at from legacy_plays
+      select played_at from legacy_plays ${archive}
     ) as plays
     order by year desc, month desc
   `);
@@ -364,17 +402,30 @@ async function availablePeriods(db: Database): Promise<AvailablePeriod[]> {
   return [...byYear].map(([year, months]) => ({ year, months }));
 }
 
+/**
+ * The stats page for one station, or for the whole site when `station` is
+ * null. The QueUp archive is the main station's past, so it appears for that
+ * station and for the site, and is empty for every other station.
+ */
+const NO_ARCHIVE: LegacyStats = {
+  tracks: [],
+  jammers: [],
+  totals: { plays: 0, tracks: 0, people: 0, since: null },
+};
+
 export async function getCommunityStats(
   db: Database = getDatabase(),
   period: StatsPeriod = ALL_TIME,
+  station: { id: string; slug: string; name: string } | null = null,
 ): Promise<CommunityStats> {
+  const stationId = station?.id ?? null;
   const [jammers, teams, tracks, genres, legacy, periods] = await Promise.all([
-    listJammers(100, period, db),
-    teamStats(db, period),
-    listTopTracks(100, period, db),
-    getGenreStats(db, TOP_GENRES, period),
-    getLegacyStats(100, period, db),
-    availablePeriods(db),
+    listJammers(100, period, db, stationId),
+    teamStats(db, period, stationId),
+    listTopTracks(100, period, db, stationId),
+    getGenreStats(db, TOP_GENRES, period, stationId),
+    archiveCountsFor(stationId) ? getLegacyStats(100, period, db) : NO_ARCHIVE,
+    availablePeriods(db, stationId),
   ]);
   return {
     totals: {
@@ -388,6 +439,7 @@ export async function getCommunityStats(
     genres,
     legacy,
     period,
+    station: station ? { slug: station.slug, name: station.name } : null,
     periods,
   };
 }

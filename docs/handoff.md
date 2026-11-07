@@ -9,21 +9,21 @@ Last updated 2026-11-06.
 
 ## Where things stand
 
-`astro check` and `tsc --noEmit` are both clean. 435 Vitest pass across 44 files,
+`astro check` and `tsc --noEmit` are both clean. 440 Vitest pass across 44 files,
 run against the local Postgres:
 
 ```
 TEST_DATABASE_URL=postgresql://dgg_radio:local_only@127.0.0.1:54329/dgg_radio_test npm test
 ```
 
-**Stations are mostly built and not pushed.** `docs/plans/stations.md` is the plan.
+**Stations are built and not pushed.** `docs/plans/stations.md` is the plan.
 Steps 1 to 6 and the first two parts of step 7 are committed on `main` locally:
 stations with their own queue, rules, stream and overlays; owners and mods as station
 roles; `/stations` to list and create them; `/admin?station=<slug>` for an owner;
 moving a queue between stations. Pushing deploys migrations `0028` to `0034`,
 which move every existing row to the main station and then rename rooms to
 stations in place; each was checked against a database holding rows from
-before it. Still to build from step 7: per-station and site-wide stats. Stats still count every station together.
+before it. All seven steps are built.
 
 Before that, everything was on `main` and pushed, through `77294b4` on 2026-10-02: the
 Last.fm research, the silence-watch fix and socket alerting, the seasonal
